@@ -39,8 +39,8 @@ Cetana is a Rust-based machine learning library designed to provide efficient an
   - [x] Gradient computation
 - [x] Loss Functions
   - [x] MSE (Mean Squared Error)
-  - [ ] Cross Entropy
-  - [ ] Binary Cross Entropy
+  - [x] Cross Entropy
+  - [x] Binary Cross Entropy
 - [x] Training Utilities
   - [x] Basic training loops
   - [ ] Advanced batch processing
