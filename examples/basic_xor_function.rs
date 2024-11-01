@@ -1,7 +1,10 @@
 use cetana::{
-    MlResult, 
-    tensor::Tensor, 
-    nn::{Linear, Module, activation::{ReLU, Sigmoid}},
+    nn::{
+        activation::{ReLU, Sigmoid},
+        Linear, Module,
+    },
+    tensor::Tensor,
+    MlResult,
 };
 use std::time::Instant;
 
@@ -38,9 +41,9 @@ struct SimpleNN {
 impl SimpleNN {
     fn new() -> MlResult<Self> {
         Ok(Self {
-            hidden: Linear::new(2, 4, true)?,  // 2 inputs -> 4 hidden neurons
+            hidden: Linear::new(2, 4, true)?, // 2 inputs -> 4 hidden neurons
             hidden_act: ReLU,
-            output: Linear::new(4, 1, true)?,  // 4 hidden -> 1 output
+            output: Linear::new(4, 1, true)?, // 4 hidden -> 1 output
             output_act: Sigmoid,
         })
     }
@@ -64,19 +67,27 @@ impl SimpleNN {
         let loss = diff.mul_scalar(0.5)?.sum(1)?;
 
         // Backward pass
-        let output_grad = diff;  // Derivative of MSE
-        self.output.backward(&hidden_activated, &output_grad, learning_rate)?;
-        
-        let hidden_grad = self.output.backward(&hidden_activated, &output_grad, learning_rate)?;
+        let output_grad = diff; // Derivative of MSE
+        self.output
+            .backward(&hidden_activated, &output_grad, learning_rate)?;
+
+        let hidden_grad = self
+            .output
+            .backward(&hidden_activated, &output_grad, learning_rate)?;
         self.hidden.backward(x, &hidden_grad, learning_rate)?;
 
         Ok(loss.data()[0])
     }
 
-    fn evaluate(&mut self, x: &Tensor, y: &Tensor, threshold: Float) -> NetworkResult<(Float, Float)> {
+    fn evaluate(
+        &mut self,
+        x: &Tensor,
+        y: &Tensor,
+        threshold: Float,
+    ) -> NetworkResult<(Float, Float)> {
         let predictions = self.forward(x)?;
         let mut correct = 0;
-        
+
         for i in 0..4 {
             let predicted = predictions.data()[i] > threshold;
             let target = y.data()[i] > threshold;
@@ -84,10 +95,10 @@ impl SimpleNN {
                 correct += 1;
             }
         }
-        
+
         let accuracy = (correct as Float) / 4.0 * 100.0;
         let loss = cetana::loss::calculate_mse_loss(&predictions, y)?;
-        
+
         Ok((accuracy, loss))
     }
 
@@ -113,18 +124,13 @@ fn main() -> MlResult<()> {
         vec![1.0, 1.0],
     ])?;
 
-    let y_train = Tensor::new(vec![
-        vec![0.0],
-        vec![1.0],
-        vec![1.0],
-        vec![0.0],
-    ])?;
+    let y_train = Tensor::new(vec![vec![0.0], vec![1.0], vec![1.0], vec![0.0]])?;
 
     // Training parameters
     let mut model = SimpleNN::new()?;
     let config = TrainingConfig::default();
     let start_time = Instant::now();
-    
+
     let mut best_loss = Float::MAX;
     let mut best_epoch = 0;
     let mut patience_counter = 0;
@@ -137,7 +143,7 @@ fn main() -> MlResult<()> {
     // Training loop with progress tracking
     for epoch in 0..config.epochs {
         let loss = model.train_step(&x_train, &y_train, config.learning_rate)?;
-        
+
         // Early stopping check
         if (best_loss - loss) > config.early_stopping_min_delta {
             best_loss = loss;
@@ -154,7 +160,7 @@ fn main() -> MlResult<()> {
         if epoch % config.display_interval == 0 {
             let (accuracy, _) = model.evaluate(&x_train, &y_train, 0.5)?;
             println!(
-                "Epoch {}/{}: Loss = {:.6}, Accuracy = {:.1}%", 
+                "Epoch {}/{}: Loss = {:.6}, Accuracy = {:.1}%",
                 epoch, config.epochs, loss, accuracy
             );
         }
@@ -169,16 +175,17 @@ fn main() -> MlResult<()> {
     println!("\nModel Evaluation:");
     let (_final_accuracy, _) = model.evaluate(&x_train, &y_train, 0.5)?;
     let predictions = model.forward(&x_train)?;
-    
+
     println!("\nTruth Table:");
     println!("╔═════════════════════════════════════════════════════════════╗");
     println!("║  Input A  │  Input B  │  Raw Pred  │  Rounded  │   Target   ║");
     println!("╠═════════════════════════════════════════════════════════════╣");
-    
+
     for i in 0..4 {
         let raw_pred = predictions.data()[i];
         let rounded_pred = if raw_pred > 0.5 { 1.0 } else { 0.0 };
-        println!("║     {:.0}     │     {:.0}     │   {:.4}   │     {:.0}     │      {:.0}     ║", 
+        println!(
+            "║     {:.0}     │     {:.0}     │   {:.4}   │     {:.0}     │      {:.0}     ║",
             x_train.data()[i * 2],
             x_train.data()[i * 2 + 1],
             raw_pred,
@@ -198,10 +205,9 @@ fn main() -> MlResult<()> {
             correct += 1;
         }
     }
-    
+
     let accuracy = (correct as f32) / 4.0 * 100.0;
     println!("\nAccuracy: {:.1}%", accuracy);
 
     Ok(())
 }
-

@@ -3,12 +3,26 @@ use crate::serialize::{Deserialize, Model, Serialize};
 use crate::{nn::Module, tensor::Tensor, MlResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// A fully connected (linear/dense) neural network layer.
+///
+/// Applies a linear transformation to the incoming data: y = xW^T + b
 pub struct Linear {
+    /// Weight matrix of shape [out_features, in_features]
     weight: Tensor,
+    /// Optional bias vector of shape [out_features]
     bias: Option<Tensor>,
 }
 
 impl Linear {
+    /// Creates a new linear layer with Xavier initialization.
+    ///
+    /// # Arguments
+    /// * `in_features` - Size of each input sample
+    /// * `out_features` - Size of each output sample
+    /// * `bias` - If set to true, adds a learnable bias to the output
+    ///
+    /// # Returns
+    /// * `MlResult<Self>` - A new Linear layer instance
     pub fn new(in_features: usize, out_features: usize, bias: bool) -> MlResult<Self> {
         // Get seed from system time
         let seed = SystemTime::now()

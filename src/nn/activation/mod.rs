@@ -3,7 +3,16 @@ use crate::{nn::Module, tensor::Tensor, MlResult};
 mod relu;
 pub use relu::ReLU;
 
+/// Sigmoid activation function module.
+///
+/// Applies the sigmoid function element-wise: σ(x) = 1 / (1 + e^(-x))
+/// Output range is (0, 1)
 pub struct Sigmoid;
+
+/// Hyperbolic tangent activation function module.
+///
+/// Applies tanh function element-wise
+/// Output range is (-1, 1)
 pub struct Tanh;
 
 impl Default for Sigmoid {

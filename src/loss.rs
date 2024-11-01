@@ -11,15 +11,19 @@ pub enum LossError {
     InvalidOperation {
         op: &'static str,
         reason: String,
-    },  
+    },
 }
 impl std::error::Error for LossError {}
 
 impl Display for LossError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            LossError::InvalidShape { expected, got } => write!(f, "Invalid shape: expected {:?}, got {:?}", expected, got),
-            LossError::InvalidOperation { op, reason } => write!(f, "Invalid operation: {} ({})", op, reason),
+            LossError::InvalidShape { expected, got } => {
+                write!(f, "Invalid shape: expected {:?}, got {:?}", expected, got)
+            }
+            LossError::InvalidOperation { op, reason } => {
+                write!(f, "Invalid operation: {} ({})", op, reason)
+            }
         }
     }
 }
@@ -29,7 +33,8 @@ pub fn calculate_mse_loss(predictions: &Tensor, labels: &Tensor) -> MlResult<f32
         return Err(LossError::InvalidShape {
             expected: predictions.shape().to_vec(),
             got: labels.shape().to_vec(),
-        }.into());
+        }
+        .into());
     }
 
     let diff = predictions.sub(labels)?;

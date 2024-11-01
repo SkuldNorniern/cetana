@@ -2,8 +2,8 @@ use std::fmt::Display;
 
 mod display;
 
+use crate::serialize::{Deserialize, Serialize};
 use crate::{MlError, MlResult};
-use crate::serialize::{Serialize, Deserialize};
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -278,7 +278,6 @@ impl Tensor {
         })
     }
 }
-
 
 // Implement serialization for Tensor
 impl Serialize for Tensor {

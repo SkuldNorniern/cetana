@@ -6,9 +6,8 @@ pub mod prelude;
 pub mod serialize;
 pub mod tensor;
 
-
-use tensor::TensorError;
 use loss::LossError;
+use tensor::TensorError;
 
 #[derive(Debug)]
 pub enum MlError {

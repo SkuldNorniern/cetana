@@ -1,7 +1,9 @@
 use cetana::nn::{Linear, Module};
+use cetana::serialize::{
+    Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents,
+};
 use cetana::tensor::Tensor;
-use cetana::serialize::{Model, Serialize, Deserialize, SerializeComponents, DeserializeComponents};
-use cetana::{MlResult, MlError};
+use cetana::{MlError, MlResult};
 
 // Define a simple neural network
 struct SimpleNetwork {
@@ -28,10 +30,7 @@ impl Module for SimpleNetwork {
 
 impl SerializeComponents for SimpleNetwork {
     fn serialize_components(&self) -> Vec<Vec<u8>> {
-        vec![
-            self.layer1.serialize(),
-            self.layer2.serialize(),
-        ]
+        vec![self.layer1.serialize(), self.layer2.serialize()]
     }
 }
 
@@ -40,7 +39,7 @@ impl DeserializeComponents for SimpleNetwork {
         if components.len() != 2 {
             return Err("Invalid number of components".into());
         }
-        
+
         Ok(Self {
             layer1: Linear::deserialize(&components[0])?,
             layer2: Linear::deserialize(&components[1])?,
@@ -56,7 +55,7 @@ fn main() -> MlResult<()> {
 
     // Create some test data
     let input = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
-    
+
     // Get initial prediction
     let initial_prediction = network.forward(&input)?;
     println!("Initial prediction: {:?}", initial_prediction);
@@ -68,7 +67,7 @@ fn main() -> MlResult<()> {
 
     // Load the model
     let loaded_network = SimpleNetwork::load(save_path)?;
-    
+
     // Get prediction from loaded model
     let loaded_prediction = loaded_network.forward(&input)?;
     println!("Loaded model prediction: {:?}", loaded_prediction);
@@ -83,6 +82,6 @@ fn main() -> MlResult<()> {
 
     // Clean up
     std::fs::remove_file(save_path).map_err(|e| MlError::StringError(e.to_string()))?;
-    
+
     Ok(())
 }
