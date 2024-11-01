@@ -6,6 +6,12 @@ edition = "2021"
 
 [dependencies]
 
+[features]
+default = ["cpu"]
+cpu = []
+cuda = []
+vulkan = []
+mps = []
 
 [dev-dependencies]
 csv = "1.3"
