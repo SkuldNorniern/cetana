@@ -277,6 +277,70 @@ impl Tensor {
             shape: new_shape.to_vec(),
         })
     }
+
+    pub fn clip(&self, min: f32, max: f32) -> MlResult<Tensor> {
+        let data: Vec<f32> = self.data
+            .iter()
+            .map(|&x| x.clamp(min, max))
+            .collect();
+        
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    pub fn log(&self) -> MlResult<Tensor> {
+        let data: Vec<f32> = self.data
+            .iter()
+            .map(|&x| x.ln())
+            .collect();
+        
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    pub fn neg(&self) -> MlResult<Tensor> {
+        let data: Vec<f32> = self.data
+            .iter()
+            .map(|&x| -x)
+            .collect();
+        
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    pub fn mul(&self, other: &Tensor) -> MlResult<Tensor> {
+        if self.shape != other.shape {
+            return Err(MlError::TensorError(TensorError::InvalidShape {
+                expected: self.shape.clone(),
+                got: other.shape.clone(),
+            }));
+        }
+
+        let data: Vec<f32> = self.data
+            .iter()
+            .zip(other.data.iter())
+            .map(|(&a, &b)| a * b)
+            .collect();
+
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor> {
+        let data: Vec<f32> = self.data
+            .iter()
+            .map(|&x| x + scalar)
+            .collect();
+        
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    pub fn mean(&self) -> MlResult<f32> {
+        if self.data.is_empty() {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "mean",
+                reason: "Cannot compute mean of empty tensor".to_string(),
+            }));
+        }
+
+        Ok(self.data.iter().sum::<f32>() / self.data.len() as f32)
+    }
 }
 
 // Implement serialization for Tensor
@@ -429,6 +493,23 @@ mod tests {
         let result = tensor.reshape(&[2, 4]);
         assert!(result.is_err());
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_clip() -> MlResult<()> {
+        let a = Tensor::new(vec![vec![-1.0, 0.5, 2.0]])?;
+        let b = a.clip(0.0, 1.0)?;
+        assert_eq!(b.data(), &[0.0, 0.5, 1.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_element_wise_mul() -> MlResult<()> {
+        let a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
+        let b = Tensor::new(vec![vec![2.0, 3.0], vec![4.0, 5.0]])?;
+        let c = a.mul(&b)?;
+        assert_eq!(c.data(), &[2.0, 6.0, 12.0, 20.0]);
         Ok(())
     }
 }
