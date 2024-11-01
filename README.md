@@ -1,49 +1,53 @@
-# Sapien
-An advanced machine learning library empowering developers to build intelligent applications with ease.
+# Cetana
+An advanced machine learning library empowering developers to build intelligent applications with ease, written in Rust.
 
 ## Overview
-Sapien is a Rust-based machine learning library designed to provide efficient and flexible machine learning operations across multiple compute platforms.
+Cetana is a Rust-based machine learning library designed to provide efficient and flexible machine learning operations across multiple compute platforms. It focuses on providing a clean, safe API while maintaining high performance.
 
-## Planned Compute Backends
+## Features
+- Type-safe tensor operations
+- Neural network building blocks
+- Automatic differentiation
+- Model serialization
+- Multiple activation functions (ReLU, Sigmoid, Tanh)
+- Basic optimizers and loss functions
+- CPU backend (with planned GPU support)
+
+## Example Usage
+
+## Compute Backends
 - [x] CPU (in progress)
 - [ ] CUDA
 - [ ] Metal Performance Shaders (MPS)
 - [ ] Vulkan
 
-
-
 ## Roadmap
 
 ### Phase 1: Core Implementation (CPU)
-- [ ] Basic tensor operations
-  - [ ] Addition, subtraction
-  - [ ] Matrix multiplication
-  - [ ] Element-wise operations
-  - [ ] Broadcasting support
-- [ ] Neural Network Modules
-  - [ ] Linear layers
-  - [ ] Activation functions (ReLU, Sigmoid, Tanh)
+- [x] Basic tensor operations
+  - [x] Addition, subtraction
+  - [x] Matrix multiplication
+  - [x] Element-wise operations
+  - [x] Broadcasting support
+- [x] Neural Network Modules
+  - [x] Linear layers
+  - [x] Activation functions (ReLU, Sigmoid, Tanh)
   - [ ] Convolutional layers
   - [ ] Pooling layers
-- [ ] Automatic Differentiation
-  - [ ] Backpropagation
-  - [ ] Computational graph
-  - [ ] Gradient computation
-- [ ] Optimizers
-  - [ ] SGD (Stochastic Gradient Descent)
-  - [ ] Adam
-  - [ ] RMSprop
-- [ ] Loss Functions
-  - [ ] MSE (Mean Squared Error)
+- [x] Automatic Differentiation
+  - [x] Backpropagation
+  - [x] Gradient computation
+- [x] Loss Functions
+  - [x] MSE (Mean Squared Error)
   - [ ] Cross Entropy
   - [ ] Binary Cross Entropy
-- [ ] Training Utilities
-  - [ ] Batch processing
+- [x] Training Utilities
+  - [x] Basic training loops
+  - [ ] Advanced batch processing
   - [ ] Data loaders
-  - [ ] Training loops
-- [ ] Model Serialization
-  - [ ] Save/Load models
-  - [ ] Export/Import weights
+- [x] Model Serialization
+  - [x] Save/Load models
+  - [x] Export/Import weights
 
 ### Phase 2: GPU Acceleration
 - [ ] CUDA Backend
@@ -57,8 +61,6 @@ Sapien is a Rust-based machine learning library designed to provide efficient an
   - [ ] Tensor operations
   - [ ] Neural network operations
   - [ ] Memory management
-
-
 
 ### Phase 3: Advanced Features
 - [ ] Distributed Training
@@ -81,4 +83,4 @@ Sapien is a Rust-based machine learning library designed to provide efficient an
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
-[Insert chosen license]
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
