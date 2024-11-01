@@ -1,6 +1,12 @@
 [package]
-name = "sapien"
+name = "cetana"
 version = "0.1.0"
 edition = "2021"
 
+
 [dependencies]
+
+
+[dev-dependencies]
+csv = "1.3"
+rand = "0.8.5"
