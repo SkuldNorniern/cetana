@@ -1,71 +1,24 @@
-use crate::{nn::Module, tensor::Tensor, MlResult};
-
 mod relu;
+mod sigmoid;
+mod swish;
+mod tanh;
+
 pub use relu::ReLU;
-
-/// Sigmoid activation function module.
-///
-/// Applies the sigmoid function element-wise: σ(x) = 1 / (1 + e^(-x))
-/// Output range is (0, 1)
-pub struct Sigmoid;
-
-/// Hyperbolic tangent activation function module.
-///
-/// Applies tanh function element-wise
-/// Output range is (-1, 1)
-pub struct Tanh;
-
-impl Default for Sigmoid {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Sigmoid {
-    pub fn new() -> Self {
-        Sigmoid
-    }
-}
-
-impl Module for Sigmoid {
-    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let data: Vec<f32> = input
-            .data()
-            .iter()
-            .map(|&x| 1.0 / (1.0 + (-x).exp()))
-            .collect();
-
-        Tensor::from_vec(data, input.shape())
-    }
-}
-
-impl Default for Tanh {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Tanh {
-    pub fn new() -> Self {
-        Tanh
-    }
-}
-
-impl Module for Tanh {
-    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let data: Vec<f32> = input.data().iter().map(|&x| x.tanh()).collect();
-
-        Tensor::from_vec(data, input.shape())
-    }
-}
+pub use sigmoid::Sigmoid;
+pub use swish::Swish;
+pub use tanh::Tanh;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nn::Module;
+    use crate::tensor::Tensor;
+    use crate::backend::DeviceType;
+    use crate::MlResult;
 
     #[test]
     fn test_relu() -> MlResult<()> {
-        let input = Tensor::new(vec![vec![-1.0, 0.0, 1.0]])?;
+        let input = Tensor::new(vec![vec![-1.0, 0.0, 1.0]], DeviceType::Cpu)?;
         let relu = ReLU::new();
         let output = relu.forward(&input)?;
         assert_eq!(output.data(), &[0.0, 0.0, 1.0]);
@@ -74,7 +27,7 @@ mod tests {
 
     #[test]
     fn test_sigmoid() -> MlResult<()> {
-        let input = Tensor::new(vec![vec![0.0]])?;
+        let input = Tensor::new(vec![vec![0.0]], DeviceType::Cpu)?;
         let sigmoid = Sigmoid::new();
         let output = sigmoid.forward(&input)?;
         assert!((output.data()[0] - 0.5).abs() < 1e-6);
@@ -83,7 +36,7 @@ mod tests {
 
     #[test]
     fn test_tanh() -> MlResult<()> {
-        let input = Tensor::new(vec![vec![0.0]])?;
+        let input = Tensor::new(vec![vec![0.0]], DeviceType::Cpu)?;
         let tanh = Tanh::new();
         let output = tanh.forward(&input)?;
         assert!(output.data()[0].abs() < 1e-6);
