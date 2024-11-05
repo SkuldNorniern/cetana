@@ -134,8 +134,8 @@ pub trait Model: Module + Serialize + Deserialize {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::tensor::Tensor;
-use super::*;
 
     #[test]
     fn test_tensor_serialization() {
