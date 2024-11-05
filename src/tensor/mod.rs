@@ -1,9 +1,27 @@
 use std::fmt::Display;
 
+use std::sync::Arc;
+
+// mod builder;
 mod display;
+
+// pub use builder::*;
 
 use crate::serialize::{Deserialize, Serialize};
 use crate::{MlError, MlResult};
+
+use crate::backend::Backend;
+
+use crate::backend::{Device, DeviceType};
+
+#[cfg(feature = "cpu")]
+use crate::backend::CpuBackend;
+#[cfg(any(feature = "vulkan", feature = "cuda", feature = "mps", feature = "cpu"))]
+use crate::backend::DeviceManager;
+#[cfg(feature = "vulkan")]
+use crate::backend::VulkanBackend;
+#[cfg(feature = "cuda")]
+use crate::backend::CudaBackend;
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -26,6 +44,9 @@ pub enum TensorError {
     MatrixMultiplicationError {
         left_shape: Vec<usize>,
         right_shape: Vec<usize>,
+    },
+    InvalidBackend {
+        backend: DeviceType,
     },
 }
 
@@ -52,6 +73,9 @@ impl Display for TensorError {
             } => {
                 write!(f, "Invalid dimensions for matrix multiplication: left shape {:?}, right shape {:?}", left_shape, right_shape)
             }
+            TensorError::InvalidBackend { backend } => {
+                write!(f, "Invalid backend: {}", backend)
+            }
         }
     }
 }
@@ -60,6 +84,7 @@ impl Display for TensorError {
 pub struct Tensor {
     data: Vec<f32>,
     shape: Vec<usize>,
+    backend: Arc<dyn Backend>,
 }
 
 impl Tensor {
@@ -67,9 +92,51 @@ impl Tensor {
         let shape = vec![data.len(), data[0].len()];
         let flat_data: Vec<f32> = data.into_iter().flatten().collect();
 
+        let device_type = DeviceManager::get_default_device();
+        println!("Creating tensor with device: {:?}", device_type);
+
+        let backend: Arc<dyn Backend> = match device_type {
+            #[cfg(feature = "cuda")]
+            DeviceType::Cuda => {
+                println!("Attempting to create CudaBackend...");
+                match CudaBackend::new() {
+                    Ok(backend) => {
+                        println!("Successfully created CudaBackend");
+                        Arc::new(backend)
+                    }
+                    Err(e) => {
+                        println!("Failed to create CudaBackend: {:?}, falling back to CPU", e);
+                        Arc::new(CpuBackend::new()?)
+                    }
+                }
+            }
+            #[cfg(feature = "vulkan")]
+            DeviceType::Vulkan => {
+                println!("Attempting to create VulkanBackend...");
+                match VulkanBackend::new() {
+                    Ok(backend) => {
+                        println!("Successfully created VulkanBackend");
+                        Arc::new(backend)
+                    }
+                    Err(e) => {
+                        println!(
+                            "Failed to create VulkanBackend: {:?}, falling back to CPU",
+                            e
+                        );
+                        Arc::new(CpuBackend::new()?)
+                    }
+                }
+            }
+            _ => {
+                println!("Using CpuBackend");
+                Arc::new(CpuBackend::new()?)
+            }
+        };
+
         Ok(Self {
             data: flat_data,
             shape,
+            backend,
         })
     }
 
@@ -82,9 +149,21 @@ impl Tensor {
             }));
         }
 
+        let device_type = DeviceManager::get_default_device();
+        let backend: Arc<dyn Backend> = match device_type {
+            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "cuda")]
+            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "mps")]
+            DeviceType::Mps => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "vulkan")]
+            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
+        };
+
         Ok(Self {
             data,
             shape: shape.to_vec(),
+            backend,
         })
     }
 
@@ -110,18 +189,7 @@ impl Tensor {
         let n = other.shape[1];
         let k = self.shape[1];
 
-        let mut result = vec![0.0; m * n];
-
-        for i in 0..m {
-            for j in 0..n {
-                let mut sum = 0.0;
-                for l in 0..k {
-                    sum += self.data[i * k + l] * other.data[l * n + j];
-                }
-                result[i * n + j] = sum;
-            }
-        }
-
+        let result = self.backend.matmul(&self.data, &other.data, m, k, n);
         Tensor::from_vec(result, &[m, n])
     }
 
@@ -147,8 +215,8 @@ impl Tensor {
 
     pub fn add(&self, other: &Tensor) -> MlResult<Tensor> {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
-            let mut result = vec![0.0; self.data.len()];
             let (batch_size, features) = (self.shape[0], self.shape[1]);
+            let mut result = vec![0.0; self.data.len()];
 
             for i in 0..batch_size {
                 for j in 0..features {
@@ -165,14 +233,8 @@ impl Tensor {
             }));
         }
 
-        let data: Vec<f32> = self
-            .data
-            .iter()
-            .zip(other.data.iter())
-            .map(|(&a, &b)| a + b)
-            .collect();
-
-        Tensor::from_vec(data, &self.shape)
+        let result = self.backend.add(&self.data, &other.data);
+        Tensor::from_vec(result, &self.shape)
     }
 
     pub fn sub(&self, other: &Tensor) -> MlResult<Tensor> {
@@ -259,11 +321,9 @@ impl Tensor {
     }
 
     pub fn reshape(&self, new_shape: &[usize]) -> MlResult<Tensor> {
-        // Calculate total elements in new shape
         let new_size: usize = new_shape.iter().product();
-
-        // Check if the new shape is compatible with the current data
         let current_size: usize = self.data.len();
+
         if new_size != current_size {
             return Err(MlError::TensorError(TensorError::InvalidShape {
                 expected: new_shape.to_vec(),
@@ -271,37 +331,28 @@ impl Tensor {
             }));
         }
 
-        // Create new tensor with same data but different shape
         Ok(Tensor {
             data: self.data.clone(),
             shape: new_shape.to_vec(),
+            backend: self.backend.clone(),
         })
     }
 
     pub fn clip(&self, min: f32, max: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data
-            .iter()
-            .map(|&x| x.clamp(min, max))
-            .collect();
-        
+        let data: Vec<f32> = self.data.iter().map(|&x| x.clamp(min, max)).collect();
+
         Tensor::from_vec(data, &self.shape)
     }
 
     pub fn log(&self) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data
-            .iter()
-            .map(|&x| x.ln())
-            .collect();
-        
+        let data: Vec<f32> = self.data.iter().map(|&x| x.ln()).collect();
+
         Tensor::from_vec(data, &self.shape)
     }
 
     pub fn neg(&self) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data
-            .iter()
-            .map(|&x| -x)
-            .collect();
-        
+        let data: Vec<f32> = self.data.iter().map(|&x| -x).collect();
+
         Tensor::from_vec(data, &self.shape)
     }
 
@@ -313,21 +364,13 @@ impl Tensor {
             }));
         }
 
-        let data: Vec<f32> = self.data
-            .iter()
-            .zip(other.data.iter())
-            .map(|(&a, &b)| a * b)
-            .collect();
-
-        Tensor::from_vec(data, &self.shape)
+        let result = self.backend.multiply(&self.data, &other.data);
+        Tensor::from_vec(result, &self.shape)
     }
 
     pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data
-            .iter()
-            .map(|&x| x + scalar)
-            .collect();
-        
+        let data: Vec<f32> = self.data.iter().map(|&x| x + scalar).collect();
+
         Tensor::from_vec(data, &self.shape)
     }
 
@@ -339,7 +382,7 @@ impl Tensor {
             }));
         }
 
-        Ok(self.data.iter().sum::<f32>() / self.data.len() as f32)
+        Ok(self.backend.mean(&self.data))
     }
 }
 
