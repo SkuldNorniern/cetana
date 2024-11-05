@@ -1,17 +1,35 @@
 # Cetana
 An advanced machine learning library empowering developers to build intelligent applications with ease, written in Rust.
 
+> **Cetana** (चेतन) is a Sanskrit word meaning "consciousness" or "intelligence," reflecting the library's goal of bringing machine intelligence to your applications.
+
+---
+
 ## Overview
+
 Cetana is a Rust-based machine learning library designed to provide efficient and flexible machine learning operations across multiple compute platforms. It focuses on providing a clean, safe API while maintaining high performance.
 
 ## Features
-- Type-safe tensor operations
-- Neural network building blocks
-- Automatic differentiation
-- Model serialization
-- Multiple activation functions (ReLU, Sigmoid, Tanh)
-- Basic optimizers and loss functions
-- CPU backend (with planned GPU support)
+
+- **Type-safe Tensor Operations**
+- **Neural Network Building Blocks**
+- **Automatic Differentiation**
+- **Model Serialization**
+- **Multiple Activation Functions** (ReLU, Sigmoid, Tanh)
+- **Basic Optimizers and Loss Functions**
+- **CPU Backend** (with planned GPU support)
+
+## Table of Contents
+
+- [Example Usage](#example-usage)
+- [Compute Backends](#compute-backends)
+- [Roadmap](#roadmap)
+  - [Phase 1: Core Implementation (CPU)](#phase-1-core-implementation-cpu)
+  - [Phase 2: GPU Acceleration](#phase-2-gpu-acceleration)
+  - [Phase 3: Advanced Features](#phase-3-advanced-features)
+  - [Phase 4: High-Level APIs](#phase-4-high-level-apis)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Example Usage
 
@@ -37,6 +55,7 @@ Cetana is a Rust-based machine learning library designed to provide efficient an
 - [x] Automatic Differentiation
   - [x] Backpropagation
   - [x] Gradient computation
+  - [ ] Auto Grad
 - [x] Loss Functions
   - [x] MSE (Mean Squared Error)
   - [x] Cross Entropy
@@ -44,7 +63,13 @@ Cetana is a Rust-based machine learning library designed to provide efficient an
 - [x] Training Utilities
   - [x] Basic training loops
   - [ ] Advanced batch processing
+    - [ ] Mini-batch handling
+    - [ ] Batch normalization
+    - [ ] Dropout layers
   - [ ] Data loaders
+    - [ ] Dataset abstraction
+    - [ ] Data augmentation
+    - [ ] Custom dataset support
 - [x] Model Serialization
   - [x] Save/Load models
   - [x] Export/Import weights
