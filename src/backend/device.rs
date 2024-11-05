@@ -1,9 +1,11 @@
-use crate::backend::BackendError;
-use crate::MlResult;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::sync::Mutex;
 use std::sync::Once;
+
+use crate::backend::BackendError;
+use crate::MlResult;
+use crate::backend::cuda::CudaDevice;
 
 static INIT: Once = Once::new();
 static mut GLOBAL_DEVICE_MANAGER: Option<DeviceManager> = None;
@@ -37,14 +39,26 @@ impl DeviceManager {
         // CPU is always available
         available_devices.insert(DeviceType::Cpu);
 
-        // Check for Vulkan support with more detailed logging
+        // Check for CUDA support
+        #[cfg(feature = "cuda")]
+        {
+            println!("Checking CUDA support...");
+            match CudaDevice::new(0) {
+                Ok(_) => {
+                    println!("CUDA GPU support confirmed");
+                    available_devices.insert(DeviceType::Cuda);
+                }
+                Err(e) => println!("CUDA initialization failed: {}", e),
+            }
+        }
+
+        // Check for Vulkan support
         #[cfg(feature = "vulkan")]
         {
             println!("Checking Vulkan support...");
             if let Ok(entry) = unsafe { ash::Entry::load() } {
                 match unsafe { entry.enumerate_instance_extension_properties(None) } {
                     Ok(_) => {
-                        // Try to create a VulkanBackend to verify GPU availability
                         match crate::backend::VulkanBackend::new() {
                             Ok(_) => {
                                 println!("Vulkan GPU support confirmed");
@@ -60,6 +74,7 @@ impl DeviceManager {
             }
         }
 
+        println!("Available devices: {:?}", available_devices);
         Self { available_devices }
     }
 
@@ -81,7 +96,6 @@ impl DeviceManager {
                 }
             }
             None => {
-                // Priority order: CUDA > Vulkan > MPS > CPU
                 #[cfg(feature = "cuda")]
                 if self.available_devices.contains(&DeviceType::Cuda) {
                     return Ok(DeviceType::Cuda);
@@ -106,18 +120,36 @@ impl DeviceManager {
         unsafe {
             INIT.call_once(|| {
                 GLOBAL_DEVICE_MANAGER = Some(DeviceManager::new());
-                // Set Vulkan as default if available
+
+                // Initialize default device
                 let manager = GLOBAL_DEVICE_MANAGER.as_ref().unwrap();
-                #[cfg(feature = "cpu")]
-                let _default_device = DeviceType::Cpu;
-                #[cfg(feature = "vulkan")]
-                let default_device = if manager.available_devices.contains(&DeviceType::Vulkan) {
-                    DeviceType::Vulkan
-                } else {
-                    DeviceType::Cpu
+
+                // Select default device based on priority and availability
+                let device_type = {
+                    #[cfg(feature = "cuda")]
+                    {
+                        if manager.available_devices.contains(&DeviceType::Cuda) {
+                            DeviceType::Cuda
+                        } else {
+                            DeviceType::Cpu
+                        }
+                    }
+                    #[cfg(all(feature = "vulkan", not(feature = "cuda")))]
+                    {
+                        if manager.available_devices.contains(&DeviceType::Vulkan) {
+                            DeviceType::Vulkan
+                        } else {
+                            DeviceType::Cpu
+                        }
+                    }
+                    #[cfg(not(any(feature = "cuda", feature = "vulkan")))]
+                    {
+                        DeviceType::Cpu
+                    }
                 };
-                DEFAULT_DEVICE = Some(Mutex::new(default_device));
-                println!("Default device set to: {:?}", default_device);
+
+                DEFAULT_DEVICE = Some(Mutex::new(device_type));
+                println!("Default device set to: {:?}", device_type);
             });
             GLOBAL_DEVICE_MANAGER.as_ref().unwrap()
         }

@@ -15,9 +15,9 @@ mod vulkan;
 #[cfg(feature = "cpu")]
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
-use cuda::CudaError;
+pub use cuda::{CudaBackend, CudaBackendError};
 #[cfg(feature = "mps")]
-use mps::MpsError;
+pub use mps::MpsError;
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
 
@@ -47,7 +47,7 @@ pub enum BackendError {
     #[cfg(feature = "vulkan")]
     VulkanError(VulkanError),
     #[cfg(feature = "cuda")]
-    CudaError(CudaError),
+    CudaError(CudaBackendError),
     #[cfg(feature = "mps")]
     MpsError(MpsError),
     Other(String),
@@ -84,8 +84,8 @@ impl From<VulkanError> for BackendError {
 }
 
 #[cfg(feature = "cuda")]
-impl From<CudaError> for BackendError {
-    fn from(err: CudaError) -> Self {
+impl From<CudaBackendError> for BackendError {
+    fn from(err: CudaBackendError) -> Self {
         BackendError::CudaError(err)
     }
 }
