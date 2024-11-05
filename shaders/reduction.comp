@@ -1,0 +1,46 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer Input {
+    float input_data[];
+};
+
+layout(set = 0, binding = 1) buffer Output {
+    float result[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint data_length;
+    uint workgroup_count;
+} push_constants;
+
+shared float shared_data[256];
+
+void main() {
+    uint local_id = gl_LocalInvocationID.x;
+    uint global_id = gl_GlobalInvocationID.x;
+    
+    // Load data into shared memory
+    shared_data[local_id] = 0.0;
+    if (global_id < push_constants.data_length) {
+        shared_data[local_id] = input_data[global_id];
+    }
+    
+    barrier();
+    memoryBarrierShared();
+    
+    // Parallel reduction in shared memory
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (local_id < stride && local_id + stride < 256) {
+            shared_data[local_id] += shared_data[local_id + stride];
+        }
+        barrier();
+        memoryBarrierShared();
+    }
+    
+    // Write result for this workgroup
+    if (local_id == 0) {
+        result[gl_WorkGroupID.x] = shared_data[0];
+    }
+} 

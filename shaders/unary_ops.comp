@@ -1,0 +1,39 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer Input {
+    float input_data[];
+};
+
+layout(set = 0, binding = 1) buffer Output {
+    float result[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint op_type;    // 0: exp, 1: log, 2: pow, 3: sqrt
+    uint data_length;
+    float power;     // used for pow operation
+} push_constants;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= push_constants.data_length) return;
+
+    float val = input_data[idx];
+    
+    switch(push_constants.op_type) {
+        case 0:
+            result[idx] = exp(val);
+            break;
+        case 1:
+            result[idx] = log(val);
+            break;
+        case 2:
+            result[idx] = pow(val, push_constants.power);
+            break;
+        case 3:
+            result[idx] = sqrt(val);
+            break;
+    }
+} 
