@@ -1,9 +1,13 @@
 pub mod activation;
 pub mod linear;
 pub mod random;
+pub mod pooling;
+pub mod conv;
 
 pub use activation::{ReLU, Sigmoid, Tanh};
 pub use linear::Linear;
+pub use pooling::{Pooling, PoolingType};
+pub use conv::{Conv2d, PaddingMode};
 
 /// A trait representing a neural network module/layer.
 ///
@@ -19,3 +23,12 @@ pub trait Module {
     /// * `MlResult<Tensor>` - The processed output tensor, or an error if the operation fails
     fn forward(&self, input: &crate::tensor::Tensor) -> crate::MlResult<crate::tensor::Tensor>;
 }
+
+pub trait Layer {
+    /// Performs a forward pass through the layer.
+    fn forward(&self, input: &crate::tensor::Tensor) -> crate::MlResult<crate::tensor::Tensor>;
+
+    /// Performs a backward pass through the layer.
+    fn backward(&self, input: &crate::tensor::Tensor, grad_output: &crate::tensor::Tensor) -> crate::MlResult<crate::tensor::Tensor>;
+}
+
