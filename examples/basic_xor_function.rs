@@ -1,4 +1,5 @@
 use cetana::{
+    backend::{DeviceManager, DeviceType},
     nn::{
         activation::{ReLU, Sigmoid},
         Linear, Module,
@@ -111,6 +112,21 @@ impl SimpleNN {
 
 fn main() -> MlResult<()> {
     println!("Training XOR function with Neural Network\n");
+
+    // Initialize device manager and select device
+    let device_manager = DeviceManager::new();
+    println!(
+        "Available devices: {:?}\n",
+        device_manager.available_devices()
+    );
+    let device = device_manager.select_device(None)?;
+    // Set the selected device as the global default
+    DeviceManager::set_default_device(device)?;
+    println!(
+        "Global default device set to: {}",
+        DeviceManager::get_default_device()
+    );
+
     println!("Network Architecture:");
     println!("Input Layer: 2 neurons");
     println!("Hidden Layer: 4 neurons (ReLU activation)");

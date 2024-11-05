@@ -1,7 +1,12 @@
+use std::error::Error;
+use std::fs::File;
+use std::time::Instant;
+
 use cetana::{
-    loss::calculate_mse_loss,
+    backend::{DeviceManager, DeviceType},
+    loss::calculate_binary_cross_entropy_loss,
     nn::{
-        activation::{ReLU, Sigmoid},
+        activation::{Sigmoid, Swish},
         Linear, Module,
     },
     serialize::{Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents},
@@ -9,12 +14,10 @@ use cetana::{
     MlError, MlResult,
 };
 use csv::ReaderBuilder;
+use pinax::prelude::*;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use std::error::Error;
-use std::fs::File;
-use std::time::Instant;
 
 type Float = f32;
 
@@ -30,7 +33,7 @@ impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
             learning_rate: 0.01,
-            epochs: 1000,
+            epochs: 100000000,
             display_interval: 100,
             early_stopping_patience: 50,
             early_stopping_min_delta: 1e-6,
@@ -40,7 +43,7 @@ impl Default for TrainingConfig {
 
 struct GenderClassifier {
     layer1: Linear,
-    activation1: ReLU,
+    activation1: Swish,
     layer2: Linear,
     output_act: Sigmoid,
 }
@@ -49,7 +52,7 @@ impl GenderClassifier {
     fn new() -> MlResult<Self> {
         Ok(Self {
             layer1: Linear::new(2, 4, true)?, // 2 inputs (height, weight) -> 4 hidden neurons
-            activation1: ReLU,
+            activation1: Swish,
             layer2: Linear::new(4, 1, true)?, // 4 hidden -> 1 output (0: male, 1: female)
             output_act: Sigmoid,
         })
@@ -63,22 +66,22 @@ impl GenderClassifier {
     }
 
     fn train_step(&mut self, x: &Tensor, y: &Tensor, learning_rate: f32) -> MlResult<f32> {
-        // Forward pass
-        let hidden = self.layer1.forward(x)?;
-        let output = self.layer2.forward(&hidden)?;
-        let predictions = self.output_act.forward(&output)?;
+        // Forward pass with single activation calculation
+        let predictions = self.forward(x)?;
 
-        // Compute loss using MSE
-        let loss = calculate_mse_loss(&predictions, y)?;
+        // Compute loss using BCE instead of MSE (more appropriate for binary classification)
+        let loss = calculate_binary_cross_entropy_loss(&predictions, y)?;
 
         // Compute gradients
-        let output_grad = predictions.sub(y)?; // gradient for MSE loss
+        let output_grad = predictions.sub(y)?;
 
         // Backward pass
-        let hidden_grad = self.layer2.backward(&hidden, &output_grad, learning_rate)?;
+        let hidden_grad =
+            self.layer2
+                .backward(&self.layer1.forward(x)?, &output_grad, learning_rate)?;
         self.layer1.backward(x, &hidden_grad, learning_rate)?;
 
-        Ok(loss) // loss is already a f32
+        Ok(loss)
     }
 
     fn evaluate(&self, x: &Tensor, y: &Tensor, threshold: Float) -> MlResult<(Float, Float)> {
@@ -115,7 +118,7 @@ impl DeserializeComponents for GenderClassifier {
 
         Ok(Self {
             layer1: Linear::deserialize(&components[0])?,
-            activation1: ReLU,
+            activation1: Swish,
             layer2: Linear::deserialize(&components[1])?,
             output_act: Sigmoid,
         })
@@ -202,6 +205,21 @@ fn train_test_split(
 fn main() -> MlResult<()> {
     println!("Training Gender Classification Model\n");
 
+    // Initialize device manager and select device
+    let device_manager = DeviceManager::new();
+    let device = device_manager.select_device(None)?;
+    println!(
+        "Available devices: {:?}\n",
+        device_manager.available_devices()
+    );
+
+    // Set the selected device as the global default
+    DeviceManager::set_default_device(device)?;
+    println!(
+        "Global default device set to: {}",
+        DeviceManager::get_default_device()
+    );
+
     // Load data from CSV
     let (heights, weights, labels) =
         load_data().map_err(|e| MlError::StringError(e.to_string()))?;
@@ -237,9 +255,12 @@ fn main() -> MlResult<()> {
     let mut best_loss = Float::MAX;
     let mut patience_counter = 0;
 
+    let mut losses = Vec::new(); // Store losses for plotting
+
     // Training loop
     for epoch in 0..config.epochs {
         let loss = model.train_step(&x_train, &y_train, config.learning_rate)?;
+        losses.push(loss); // Store the loss
 
         if (best_loss - loss) > config.early_stopping_min_delta {
             best_loss = loss;
@@ -262,6 +283,19 @@ fn main() -> MlResult<()> {
         }
     }
 
+    // After training, create and display the loss chart
+    let mut loss_chart = Chart::new(ChartType::Line)
+        .with_height(15)
+        .with_title("Training Loss Over Time");
+
+    // Add loss data points (show every 50th epoch to avoid overcrowding)
+    for (epoch, &loss) in losses.iter().step_by(50).enumerate() {
+        loss_chart.add_data_point(&format!("{}", epoch * 50), loss as f64);
+    }
+
+    println!("\nTraining Loss Graph:");
+    println!("{}", loss_chart);
+
     let training_time = start_time.elapsed();
     println!("\nTraining Complete!");
     println!("Training time: {:.2?}", training_time);
@@ -270,10 +304,18 @@ fn main() -> MlResult<()> {
     let predictions = model.forward(&x_test)?;
 
     println!("\nTest Set Predictions:");
-    println!("╔═══════════════════════════════════════════════════════════════════╗");
-    println!("║  Height  │  Weight  │  Raw Prediction  │  Predicted  │   Actual   ║");
-    println!("╠═══════════════════════════════════════════════════════════════════╣");
 
+    // Create table using the builder pattern
+    let mut table = Table::builder()
+        .add_column(Column::new("Height").with_alignment(Alignment::Right))
+        .add_column(Column::new("Weight").with_alignment(Alignment::Right))
+        .add_column(Column::new("Raw Prediction").with_alignment(Alignment::Left))
+        .add_column(Column::new("Predicted").with_alignment(Alignment::Center))
+        .add_column(Column::new("Actual").with_alignment(Alignment::Center))
+        .style(BorderStyle::Double)
+        .build();
+
+    // Add rows to the table
     for i in 0..x_test.data().len() / 2 {
         let height_idx = i * 2;
         let weight_idx = height_idx + 1;
@@ -294,12 +336,18 @@ fn main() -> MlResult<()> {
             "Male"
         };
 
-        println!(
-            "║  {:6.1}  │  {:6.1}  │      {:.4}      │   {:8}  │  {:8}  ║",
-            height, weight, raw_pred, predicted, actual
-        );
+        table.add_row(vec![
+            height.to_string(),
+            weight.to_string(),
+            // show 4 decimal places
+            format!("{:.4}", raw_pred),
+            predicted.to_string(),
+            actual.to_string(),
+        ]);
     }
-    println!("╚═══════════════════════════════════════════════=═══════════════════╝");
+
+    // Display the table
+    println!("{}", table);
 
     let (train_accuracy, _) = model.evaluate(&x_train, &y_train, 0.5)?;
     let (test_accuracy, _) = model.evaluate(&x_test, &y_test, 0.5)?;
@@ -313,7 +361,7 @@ fn main() -> MlResult<()> {
 
     // Optional: Verify the saved model
     let loaded_model = GenderClassifier::load(save_path)?;
-    let (loaded_accuracy, _) = loaded_model.evaluate(&x_train, &y_train, 0.5)?;
+    let (loaded_accuracy, _) = loaded_model.evaluate(&x_test, &y_test, 0.5)?;
     println!("Loaded model accuracy: {:.1}%", loaded_accuracy);
 
     Ok(())
