@@ -5,6 +5,7 @@ use std::sync::Once;
 
 use crate::backend::BackendError;
 use crate::MlResult;
+#[cfg(feature = "cuda")]
 use crate::backend::cuda::CudaDevice;
 
 static INIT: Once = Once::new();
