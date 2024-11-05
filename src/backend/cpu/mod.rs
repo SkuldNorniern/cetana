@@ -1,91 +1,87 @@
 use crate::backend::{Backend, Device, DeviceType};
 use crate::MlResult;
 
+mod compute;
+mod core;
+
+pub use compute::CpuCompute;
+pub use core::CpuCore;
+
 #[derive(Debug)]
-pub struct CpuBackend;
+pub struct CpuBackend {
+    core: CpuCore,
+    compute: CpuCompute,
+}
 
 impl Device for CpuBackend {
     fn new() -> MlResult<Self> {
-        Ok(CpuBackend)
+        Ok(CpuBackend {
+            core: CpuCore::new(),
+            compute: CpuCompute::new(),
+        })
     }
 
     fn device_type(&self) -> DeviceType {
         DeviceType::Cpu
     }
 
-    fn supports_feature(&self, _feature: &str) -> bool {
-        true // CPU supports all basic features
+    fn supports_feature(&self, feature: &str) -> bool {
+        self.core.supports_feature(feature)
     }
 }
 
 impl Backend for CpuBackend {
     fn device(&self) -> DeviceType {
-        DeviceType::Cpu
+        self.core.device_type()
     }
 
-    fn execute_compute(&self, _dimensions: [u32; 3]) -> MlResult<()> {
-        Ok(())
+    fn execute_compute(&self, dimensions: [u32; 3]) -> MlResult<()> {
+        self.compute.execute(dimensions)
     }
 
+    // Delegate all operations to compute module
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
+        self.compute.add(a, b)
     }
 
     fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        a.iter().zip(b.iter()).map(|(x, y)| x * y).collect()
+        self.compute.multiply(a, b)
     }
 
     fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-        let mut result = vec![0.0; m * k];
-
-        // Perform matrix multiplication C = A × B
-        // A is m×n, B is n×k, resulting in m×k matrix
-        for i in 0..m {
-            for j in 0..k {
-                let mut sum = 0.0;
-                for l in 0..n {
-                    sum += a[i * n + l] * b[l * k + j];
-                }
-                result[i * k + j] = sum;
-            }
-        }
-
-        result
+        self.compute.matmul(a, b, m, n, k)
     }
 
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        a.iter().zip(b.iter()).map(|(x, y)| x / y).collect()
+        self.compute.div(a, b)
     }
 
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        a.iter().zip(b.iter()).map(|(x, y)| x - y).collect()
+        self.compute.sub(a, b)
     }
 
     fn exp(&self, a: &[f32]) -> Vec<f32> {
-        a.iter().map(|x| x.exp()).collect()
+        self.compute.exp(a)
     }
 
     fn log(&self, a: &[f32]) -> Vec<f32> {
-        a.iter().map(|x| x.ln()).collect()
+        self.compute.log(a)
     }
 
     fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
-        a.iter().map(|x| x.powf(power)).collect()
+        self.compute.pow(a, power)
     }
 
     fn sqrt(&self, a: &[f32]) -> Vec<f32> {
-        a.iter().map(|x| x.sqrt()).collect()
+        self.compute.sqrt(a)
     }
 
     fn sum(&self, a: &[f32]) -> f32 {
-        a.iter().sum()
+        self.compute.sum(a)
     }
 
     fn mean(&self, a: &[f32]) -> f32 {
-        if a.is_empty() {
-            return 0.0;
-        }
-        self.sum(a) / a.len() as f32
+        self.compute.mean(a)
     }
 }
 

@@ -1,0 +1,283 @@
+use crate::MlResult;
+
+#[derive(Debug)]
+pub struct CpuCompute;
+
+impl CpuCompute {
+    pub fn new() -> Self {
+        CpuCompute
+    }
+
+    pub fn execute(&self, _dimensions: [u32; 3]) -> MlResult<()> {
+        Ok(())
+    }
+
+    // Optimized vector operations with bounds checking
+    fn check_dimensions(&self, a: &[f32], b: &[f32]) -> Option<usize> {
+        if a.len() != b.len() {
+            return None;
+        }
+        Some(a.len())
+    }
+
+    // Optimized binary operations using chunks
+    pub fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        if let Some(len) = self.check_dimensions(a, b) {
+            let mut result = Vec::with_capacity(len);
+            for (x, y) in a.chunks(4).zip(b.chunks(4)) {
+                result.extend(x.iter().zip(y.iter()).map(|(a, b)| a + b));
+            }
+            result
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        if let Some(len) = self.check_dimensions(a, b) {
+            let mut result = Vec::with_capacity(len);
+            for (x, y) in a.chunks(4).zip(b.chunks(4)) {
+                result.extend(x.iter().zip(y.iter()).map(|(a, b)| a * b));
+            }
+            result
+        } else {
+            Vec::new()
+        }
+    }
+
+    // Optimized matrix multiplication with cache-friendly access
+    pub fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
+        let mut result = vec![0.0; m * k];
+        let block_size = 8; // Cache-friendly block size
+
+        for i0 in (0..m).step_by(block_size) {
+            for j0 in (0..k).step_by(block_size) {
+                for l0 in (0..n).step_by(block_size) {
+                    let i_end = (i0 + block_size).min(m);
+                    let j_end = (j0 + block_size).min(k);
+                    let l_end = (l0 + block_size).min(n);
+
+                    for i in i0..i_end {
+                        for j in j0..j_end {
+                            let mut sum = result[i * k + j];
+                            for l in l0..l_end {
+                                sum += a[i * n + l] * b[l * k + j];
+                            }
+                            result[i * k + j] = sum;
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    pub fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        if let Some(len) = self.check_dimensions(a, b) {
+            let mut result = Vec::with_capacity(len);
+            for (x, y) in a.chunks(4).zip(b.chunks(4)) {
+                result.extend(x.iter().zip(y.iter()).map(|(a, b)| {
+                    if *b == 0.0 {
+                        f32::INFINITY
+                    } else {
+                        a / b
+                    }
+                }));
+            }
+            result
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        if let Some(len) = self.check_dimensions(a, b) {
+            let mut result = Vec::with_capacity(len);
+            for (x, y) in a.chunks(4).zip(b.chunks(4)) {
+                result.extend(x.iter().zip(y.iter()).map(|(a, b)| a - b));
+            }
+            result
+        } else {
+            Vec::new()
+        }
+    }
+
+    // Optimized exponential operations
+    pub fn exp(&self, a: &[f32]) -> Vec<f32> {
+        let mut result = Vec::with_capacity(a.len());
+        for &x in a {
+            if x > 88.0 {
+                result.push(f32::INFINITY);
+            } else if x < -88.0 {
+                result.push(0.0);
+            } else {
+                result.push(x.exp());
+            }
+        }
+        result
+    }
+
+    pub fn log(&self, a: &[f32]) -> Vec<f32> {
+        let mut result = Vec::with_capacity(a.len());
+        for &x in a {
+            result.push(if x <= 0.0 { f32::NEG_INFINITY } else { x.ln() });
+        }
+        result
+    }
+
+    // Optimized power operations
+    pub fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
+        if power == 2.0 {
+            return a.iter().map(|x| x * x).collect();
+        }
+        if power == 0.5 {
+            return self.sqrt(a);
+        }
+        a.iter().map(|x| x.powf(power)).collect()
+    }
+
+    pub fn sqrt(&self, a: &[f32]) -> Vec<f32> {
+        let mut result = Vec::with_capacity(a.len());
+        for &x in a {
+            result.push(if x < 0.0 { f32::NAN } else { x.sqrt() });
+        }
+        result
+    }
+
+    // Optimized reduction operations
+    pub fn sum(&self, a: &[f32]) -> f32 {
+        let mut sum = 0.0;
+        for chunk in a.chunks(8) {
+            sum += chunk.iter().sum::<f32>();
+        }
+        sum
+    }
+
+    pub fn mean(&self, a: &[f32]) -> f32 {
+        if a.is_empty() {
+            return 0.0;
+        }
+        self.sum(a) / a.len() as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_operations() {
+        let compute = CpuCompute::new();
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![4.0, 5.0, 6.0];
+
+        let sum = compute.add(&a, &b);
+        assert_eq!(sum, vec![5.0, 7.0, 9.0]);
+
+        let product = compute.multiply(&a, &b);
+        assert_eq!(product, vec![4.0, 10.0, 18.0]);
+
+        let diff = compute.sub(&a, &b);
+        assert_eq!(diff, vec![-3.0, -3.0, -3.0]);
+
+        let div = compute.div(&b, &a);
+        assert_eq!(div, vec![4.0, 2.5, 2.0]);
+    }
+
+    #[test]
+    fn test_matmul() {
+        let compute = CpuCompute::new();
+        let a = vec![1.0, 2.0, 3.0, 4.0];
+        let b = vec![5.0, 6.0, 7.0, 8.0];
+
+        let result = compute.matmul(&a, &b, 2, 2, 2);
+        assert_eq!(result, vec![19.0, 22.0, 43.0, 50.0]);
+    }
+
+    #[test]
+    fn test_exponential_operations() {
+        let compute = CpuCompute::new();
+        let a = vec![0.0, 1.0, 2.0];
+
+        let exp_result = compute.exp(&a);
+        assert!((exp_result[0] - 1.0).abs() < 1e-6);
+        assert!((exp_result[1] - 2.718281828459045).abs() < 1e-6);
+        assert!((exp_result[2] - 7.389056098930650).abs() < 1e-6);
+
+        let log_input = vec![1.0, 2.718281828459045, 7.389056098930650];
+        let log_result = compute.log(&log_input);
+        assert!((log_result[0] - 0.0).abs() < 1e-6);
+        assert!((log_result[1] - 1.0).abs() < 1e-6);
+        assert!((log_result[2] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_power_operations() {
+        let compute = CpuCompute::new();
+        let a = vec![1.0, 2.0, 3.0];
+
+        let squared = compute.pow(&a, 2.0);
+        assert_eq!(squared, vec![1.0, 4.0, 9.0]);
+
+        let sqrt_result = compute.sqrt(&squared);
+        assert_eq!(sqrt_result, a);
+    }
+
+    #[test]
+    fn test_aggregation_operations() {
+        let compute = CpuCompute::new();
+        let a = vec![1.0, 2.0, 3.0, 4.0];
+
+        let sum_result = compute.sum(&a);
+        assert_eq!(sum_result, 10.0);
+
+        let mean_result = compute.mean(&a);
+        assert_eq!(mean_result, 2.5);
+    }
+
+    #[test]
+    fn test_empty_array() {
+        let compute = CpuCompute::new();
+        let empty: Vec<f32> = vec![];
+
+        assert_eq!(compute.sum(&empty), 0.0);
+        assert_eq!(compute.mean(&empty), 0.0);
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        let compute = CpuCompute::new();
+        
+        // Test division by zero handling
+        let a = vec![1.0];
+        let b = vec![0.0];
+        let div_result = compute.div(&a, &b);
+        assert!(div_result[0].is_infinite());
+
+        // Test very large numbers
+        let large = vec![f32::MAX];
+        let exp_result = compute.exp(&large);
+        assert!(exp_result[0].is_infinite());
+
+        // Test very small numbers
+        let small = vec![f32::MIN_POSITIVE];
+        let log_result = compute.log(&small);
+        assert!(log_result[0] < 0.0);
+    }
+
+    #[test]
+    fn test_matrix_multiplication_different_sizes() {
+        let compute = CpuCompute::new();
+        
+        // 2x3 * 3x2 matrix multiplication
+        let a = vec![1.0, 2.0, 3.0,  // 2x3 matrix
+                    4.0, 5.0, 6.0];
+        
+        let b = vec![7.0, 8.0,       // 3x2 matrix
+                    9.0, 10.0,
+                    11.0, 12.0];
+        
+        let result = compute.matmul(&a, &b, 2, 3, 2);
+        assert_eq!(result, vec![58.0, 64.0, 139.0, 154.0]);
+    }
+}
