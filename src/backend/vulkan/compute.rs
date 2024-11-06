@@ -35,8 +35,7 @@ struct PushConstants {
 
 impl DeviceTrait for VulkanBackend {
     fn new() -> MlResult<Self> {
-        
-        let entry = unsafe { 
+        let entry = unsafe {
             ash::Entry::load().map_err(|e| {
                 println!("Failed to load Vulkan entry: {:?}", e);
                 e
@@ -44,13 +43,11 @@ impl DeviceTrait for VulkanBackend {
         };
 
         // Create instance
-        let app_info = vk::ApplicationInfo::default()
-            .api_version(vk::make_api_version(0, 1, 0, 0));
+        let app_info = vk::ApplicationInfo::default().api_version(vk::make_api_version(0, 1, 0, 0));
 
-        let create_info = vk::InstanceCreateInfo::default()
-            .application_info(&app_info);
+        let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
 
-        let instance = unsafe { 
+        let instance = unsafe {
             entry.create_instance(&create_info, None).map_err(|e| {
                 println!("Failed to create Vulkan instance: {:?}", e);
                 VulkanError::from(e)
@@ -58,7 +55,7 @@ impl DeviceTrait for VulkanBackend {
         };
 
         // Get physical devices
-        let physical_devices = unsafe { 
+        let physical_devices = unsafe {
             instance.enumerate_physical_devices().map_err(|e| {
                 println!("Failed to enumerate physical devices: {:?}", e);
                 BackendError::VulkanError(VulkanError::from(e))
@@ -74,9 +71,8 @@ impl DeviceTrait for VulkanBackend {
         let (physical_device, queue_family_index) = physical_devices
             .iter()
             .find_map(|&device| {
-                let queue_families = unsafe { 
-                    instance.get_physical_device_queue_family_properties(device)
-                };
+                let queue_families =
+                    unsafe { instance.get_physical_device_queue_family_properties(device) };
 
                 queue_families
                     .iter()
@@ -100,50 +96,48 @@ impl DeviceTrait for VulkanBackend {
             .queue_create_infos(std::slice::from_ref(&queue_info))
             .enabled_features(&device_features);
 
-        let device = unsafe { 
-            instance.create_device(physical_device, &device_create_info, None).map_err(|e| {
-                println!("Failed to create logical device: {:?}", e);
-                e
-            })?
+        let device = unsafe {
+            instance
+                .create_device(physical_device, &device_create_info, None)
+                .inspect_err(|&e| {
+                    println!("Failed to create logical device: {:?}", e);
+                })?
         };
 
         // Get compute queue first before moving device
         let compute_queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
         // Create shader modules
-        
+
         // Create reduction shader module
         let reduction_shader_module = {
             let reduction_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/reduction.spv"));
             let create_info = vk::ShaderModuleCreateInfo::default()
                 .code(cast_slice_to_u32(reduction_shader_bytes));
-                
-            unsafe {
-                device.create_shader_module(&create_info, None)?
-            }
+
+            unsafe { device.create_shader_module(&create_info, None)? }
         };
 
         // Create binary ops shader module
         let binary_ops_shader_module = {
-            let binary_ops_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/binary_ops.spv"));
+            let binary_ops_shader_bytes =
+                include_bytes!(concat!(env!("OUT_DIR"), "/binary_ops.spv"));
             let create_info = vk::ShaderModuleCreateInfo::default()
                 .code(cast_slice_to_u32(binary_ops_shader_bytes));
-                
-            unsafe {
-                device.create_shader_module(&create_info, None)?
-            }
+
+            unsafe { device.create_shader_module(&create_info, None)? }
         };
 
         // Create command pool
         let command_pool = Self::create_command_pool(&device, queue_family_index)?;
-        
+
         // Create descriptor pool and layout
         let descriptor_pool = Self::create_descriptor_pool(&device)?;
         let descriptor_set_layout = Self::create_descriptor_set_layout(&device)?;
-        
+
         // Create pipeline layout
         let pipeline_layout = Self::create_pipeline_layout(&device, descriptor_set_layout)?;
-        
+
         // Create compute pipelines
         let (reduction_pipeline, binary_ops_pipeline) = Self::create_compute_pipelines(
             &device,
@@ -319,10 +313,7 @@ impl VulkanBackend {
 
         // Find suitable memory type
         let memory_type_index = self
-            .find_memory_type(
-                mem_requirements.memory_type_bits,
-                properties,
-            )
+            .find_memory_type(mem_requirements.memory_type_bits, properties)
             .ok_or(VulkanError::NoSuitableMemoryType)?;
 
         // Allocate memory
@@ -333,7 +324,7 @@ impl VulkanBackend {
             ..Default::default()
         };
 
-        let memory = unsafe { 
+        let memory = unsafe {
             match self.device.allocate_memory(&alloc_info, None) {
                 Ok(mem) => mem,
                 Err(err) => {
@@ -355,11 +346,11 @@ impl VulkanBackend {
         Ok((buffer, memory))
     }
 
-    fn execute_binary_operation(&self, a: &[f32], b: &[f32], op_type: u32) -> MlResult<Vec<f32>> {
+    fn execute_binary_operation(&self, a: &[f32], b: &[f32], _op_type: u32) -> MlResult<Vec<f32>> {
         // Calculate buffer sizes and ensure they're aligned
-        let element_size = std::mem::size_of::<f32>();
-        let buffer_size = (a.len() * element_size) as u64;
-        
+        let _element_size = std::mem::size_of::<f32>();
+        let buffer_size = std::mem::size_of_val(a) as u64;
+
         // Create staging buffers for host-visible memory
         let (staging_buffer_a, staging_memory_a) = self.create_buffer(
             buffer_size,
@@ -395,23 +386,23 @@ impl VulkanBackend {
         // Copy input data to staging buffers
         unsafe {
             // Copy data A
-            let data_ptr = self.device
-                .map_memory(staging_memory_a, 0, buffer_size, vk::MemoryMapFlags::empty())? as *mut u8;
-            std::ptr::copy_nonoverlapping(
-                a.as_ptr() as *const u8,
-                data_ptr,
-                buffer_size as usize,
-            );
+            let data_ptr = self.device.map_memory(
+                staging_memory_a,
+                0,
+                buffer_size,
+                vk::MemoryMapFlags::empty(),
+            )? as *mut u8;
+            std::ptr::copy_nonoverlapping(a.as_ptr() as *const u8, data_ptr, buffer_size as usize);
             self.device.unmap_memory(staging_memory_a);
 
             // Copy data B
-            let data_ptr = self.device
-                .map_memory(staging_memory_b, 0, buffer_size, vk::MemoryMapFlags::empty())? as *mut u8;
-            std::ptr::copy_nonoverlapping(
-                b.as_ptr() as *const u8,
-                data_ptr,
-                buffer_size as usize,
-            );
+            let data_ptr = self.device.map_memory(
+                staging_memory_b,
+                0,
+                buffer_size,
+                vk::MemoryMapFlags::empty(),
+            )? as *mut u8;
+            std::ptr::copy_nonoverlapping(b.as_ptr() as *const u8, data_ptr, buffer_size as usize);
             self.device.unmap_memory(staging_memory_b);
         }
 
@@ -420,10 +411,8 @@ impl VulkanBackend {
 
         unsafe {
             // Begin command buffer
-            self.device.begin_command_buffer(
-                command_buffer,
-                &vk::CommandBufferBeginInfo::default(),
-            )?;
+            self.device
+                .begin_command_buffer(command_buffer, &vk::CommandBufferBeginInfo::default())?;
 
             // Copy from staging buffers to device local buffers
             let copy_region = vk::BufferCopy {
@@ -432,19 +421,11 @@ impl VulkanBackend {
                 size: buffer_size,
             };
 
-            self.device.cmd_copy_buffer(
-                command_buffer,
-                staging_buffer_a,
-                buffer_a,
-                &[copy_region],
-            );
+            self.device
+                .cmd_copy_buffer(command_buffer, staging_buffer_a, buffer_a, &[copy_region]);
 
-            self.device.cmd_copy_buffer(
-                command_buffer,
-                staging_buffer_b,
-                buffer_b,
-                &[copy_region],
-            );
+            self.device
+                .cmd_copy_buffer(command_buffer, staging_buffer_b, buffer_b, &[copy_region]);
 
             // Add memory barriers to ensure transfers complete before compute
             let buffer_barriers = [
@@ -503,7 +484,8 @@ impl VulkanBackend {
         let fence = unsafe { self.device.create_fence(&fence_create_info, None)? };
 
         unsafe {
-            self.device.queue_submit(self.compute_queue, &[submit_info], fence)?;
+            self.device
+                .queue_submit(self.compute_queue, &[submit_info], fence)?;
             self.device.wait_for_fences(&[fence], true, u64::MAX)?;
         }
 
@@ -517,10 +499,8 @@ impl VulkanBackend {
         // Copy results back
         let command_buffer = self.allocate_command_buffer()?;
         unsafe {
-            self.device.begin_command_buffer(
-                command_buffer,
-                &vk::CommandBufferBeginInfo::default(),
-            )?;
+            self.device
+                .begin_command_buffer(command_buffer, &vk::CommandBufferBeginInfo::default())?;
 
             self.device.cmd_copy_buffer(
                 command_buffer,
@@ -542,7 +522,8 @@ impl VulkanBackend {
                 ..Default::default()
             };
 
-            self.device.queue_submit(self.compute_queue, &[submit_info], fence)?;
+            self.device
+                .queue_submit(self.compute_queue, &[submit_info], fence)?;
             self.device.wait_for_fences(&[fence], true, u64::MAX)?;
         }
 
@@ -562,7 +543,7 @@ impl VulkanBackend {
         // Cleanup
         unsafe {
             self.device.destroy_fence(fence, None);
-            
+
             // Cleanup staging buffers
             self.device.destroy_buffer(staging_buffer_a, None);
             self.device.free_memory(staging_memory_a, None);
@@ -570,7 +551,7 @@ impl VulkanBackend {
             self.device.free_memory(staging_memory_b, None);
             self.device.destroy_buffer(staging_buffer_result, None);
             self.device.free_memory(staging_memory_result, None);
-            
+
             // Cleanup device-local buffers
             self.device.destroy_buffer(buffer_a, None);
             self.device.free_memory(memory_a, None);
@@ -759,7 +740,7 @@ impl VulkanBackend {
         // Calculate workgroup size and number of workgroups
         let workgroup_size = 256;
         let num_workgroups = (input.len() as u32 + workgroup_size - 1) / workgroup_size;
-        
+
         // Limit maximum number of workgroups to avoid excessive memory usage
         let max_workgroups = 1024; // Arbitrary limit, adjust based on your GPU
         let num_workgroups = num_workgroups.min(max_workgroups);
@@ -782,7 +763,7 @@ impl VulkanBackend {
     }
 
     fn execute_reduction_batch(&self, input: &[f32], num_workgroups: u32) -> MlResult<f32> {
-        let input_size = (input.len() * std::mem::size_of::<f32>()) as u64;
+        let input_size = std::mem::size_of_val(input) as u64;
         let output_size = (num_workgroups as usize * std::mem::size_of::<f32>()) as u64;
 
         // Try to create buffers with error handling
@@ -850,8 +831,12 @@ impl VulkanBackend {
 
         // Copy input data to staging buffer
         unsafe {
-            let data_ptr = self.device
-                .map_memory(staging_input_memory, 0, input_size, vk::MemoryMapFlags::empty())? as *mut u8;
+            let data_ptr = self.device.map_memory(
+                staging_input_memory,
+                0,
+                input_size,
+                vk::MemoryMapFlags::empty(),
+            )? as *mut u8;
             std::ptr::copy_nonoverlapping(
                 input.as_ptr() as *const u8,
                 data_ptr,
@@ -873,7 +858,8 @@ impl VulkanBackend {
         };
 
         let descriptor_set = unsafe {
-            self.device.allocate_descriptor_sets(&descriptor_set_allocate_info)?[0]
+            self.device
+                .allocate_descriptor_sets(&descriptor_set_allocate_info)?[0]
         };
 
         // Update descriptor set
@@ -921,10 +907,8 @@ impl VulkanBackend {
 
         unsafe {
             // Begin command buffer
-            self.device.begin_command_buffer(
-                command_buffer,
-                &vk::CommandBufferBeginInfo::default(),
-            )?;
+            self.device
+                .begin_command_buffer(command_buffer, &vk::CommandBufferBeginInfo::default())?;
 
             // Copy input data from staging to device-local buffer
             self.device.cmd_copy_buffer(
@@ -963,8 +947,9 @@ impl VulkanBackend {
             );
 
             // Update descriptor sets and bind pipeline
-            self.device.update_descriptor_sets(&write_descriptor_sets, &[]);
-            
+            self.device
+                .update_descriptor_sets(&write_descriptor_sets, &[]);
+
             self.device.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::COMPUTE,
@@ -981,7 +966,8 @@ impl VulkanBackend {
             );
 
             // Dispatch compute shader
-            self.device.cmd_dispatch(command_buffer, num_workgroups, 1, 1);
+            self.device
+                .cmd_dispatch(command_buffer, num_workgroups, 1, 1);
 
             // Add barrier for compute completion
             let compute_barrier = vk::BufferMemoryBarrier {
@@ -1036,16 +1022,25 @@ impl VulkanBackend {
         };
 
         unsafe {
-            self.device.queue_submit(self.compute_queue, &[submit_info], fence)?;
+            self.device
+                .queue_submit(self.compute_queue, &[submit_info], fence)?;
             self.device.wait_for_fences(&[fence], true, u64::MAX)?;
         }
 
         // Read results
         let mut partial_sums = vec![0.0f32; num_workgroups as usize];
         unsafe {
-            let data_ptr = self.device
-                .map_memory(staging_output_memory, 0, output_size, vk::MemoryMapFlags::empty())? as *const f32;
-            std::ptr::copy_nonoverlapping(data_ptr, partial_sums.as_mut_ptr(), num_workgroups as usize);
+            let data_ptr = self.device.map_memory(
+                staging_output_memory,
+                0,
+                output_size,
+                vk::MemoryMapFlags::empty(),
+            )? as *const f32;
+            std::ptr::copy_nonoverlapping(
+                data_ptr,
+                partial_sums.as_mut_ptr(),
+                num_workgroups as usize,
+            );
             self.device.unmap_memory(staging_output_memory);
         }
 
@@ -1274,14 +1269,15 @@ impl VulkanBackend {
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
         ];
 
-        let create_info = vk::DescriptorSetLayoutCreateInfo::default()
-            .bindings(&bindings);
+        let create_info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
 
         unsafe {
-            device.create_descriptor_set_layout(&create_info, None).map_err(|e| {
-                println!("Failed to create descriptor set layout: {:?}", e);
-                BackendError::VulkanError(VulkanError::from(e)).into()
-            })
+            device
+                .create_descriptor_set_layout(&create_info, None)
+                .map_err(|e| {
+                    println!("Failed to create descriptor set layout: {:?}", e);
+                    BackendError::VulkanError(VulkanError::from(e)).into()
+                })
         }
     }
 
@@ -1299,10 +1295,12 @@ impl VulkanBackend {
             .push_constant_ranges(std::slice::from_ref(&push_constant_range));
 
         unsafe {
-            device.create_pipeline_layout(&create_info, None).map_err(|e| {
-                println!("Failed to create pipeline layout: {:?}", e);
-                BackendError::VulkanError(VulkanError::from(e)).into()
-            })
+            device
+                .create_pipeline_layout(&create_info, None)
+                .map_err(|e| {
+                    println!("Failed to create pipeline layout: {:?}", e);
+                    BackendError::VulkanError(VulkanError::from(e)).into()
+                })
         }
     }
 
@@ -1334,7 +1332,8 @@ impl VulkanBackend {
         ];
 
         unsafe {
-            device.create_compute_pipelines(vk::PipelineCache::null(), &create_infos, None)
+            device
+                .create_compute_pipelines(vk::PipelineCache::null(), &create_infos, None)
                 .map_err(|e| {
                     println!("Failed to create compute pipelines: {:?}", e);
                     BackendError::VulkanError(VulkanError::from(e.1)).into()
@@ -1357,12 +1356,10 @@ impl VulkanBackend {
     }
 
     fn create_descriptor_pool(device: &Device) -> MlResult<vk::DescriptorPool> {
-        let pool_sizes = [
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::STORAGE_BUFFER,
-                descriptor_count: 1000,
-            },
-        ];
+        let pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1000,
+        }];
 
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
@@ -1370,10 +1367,12 @@ impl VulkanBackend {
             .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
 
         unsafe {
-            device.create_descriptor_pool(&create_info, None).map_err(|e| {
-                println!("Failed to create descriptor pool: {:?}", e);
-                BackendError::VulkanError(VulkanError::from(e)).into()
-            })
+            device
+                .create_descriptor_pool(&create_info, None)
+                .map_err(|e| {
+                    println!("Failed to create descriptor pool: {:?}", e);
+                    BackendError::VulkanError(VulkanError::from(e)).into()
+                })
         }
     }
 
@@ -1397,25 +1396,30 @@ impl Drop for VulkanBackend {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().ok();
-            
+
             // Destroy pipelines
             self.device.destroy_pipeline(self.reduction_pipeline, None);
             self.device.destroy_pipeline(self.binary_ops_pipeline, None);
-            
+
             // Destroy shader modules
-            self.device.destroy_shader_module(self.reduction_shader_module, None);
-            self.device.destroy_shader_module(self.binary_ops_shader_module, None);
-            
+            self.device
+                .destroy_shader_module(self.reduction_shader_module, None);
+            self.device
+                .destroy_shader_module(self.binary_ops_shader_module, None);
+
             // Destroy pipeline layout and descriptor set layout
-            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
-            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            
+            self.device
+                .destroy_pipeline_layout(self.pipeline_layout, None);
+            self.device
+                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+
             // Destroy descriptor pool
-            self.device.destroy_descriptor_pool(self.descriptor_pool, None);
-            
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+
             // Destroy command pool
             self.device.destroy_command_pool(self.command_pool, None);
-            
+
             // Destroy device and instance
             self.device.destroy_device(None);
             self.instance.destroy_instance(None);

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::nn::Module;
+use crate::prelude::Layer;
 use crate::MlResult;
 
 // Magic bytes to identify our format
@@ -82,7 +82,7 @@ impl<T: DeserializeComponents> Deserialize for T {
     }
 }
 
-pub trait Model: Module + Serialize + Deserialize {
+pub trait Model: Layer + Serialize + Deserialize {
     fn save<P: AsRef<Path>>(&self, path: P) -> MlResult<()> {
         let mut file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
 
@@ -164,8 +164,16 @@ mod tests {
         // Implement a simple struct that implements Module + Model for testing
         struct TestModel(Tensor);
 
-        impl Module for TestModel {
+        impl Layer for TestModel {
             fn forward(&self, _input: &Tensor) -> MlResult<Tensor> {
+                Ok(self.0.clone())
+            }
+            fn backward(
+                &mut self,
+                _input: &Tensor,
+                _grad_output: &Tensor,
+                _learning_rate: f32,
+            ) -> MlResult<Tensor> {
                 Ok(self.0.clone())
             }
         }
@@ -212,8 +220,16 @@ mod tests {
             .expect("Failed to write test data");
 
         struct TestModel(Tensor);
-        impl Module for TestModel {
+        impl Layer for TestModel {
             fn forward(&self, _input: &Tensor) -> MlResult<Tensor> {
+                Ok(self.0.clone())
+            }
+            fn backward(
+                &mut self,
+                _input: &Tensor,
+                _grad_output: &Tensor,
+                _learning_rate: f32,
+            ) -> MlResult<Tensor> {
                 Ok(self.0.clone())
             }
         }

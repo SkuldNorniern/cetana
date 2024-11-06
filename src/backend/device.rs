@@ -3,10 +3,10 @@ use std::fmt::{Display, Formatter};
 use std::sync::Mutex;
 use std::sync::Once;
 
-use crate::backend::BackendError;
-use crate::MlResult;
 #[cfg(feature = "cuda")]
 use crate::backend::cuda::CudaDevice;
+use crate::backend::BackendError;
+use crate::MlResult;
 
 static INIT: Once = Once::new();
 static mut GLOBAL_DEVICE_MANAGER: Option<DeviceManager> = None;
@@ -31,6 +31,12 @@ impl Display for DeviceType {
 
 pub struct DeviceManager {
     available_devices: HashSet<DeviceType>,
+}
+
+impl Default for DeviceManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DeviceManager {
@@ -59,15 +65,13 @@ impl DeviceManager {
             println!("Checking Vulkan support...");
             if let Ok(entry) = unsafe { ash::Entry::load() } {
                 match unsafe { entry.enumerate_instance_extension_properties(None) } {
-                    Ok(_) => {
-                        match crate::backend::VulkanBackend::new() {
-                            Ok(_) => {
-                                println!("Vulkan GPU support confirmed");
-                                available_devices.insert(DeviceType::Vulkan);
-                            }
-                            Err(e) => println!("Vulkan backend creation failed: {:?}", e),
+                    Ok(_) => match crate::backend::VulkanBackend::new() {
+                        Ok(_) => {
+                            println!("Vulkan GPU support confirmed");
+                            available_devices.insert(DeviceType::Vulkan);
                         }
-                    }
+                        Err(e) => println!("Vulkan backend creation failed: {:?}", e),
+                    },
                     Err(e) => println!("Vulkan extension enumeration failed: {:?}", e),
                 }
             } else {

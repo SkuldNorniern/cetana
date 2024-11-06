@@ -60,17 +60,20 @@ fn compile_vulkan_shaders() -> std::io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to compile binary operations shader"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to compile binary operations shader",
+        ))
     }
 }
 
-#[cfg(all(feature = "metal", target_os = "macos"))]
+#[cfg(all(feature = "mps", target_os = "macos"))]
 fn compile_metal_shaders() -> std::io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let shader_dir = PathBuf::from("shaders/metal");
 
     if !shader_dir.exists() {
-        return Ok(());  // Skip if metal shaders directory doesn't exist
+        return Ok(()); // Skip if metal shaders directory doesn't exist
     }
 
     // Create output directory if it doesn't exist
@@ -81,7 +84,7 @@ fn compile_metal_shaders() -> std::io::Result<()> {
     for shader in shader_files.iter() {
         let shader_path = shader_dir.join(shader);
         if !shader_path.exists() {
-            continue;  // Skip if shader file doesn't exist
+            continue; // Skip if shader file doesn't exist
         }
 
         println!("cargo:rerun-if-changed=shaders/metal/{}", shader);
@@ -89,32 +92,44 @@ fn compile_metal_shaders() -> std::io::Result<()> {
         // Compile .metal to .air
         let status = Command::new("xcrun")
             .args([
-                "-sdk", "macosx", "metal",
+                "-sdk",
+                "macosx",
+                "metal",
                 "-c",
                 shader_path.to_str().unwrap(),
                 "-o",
-                out_dir.join(format!("{}.air", shader.replace(".metal", "")))
-                .to_str().unwrap()
+                out_dir
+                    .join(format!("{}.air", shader.replace(".metal", "")))
+                    .to_str()
+                    .unwrap(),
             ])
             .status()?;
 
         if !status.success() {
             return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to compile {}", shader)
+                std::io::ErrorKind::Other,
+                format!("Failed to compile {}", shader),
             ));
         }
     }
 
     // Link .air files into metallib
-    let air_files: Vec<String> = shader_files.iter()
-        .map(|f| out_dir.join(format!("{}.air", f.replace(".metal", "")))
-            .to_str().unwrap().to_string())
+    let air_files: Vec<String> = shader_files
+        .iter()
+        .map(|f| {
+            out_dir
+                .join(format!("{}.air", f.replace(".metal", "")))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
         .collect();
 
     let status = Command::new("xcrun")
         .args([
-            "-sdk", "macosx", "metallib",
+            "-sdk",
+            "macosx",
+            "metallib",
             "-o",
             out_dir.join("shaders.metallib").to_str().unwrap(),
         ])
@@ -123,8 +138,8 @@ fn compile_metal_shaders() -> std::io::Result<()> {
 
     if !status.success() {
         return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to create metallib"
+            std::io::ErrorKind::Other,
+            "Failed to create metallib",
         ));
     }
 
@@ -132,7 +147,8 @@ fn compile_metal_shaders() -> std::io::Result<()> {
 }
 
 fn main() {
-    #[cfg(feature = "cuda")] {
+    #[cfg(feature = "cuda")]
+    {
         println!("cargo:rerun-if-changed=cuda/");
         println!("cargo:rerun-if-changed=cuda-headers/");
         println!("cargo:rerun-if-changed=CMakeLists.txt");
@@ -163,7 +179,7 @@ fn main() {
                 Diagnostics:
                 UnusedIncludes: None"#,
                 cuda_path
-                    );
+            );
 
             fs::write(".clangd", clangd_content).expect("Failed to write .clangd file");
         }
@@ -201,11 +217,9 @@ fn main() {
     }
 
     // Compile Metal shaders only if the "metal" feature is enabled and on macOS
-    #[cfg(all(feature = "metal", target_os = "macos"))]
+    #[cfg(all(feature = "mps", target_os = "macos"))]
     {
         println!("cargo:rerun-if-changed=shaders/metal/");
         compile_metal_shaders().expect("Failed to compile Metal shaders");
     }
-
-
 }

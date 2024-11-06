@@ -7,9 +7,8 @@ pub struct MpsDevice {
 
 impl MpsDevice {
     pub fn new() -> Result<Self, crate::MpsError> {
-        let device = Device::system_default()
-            .ok_or(crate::MpsError::DeviceNotFound)?;
-            
+        let device = Device::system_default().ok_or(crate::MpsError::DeviceNotFound)?;
+
         Ok(Self {
             device: Arc::new(device),
         })

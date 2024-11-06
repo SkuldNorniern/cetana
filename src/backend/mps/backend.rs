@@ -1,6 +1,7 @@
+use super::{MpsCompute, MpsDevice, MpsError};
+use crate::backend::{Backend, DeviceType};
+use metal::{Buffer, MTLDataType, MTLResourceOptions, MTLSize};
 use std::sync::Arc;
-use metal::{Buffer, MTLResourceOptions, MTLSize, MPSMatrixMultiplication, MPSMatrix};
-use super::{MpsDevice, MpsCompute, MpsError};
 
 pub struct MpsBackend {
     device: Arc<MpsDevice>,
@@ -12,10 +13,7 @@ impl MpsBackend {
         let device = Arc::new(MpsDevice::new()?);
         let compute = MpsCompute::new(Arc::clone(&device))?;
 
-        Ok(Self {
-            device,
-            compute,
-        })
+        Ok(Self { device, compute })
     }
 
     pub fn create_buffer<T: Copy>(&self, data: &[T]) -> Result<Buffer, MpsError> {
@@ -28,61 +26,65 @@ impl MpsBackend {
         buffer.ok_or(MpsError::BufferCreationError)
     }
 
-    pub fn matmul(&self, a: &Buffer, b: &Buffer, m: usize, n: usize, k: usize) -> Result<Buffer, MpsError> {
+    pub fn matmul(
+        &self,
+        a: &Buffer,
+        b: &Buffer,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Result<Buffer, MpsError> {
         if m == 0 || n == 0 || k == 0 {
             return Err(MpsError::InvalidDimensions);
         }
 
         let result_size = m * n * std::mem::size_of::<f32>();
-        let result_buffer = self.device.device()
+        let result_buffer = self
+            .device
+            .device()
             .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared)
             .ok_or(MpsError::BufferCreationError)?;
 
+        let library = self
+            .device
+            .device()
+            .new_library_with_source(
+                include_str!("../../../shaders/metal/matrix_ops.metal"),
+                &metal::CompileOptions::new(),
+            )
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+
+        let kernel = library
+            .get_function("matrix_multiply", None)
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+
+        let pipeline = self
+            .device
+            .device()
+            .new_compute_pipeline_state_with_function(&kernel)
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+
+        // Create dimension buffers
+        let m_buffer = self.create_buffer(&[m as u32])?;
+        let n_buffer = self.create_buffer(&[n as u32])?;
+        let k_buffer = self.create_buffer(&[k as u32])?;
+
+        let thread_group_size = MTLSize::new(16, 16, 1);
+        let grid_size = MTLSize::new(((n + 15) / 16) as u64, ((m + 15) / 16) as u64, 1);
+
         let command_buffer = self.compute.command_queue.new_command_buffer();
-        
-        // Create MPS matrices
-        let matrix_a = MPSMatrix::new(
-            m as u64,
-            k as u64,
-            k as u64,
-            MTLDataType::Float32,
-            a,
-            0,
-        );
+        let compute_encoder = command_buffer.new_compute_command_encoder();
 
-        let matrix_b = MPSMatrix::new(
-            k as u64,
-            n as u64,
-            n as u64,
-            MTLDataType::Float32,
-            b,
-            0,
-        );
+        compute_encoder.set_compute_pipeline_state(&pipeline);
+        compute_encoder.set_buffer(0, Some(a), 0);
+        compute_encoder.set_buffer(1, Some(b), 0);
+        compute_encoder.set_buffer(2, Some(&result_buffer), 0);
+        compute_encoder.set_buffer(3, Some(&m_buffer), 0);
+        compute_encoder.set_buffer(4, Some(&n_buffer), 0);
+        compute_encoder.set_buffer(5, Some(&k_buffer), 0);
 
-        let matrix_result = MPSMatrix::new(
-            m as u64,
-            n as u64,
-            n as u64,
-            MTLDataType::Float32,
-            &result_buffer,
-            0,
-        );
-
-        // Create and configure MPS matrix multiplication
-        let mps_matmul = MPSMatrixMultiplication::new(
-            self.device.device(),
-            matrix_a.rows(),
-            matrix_b.columns(),
-            matrix_a.columns(),
-        );
-
-        // Encode matrix multiplication
-        mps_matmul.encode_to_command_buffer(
-            command_buffer,
-            &matrix_a,
-            &matrix_b,
-            &matrix_result,
-        );
+        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        compute_encoder.end_encoding();
 
         command_buffer.commit();
         command_buffer.wait_until_completed();
@@ -91,21 +93,32 @@ impl MpsBackend {
     }
 
     pub fn add(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
-        let result_buffer = self.device.device()
-            .new_buffer((size * std::mem::size_of::<f32>()) as u64, 
-                       MTLResourceOptions::StorageModeShared)
+        let result_buffer = self
+            .device
+            .device()
+            .new_buffer(
+                (size * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            )
             .ok_or(MpsError::BufferCreationError)?;
 
         // Create and compile the addition kernel
-        let library = self.device.device()
-            .new_library_with_source(VECTOR_ADD_SHADER, &metal::CompileOptions::new())
+        let library = self
+            .device
+            .device()
+            .new_library_with_source(
+                include_str!("../../../shaders/metal/binary_ops.metal"),
+                &metal::CompileOptions::new(),
+            )
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
         let kernel = library
             .get_function("vector_add", None)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        let pipeline = self.device.device()
+        let pipeline = self
+            .device
+            .device()
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
@@ -120,7 +133,7 @@ impl MpsBackend {
         compute_encoder.set_buffer(0, Some(a), 0);
         compute_encoder.set_buffer(1, Some(b), 0);
         compute_encoder.set_buffer(2, Some(&result_buffer), 0);
-        
+
         compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
         compute_encoder.end_encoding();
 
@@ -131,21 +144,31 @@ impl MpsBackend {
     }
 
     pub fn multiply(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
-        let result_buffer = self.device.device()
-            .new_buffer((size * std::mem::size_of::<f32>()) as u64, 
-                       MTLResourceOptions::StorageModeShared)
+        let result_buffer = self
+            .device
+            .device()
+            .new_buffer(
+                (size * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            )
             .ok_or(MpsError::BufferCreationError)?;
 
-        let library = self.device.device()
-            .new_library_with_source(include_str!("../../../shaders/metal/binary_ops.metal"), 
-                                   &metal::CompileOptions::new())
+        let library = self
+            .device
+            .device()
+            .new_library_with_source(
+                include_str!("../../../shaders/metal/binary_ops.metal"),
+                &metal::CompileOptions::new(),
+            )
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
         let kernel = library
             .get_function("vector_mul", None)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        let pipeline = self.device.device()
+        let pipeline = self
+            .device
+            .device()
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
@@ -159,7 +182,7 @@ impl MpsBackend {
         compute_encoder.set_buffer(0, Some(a), 0);
         compute_encoder.set_buffer(1, Some(b), 0);
         compute_encoder.set_buffer(2, Some(&result_buffer), 0);
-        
+
         compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
         compute_encoder.end_encoding();
 
@@ -187,4 +210,3 @@ impl crate::Backend for MpsBackend {
         crate::DeviceType::Mps
     }
 }
-

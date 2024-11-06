@@ -1,12 +1,12 @@
 use std::fmt;
 
+mod backend;
 mod compute;
 mod core;
-mod backend;
 
+pub use backend::MpsBackend;
 pub use compute::MpsCompute;
 pub use core::MpsDevice;
-pub use backend::MpsBackend;
 
 #[derive(Debug)]
 pub enum MpsError {
