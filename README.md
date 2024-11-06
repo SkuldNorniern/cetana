@@ -50,17 +50,17 @@ Cetana is a Rust-based machine learning library designed to provide efficient an
 - [x] Neural Network Modules
   - [x] Linear layers
   - [x] Activation functions (ReLU, Sigmoid, Tanh)
-  - [ ] Convolutional layers
-  - [ ] Pooling layers
+  - [x] Convolutional layers
+  - [x] Pooling layers
 - [x] Automatic Differentiation
   - [x] Backpropagation
   - [x] Gradient computation
-  - [ ] Auto Grad
+  - [x] Auto Grad
 - [x] Loss Functions
   - [x] MSE (Mean Squared Error)
   - [x] Cross Entropy
   - [x] Binary Cross Entropy
-- [x] Training Utilities
+- [ ] Training Utilities
   - [x] Basic training loops
   - [ ] Advanced batch processing
     - [ ] Mini-batch handling
@@ -76,26 +76,37 @@ Cetana is a Rust-based machine learning library designed to provide efficient an
 
 ### Phase 2: GPU Acceleration
 - [ ] CUDA Backend
-  - [ ] CUDA kernels
-  - [ ] cuBLAS integration
+  - [x] Basic initialization
   - [ ] Memory management
+  - [ ] Basic operations
+  - [ ] Advanced operations
+  - [ ] cuBLAS integration
 - [ ] MPS Backend (Apple Silicon)
   - [ ] Basic operations
   - [ ] Performance optimizations
 - [ ] Vulkan Backend
-  - [ ] Tensor operations
-  - [ ] Neural network operations
-  - [ ] Memory management
+  - [x] Device initialization
+  - [x] Basic compute pipeline
+  - [x] Memory management
+  - [ ] Advanced operations
+  - [ ] Performance optimizations
 
 ### Phase 3: Advanced Features
 - [ ] Distributed Training
+  - [ ] Multi-GPU support
+  - [ ] Data parallelism
+  - [ ] Model parallelism
 - [ ] Automatic Mixed Precision
 - [ ] Model Quantization
 - [ ] Performance Profiling
+  - [ ] Operation timing
+  - [ ] Memory usage tracking
+  - [ ] Bottleneck analysis
 - [ ] Advanced Optimizations
   - [ ] Kernel fusion
   - [ ] Memory pooling
   - [ ] Operation scheduling
+  - [ ] Graph optimization
 
 ### Phase 4: High-Level APIs
 - [ ] Model Zoo
