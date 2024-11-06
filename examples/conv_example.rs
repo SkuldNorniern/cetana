@@ -1,7 +1,7 @@
 use cetana::{
     nn::{
         conv::{Conv2d, PaddingMode},
-        Module,
+        Layer,
     },
     tensor::Tensor,
     MlResult,

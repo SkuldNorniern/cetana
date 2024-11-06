@@ -1,7 +1,7 @@
 use cetana::{
     nn::{
         pooling::{Pooling, PoolingType},
-        Module,
+        Layer,
     },
     tensor::Tensor,
     MlResult,
@@ -18,8 +18,8 @@ fn main() -> MlResult<()> {
     let input = Tensor::from_vec(input_data.clone(), &[1, 1, 4, 4])?;
 
     // Create pooling layers
-    let max_pool = Pooling::new(2, 2, PoolingType::Max);
-    let avg_pool = Pooling::new(2, 2, PoolingType::Average);
+    let mut max_pool = Pooling::new(2, 2, PoolingType::Max);
+    let mut avg_pool = Pooling::new(2, 2, PoolingType::Average);
 
     // Perform pooling operations
     let max_pooled = max_pool.forward(&input)?;
@@ -45,8 +45,8 @@ fn main() -> MlResult<()> {
     println!("Gradient Output:");
     print_matrix_grid(grad_output.data(), 2);
 
-    let max_grad = max_pool.backward(&input, &grad_output)?;
-    let avg_grad = avg_pool.backward(&input, &grad_output)?;
+    let max_grad = max_pool.backward(&input, &grad_output, 0.1)?;
+    let avg_grad = avg_pool.backward(&input, &grad_output, 0.1)?;
 
     println!("\nMax Pooling Gradients:");
     print_matrix_grid(max_grad.data(), 4);

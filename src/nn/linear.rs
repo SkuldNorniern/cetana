@@ -1,6 +1,6 @@
 use crate::nn::random::SimpleRng;
 use crate::serialize::{Deserialize, Model, Serialize};
-use crate::{nn::Module, tensor::Tensor, MlResult};
+use crate::{nn::Layer, tensor::Tensor, MlResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A fully connected (linear/dense) neural network layer.
@@ -70,8 +70,20 @@ impl Linear {
     pub fn bias(&self) -> Option<&Tensor> {
         self.bias.as_ref()
     }
+}
 
-    pub fn backward(
+impl Layer for Linear {
+    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
+        let output = input.matmul(&self.weight.transpose()?)?;
+
+        if let Some(bias) = &self.bias {
+            output.add(bias)
+        } else {
+            Ok(output)
+        }
+    }
+
+    fn backward(
         &mut self,
         input: &Tensor,
         grad_output: &Tensor,
@@ -88,29 +100,16 @@ impl Linear {
         self.weight = self.weight.sub(&weight_update)?;
 
         // Update bias if it exists
-        if let Some(ref mut bias) = self.bias {
+        if let Some(bias) = &mut self.bias {
             // For bias, we need to sum across the batch dimension (dim 0)
             let grad_bias = grad_output.sum(0)?;
             // Apply learning rate
             let bias_update = grad_bias.mul_scalar(learning_rate)?;
             // The bias should be a 1D tensor of shape [out_features]
-            // We need to ensure bias_update matches this shape
             *bias = bias.sub(&bias_update.reshape(&[bias.shape()[0]])?)?;
         }
 
         Ok(grad_input)
-    }
-}
-
-impl Module for Linear {
-    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let output = input.matmul(&self.weight.transpose()?)?;
-
-        if let Some(bias) = &self.bias {
-            output.add(bias)
-        } else {
-            Ok(output)
-        }
     }
 }
 

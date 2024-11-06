@@ -1,4 +1,4 @@
-use crate::{nn::Module, tensor::Tensor, MlResult};
+use crate::{nn::Layer, tensor::Tensor, MlResult};
 
 /// Represents different types of pooling operations
 #[derive(Clone, Copy)]
@@ -42,9 +42,60 @@ impl Pooling {
             }
         }
     }
+}
 
+impl Layer for Pooling {
+    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
+        let input_shape = input.shape();
+        if input_shape.len() != 4 {
+            return Err(
+                "Pooling layer expects 4D input (batch_size, channels, height, width)".into(),
+            );
+        }
+
+        let batch_size = input_shape[0];
+        let channels = input_shape[1];
+        let height = input_shape[2];
+        let width = input_shape[3];
+
+        let output_height = (height - self.kernel_size) / self.stride + 1;
+        let output_width = (width - self.kernel_size) / self.stride + 1;
+
+        let mut output_data =
+            Vec::with_capacity(batch_size * channels * output_height * output_width);
+
+        for b in 0..batch_size {
+            for c in 0..channels {
+                for h in (0..height - self.kernel_size + 1).step_by(self.stride) {
+                    for w in (0..width - self.kernel_size + 1).step_by(self.stride) {
+                        let mut window = Vec::with_capacity(self.kernel_size * self.kernel_size);
+
+                        for kh in 0..self.kernel_size {
+                            for kw in 0..self.kernel_size {
+                                let idx =
+                                    ((b * channels + c) * height + (h + kh)) * width + (w + kw);
+                                window.push(input.data()[idx]);
+                            }
+                        }
+
+                        output_data.push(self.pool_window(&window));
+                    }
+                }
+            }
+        }
+
+        Tensor::from_vec(
+            output_data,
+            &[batch_size, channels, output_height, output_width],
+        )
+    }
     /// Computes the gradient for backpropagation
-    pub fn backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
+    fn backward(
+        &mut self,
+        input: &Tensor,
+        grad_output: &Tensor,
+        _learning_rate: f32,
+    ) -> MlResult<Tensor> {
         let input_shape = input.shape();
         let batch_size = input_shape[0];
         let channels = input_shape[1];
@@ -109,53 +160,6 @@ impl Pooling {
     }
 }
 
-impl Module for Pooling {
-    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let input_shape = input.shape();
-        if input_shape.len() != 4 {
-            return Err(
-                "Pooling layer expects 4D input (batch_size, channels, height, width)".into(),
-            );
-        }
-
-        let batch_size = input_shape[0];
-        let channels = input_shape[1];
-        let height = input_shape[2];
-        let width = input_shape[3];
-
-        let output_height = (height - self.kernel_size) / self.stride + 1;
-        let output_width = (width - self.kernel_size) / self.stride + 1;
-
-        let mut output_data =
-            Vec::with_capacity(batch_size * channels * output_height * output_width);
-
-        for b in 0..batch_size {
-            for c in 0..channels {
-                for h in (0..height - self.kernel_size + 1).step_by(self.stride) {
-                    for w in (0..width - self.kernel_size + 1).step_by(self.stride) {
-                        let mut window = Vec::with_capacity(self.kernel_size * self.kernel_size);
-
-                        for kh in 0..self.kernel_size {
-                            for kw in 0..self.kernel_size {
-                                let idx =
-                                    ((b * channels + c) * height + (h + kh)) * width + (w + kw);
-                                window.push(input.data()[idx]);
-                            }
-                        }
-
-                        output_data.push(self.pool_window(&window));
-                    }
-                }
-            }
-        }
-
-        Tensor::from_vec(
-            output_data,
-            &[batch_size, channels, output_height, output_width],
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,7 +207,8 @@ mod tests {
         let grad_output_data = vec![1.0, 1.0, 1.0, 1.0];
         let grad_output = Tensor::from_vec(grad_output_data, &[1, 1, 2, 2])?;
 
-        let grad_input = pool.backward(&input, &grad_output)?;
+        let mut pool = Pooling::new(2, 2, PoolingType::Max);
+        let grad_input = pool.backward(&input, &grad_output, 0.1)?;
         assert_eq!(grad_input.shape(), input.shape());
         Ok(())
     }

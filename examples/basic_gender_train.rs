@@ -3,11 +3,11 @@ use std::fs::File;
 use std::time::Instant;
 
 use cetana::{
-    backend::{DeviceManager, DeviceType},
+    backend::DeviceManager,
     loss::calculate_binary_cross_entropy_loss,
     nn::{
         activation::{Sigmoid, Swish},
-        Linear, Module,
+        Activation, Layer, Linear,
     },
     serialize::{Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents},
     tensor::Tensor,
@@ -33,7 +33,7 @@ impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
             learning_rate: 0.01,
-            epochs: 100000000,
+            epochs: 1000,
             display_interval: 100,
             early_stopping_patience: 50,
             early_stopping_min_delta: 1e-6,
@@ -51,9 +51,9 @@ struct GenderClassifier {
 impl GenderClassifier {
     fn new() -> MlResult<Self> {
         Ok(Self {
-            layer1: Linear::new(2, 4, true)?, // 2 inputs (height, weight) -> 4 hidden neurons
+            layer1: Linear::new(2, 4, true)?, // 2 inputs (height, weight) -> 4000 hidden neurons
             activation1: Swish,
-            layer2: Linear::new(4, 1, true)?, // 4 hidden -> 1 output (0: male, 1: female)
+            layer2: Linear::new(4, 1, true)?, // 4000 hidden -> 1 output (0: male, 1: female)
             output_act: Sigmoid,
         })
     }
@@ -127,11 +127,25 @@ impl DeserializeComponents for GenderClassifier {
 
 impl Model for GenderClassifier {}
 
-impl Module for GenderClassifier {
+impl Layer for GenderClassifier {
     fn forward(&self, x: &Tensor) -> MlResult<Tensor> {
         let hidden = self.layer1.forward(x)?;
         let output = self.layer2.forward(&hidden)?;
         self.output_act.forward(&output)
+    }
+
+    fn backward(
+        &mut self,
+        x: &Tensor,
+        grad_output: &Tensor,
+        learning_rate: f32,
+    ) -> MlResult<Tensor> {
+        let output_grad = self.output_act.act_backward(x, grad_output)?;
+        let hidden_grad =
+            self.layer2
+                .backward(&self.layer1.forward(x)?, &output_grad, learning_rate)?;
+        self.layer1.backward(x, &hidden_grad, learning_rate)?;
+        Ok(output_grad)
     }
 }
 
@@ -290,7 +304,7 @@ fn main() -> MlResult<()> {
 
     // Add loss data points (show every 50th epoch to avoid overcrowding)
     for (epoch, &loss) in losses.iter().step_by(50).enumerate() {
-        loss_chart.add_data_point(&format!("{}", epoch * 50), loss as f64);
+        loss_chart.add_data_point(format!("{}", epoch * 50), loss as f64);
     }
 
     println!("\nTraining Loss Graph:");

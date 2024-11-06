@@ -1,4 +1,4 @@
-use cetana::nn::{Linear, Module};
+use cetana::nn::{Layer, Linear};
 use cetana::serialize::{
     Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents,
 };
@@ -21,10 +21,21 @@ impl SimpleNetwork {
 }
 
 // Implement required traits
-impl Module for SimpleNetwork {
+impl Layer for SimpleNetwork {
     fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
         let x = self.layer1.forward(input)?;
         self.layer2.forward(&x)
+    }
+
+    fn backward(
+        &mut self,
+        input: &Tensor,
+        grad_output: &Tensor,
+        learning_rate: f32,
+    ) -> MlResult<Tensor> {
+        let x = self.layer1.forward(input)?;
+        let grad_x = self.layer2.backward(&x, grad_output, learning_rate)?;
+        self.layer1.backward(input, &grad_x, learning_rate)
     }
 }
 

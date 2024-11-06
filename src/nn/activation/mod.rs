@@ -8,11 +8,35 @@ pub use sigmoid::Sigmoid;
 pub use swish::Swish;
 pub use tanh::Tanh;
 
+use crate::nn::Layer;
+use crate::tensor::Tensor;
+use crate::MlResult;
+
+pub trait Activation: Layer {
+    fn act_forward(&self, input: &Tensor) -> MlResult<Tensor>;
+    fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor>;
+}
+
+impl<T: Activation> Layer for T {
+    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
+        Self::act_forward(self, input)
+    }
+
+    fn backward(
+        &mut self,
+        input: &Tensor,
+        grad_output: &Tensor,
+        _learning_rate: f32,
+    ) -> MlResult<Tensor> {
+        Self::act_backward(self, input, grad_output)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::nn::Module;
+    use crate::nn::Layer;
     use crate::tensor::Tensor;
     use crate::MlResult;
 

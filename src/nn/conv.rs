@@ -1,4 +1,4 @@
-use crate::{nn::Module, tensor::Tensor, MlResult};
+use crate::{nn::Layer, tensor::Tensor, MlResult};
 
 /// Represents different padding modes for the convolutional layer
 #[derive(Clone, Copy)]
@@ -83,113 +83,12 @@ impl Conv2d {
         }
     }
 
-    /// Computes the gradient for backpropagation
-    pub fn backward(
-        &mut self,
-        input: &Tensor,
-        grad_output: &Tensor,
-        learning_rate: f32,
-    ) -> MlResult<Tensor> {
-        let input_shape = input.shape();
-        let batch_size = input_shape[0];
-        let height = input_shape[2];
-        let width = input_shape[3];
-
-        let padding = self.get_padding(height);
-        let mut grad_input = vec![0.0; batch_size * self.in_channels * height * width];
-        let mut grad_weights =
-            vec![0.0; self.out_channels * self.in_channels * self.kernel_size * self.kernel_size];
-
-        // Implement convolution gradient computation
-        // For each batch and channel
-        for b in 0..batch_size {
-            for c_out in 0..self.out_channels {
-                for c_in in 0..self.in_channels {
-                    for h in 0..height {
-                        for w in 0..width {
-                            // Calculate gradients for input and weights
-                            let h_start = h.saturating_sub(padding);
-                            let w_start = w.saturating_sub(padding);
-
-                            for kh in 0..self.kernel_size {
-                                for kw in 0..self.kernel_size {
-                                    if h_start + kh < height && w_start + kw < width {
-                                        let out_h = h / self.stride;
-                                        let out_w = w / self.stride;
-
-                                        if out_h < grad_output.shape()[2]
-                                            && out_w < grad_output.shape()[3]
-                                        {
-                                            let grad_val = grad_output.data()[((b * self
-                                                .out_channels
-                                                + c_out)
-                                                * grad_output.shape()[2]
-                                                + out_h)
-                                                * grad_output.shape()[3]
-                                                + out_w];
-
-                                            // Update gradients
-                                            let input_idx =
-                                                ((b * self.in_channels + c_in) * height + h)
-                                                    * width
-                                                    + w;
-                                            let weight_idx = ((c_out * self.in_channels + c_in)
-                                                * self.kernel_size
-                                                + kh)
-                                                * self.kernel_size
-                                                + kw;
-
-                                            grad_input[input_idx] +=
-                                                grad_val * self.weights.data()[weight_idx];
-                                            grad_weights[weight_idx] +=
-                                                grad_val * input.data()[input_idx];
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Update weights
-        let weight_update = Tensor::from_vec(
-            grad_weights,
-            &[
-                self.out_channels,
-                self.in_channels,
-                self.kernel_size,
-                self.kernel_size,
-            ],
-        )?;
-        self.weights = self
-            .weights
-            .sub(&weight_update.mul_scalar(learning_rate)?)?;
-
-        // Update bias if it exists
-        if let Some(ref mut bias) = self.bias {
-            let mut grad_bias = vec![0.0; self.out_channels];
-            for c_out in 0..self.out_channels {
-                grad_bias[c_out] = grad_output
-                    .data()
-                    .chunks(self.out_channels)
-                    .map(|chunk| chunk[c_out])
-                    .sum();
-            }
-            let bias_update = Tensor::from_vec(grad_bias, &[self.out_channels])?;
-            *bias = bias.sub(&bias_update.mul_scalar(learning_rate)?)?;
-        }
-
-        Tensor::from_vec(grad_input, input_shape)
-    }
-
     pub fn weights(&self) -> &Tensor {
         &self.weights
     }
 }
 
-impl Module for Conv2d {
+impl Layer for Conv2d {
     fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
         let input_shape = input.shape();
         if input_shape.len() != 4 {
@@ -260,6 +159,102 @@ impl Module for Conv2d {
             output,
             &[batch_size, self.out_channels, output_height, output_width],
         )
+    }
+
+    /// Computes the gradient for backpropagation
+    fn backward(
+        &mut self,
+        input: &Tensor,
+        grad_output: &Tensor,
+        learning_rate: f32,
+    ) -> MlResult<Tensor> {
+        let input_shape = input.shape();
+        let batch_size = input_shape[0];
+        let height = input_shape[2];
+        let width = input_shape[3];
+
+        let padding = self.get_padding(height);
+        let mut grad_input = vec![0.0; batch_size * self.in_channels * height * width];
+        let mut grad_weights =
+            vec![0.0; self.out_channels * self.in_channels * self.kernel_size * self.kernel_size];
+        let grad_bias = if self.bias.is_some() {
+            vec![0.0; self.out_channels]
+        } else {
+            vec![]
+        };
+
+        // Implement convolution gradient computation
+        // For each batch and channel
+        for b in 0..batch_size {
+            for c_out in 0..self.out_channels {
+                for c_in in 0..self.in_channels {
+                    for h in 0..height {
+                        for w in 0..width {
+                            // Calculate gradients for input and weights
+                            let h_start = h.saturating_sub(padding);
+                            let w_start = w.saturating_sub(padding);
+
+                            for kh in 0..self.kernel_size {
+                                for kw in 0..self.kernel_size {
+                                    if h_start + kh < height && w_start + kw < width {
+                                        let out_h = h / self.stride;
+                                        let out_w = w / self.stride;
+
+                                        if out_h < grad_output.shape()[2]
+                                            && out_w < grad_output.shape()[3]
+                                        {
+                                            let grad_val = grad_output.data()[((b * self
+                                                .out_channels
+                                                + c_out)
+                                                * grad_output.shape()[2]
+                                                + out_h)
+                                                * grad_output.shape()[3]
+                                                + out_w];
+
+                                            // Update gradients
+                                            let input_idx =
+                                                ((b * self.in_channels + c_in) * height + h)
+                                                    * width
+                                                    + w;
+                                            let weight_idx = ((c_out * self.in_channels + c_in)
+                                                * self.kernel_size
+                                                + kh)
+                                                * self.kernel_size
+                                                + kw;
+
+                                            grad_input[input_idx] +=
+                                                grad_val * self.weights.data()[weight_idx];
+                                            grad_weights[weight_idx] +=
+                                                grad_val * input.data()[input_idx];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update weights
+        let weight_grad = Tensor::from_vec(
+            grad_weights,
+            &[
+                self.out_channels,
+                self.in_channels,
+                self.kernel_size,
+                self.kernel_size,
+            ],
+        )?;
+        self.weights = self.weights.sub(&weight_grad.mul_scalar(learning_rate)?)?;
+
+        // Update bias if it exists
+        if let Some(bias) = &mut self.bias {
+            let bias_grad = Tensor::from_vec(grad_bias, &[self.out_channels])?;
+            *bias = bias.sub(&bias_grad.mul_scalar(learning_rate)?)?;
+        }
+
+        Tensor::from_vec(grad_input, input_shape)
     }
 }
 

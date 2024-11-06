@@ -1,5 +1,5 @@
 use super::Sigmoid;
-use crate::{nn::Module, tensor::Tensor, MlResult};
+use crate::{nn::Activation, nn::Layer, tensor::Tensor, MlResult};
 
 /// Swish activation function module.
 ///
@@ -19,10 +19,26 @@ impl Swish {
     }
 }
 
-impl Module for Swish {
-    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
+impl Activation for Swish {
+    fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
         let sigmoid = Sigmoid::new();
         let sigmoid_x = sigmoid.forward(input)?;
         input.mul(&sigmoid_x)
+    }
+
+    fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
+        let sigmoid = Sigmoid::new();
+        let sigmoid_x = sigmoid.forward(input)?;
+
+        // Derivative of swish is: σ(x) + x * σ(x) * (1 - σ(x))
+        let grad_input: Vec<f32> = input
+            .data()
+            .iter()
+            .zip(sigmoid_x.data().iter())
+            .zip(grad_output.data().iter())
+            .map(|((&x, &s), &grad)| grad * (s + x * s * (1.0 - s)))
+            .collect();
+
+        Tensor::from_vec(grad_input, input.shape())
     }
 }

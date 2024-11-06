@@ -1,8 +1,8 @@
 use cetana::{
-    backend::{DeviceManager, DeviceType},
+    backend::DeviceManager,
     nn::{
         activation::{ReLU, Sigmoid},
-        Linear, Module,
+        Layer, Linear,
     },
     tensor::Tensor,
     MlResult,
@@ -25,7 +25,7 @@ impl Default for TrainingConfig {
         Self {
             learning_rate: 0.1,
             epochs: 1000,
-            display_interval: 100,
+            display_interval: 1,
             early_stopping_patience: 50,
             early_stopping_min_delta: 1e-6,
         }

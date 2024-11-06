@@ -1,4 +1,4 @@
-use crate::{nn::Module, tensor::Tensor, MlResult};
+use crate::{nn::Activation, tensor::Tensor, MlResult};
 
 /// Rectified Linear Unit (ReLU) activation function module.
 ///
@@ -17,17 +17,20 @@ impl ReLU {
     pub fn new() -> Self {
         Self
     }
+}
 
-    /// Computes the gradient of ReLU during backpropagation.
-    ///
-    /// # Arguments
-    /// * `input` - The original input tensor from the forward pass
-    /// * `grad_output` - The gradient flowing back from the next layer
-    ///
-    /// # Returns
-    /// * `MlResult<Tensor>` - The computed gradient with respect to the input
-    pub fn backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
-        // ReLU derivative is 1 where input > 0, and 0 otherwise
+impl Activation for ReLU {
+    fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
+        let data: Vec<f32> = input
+            .data()
+            .iter()
+            .map(|&x| if x > 0.0 { x } else { 0.0 })
+            .collect();
+
+        Tensor::from_vec(data, input.shape())
+    }
+
+    fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
         let mut grad_input = vec![0.0; input.data().len()];
 
         for (i, (&x, &grad)) in input
@@ -40,17 +43,5 @@ impl ReLU {
         }
 
         Tensor::from_vec(grad_input, input.shape())
-    }
-}
-
-impl Module for ReLU {
-    fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let data: Vec<f32> = input
-            .data()
-            .iter()
-            .map(|&x| if x > 0.0 { x } else { 0.0 })
-            .collect();
-
-        Tensor::from_vec(data, input.shape())
     }
 }
