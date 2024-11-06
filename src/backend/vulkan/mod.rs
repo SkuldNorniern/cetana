@@ -1,4 +1,5 @@
 use ash::{vk, LoadingError};
+use std::error::Error;
 
 mod compute;
 pub use compute::VulkanBackend;
@@ -28,6 +29,8 @@ impl std::fmt::Display for VulkanError {
     }
 }
 
+impl Error for VulkanError {}
+
 impl From<vk::Result> for VulkanError {
     fn from(err: vk::Result) -> Self {
         VulkanError::VkError(err)
@@ -37,5 +40,11 @@ impl From<vk::Result> for VulkanError {
 impl From<LoadingError> for VulkanError {
     fn from(err: LoadingError) -> Self {
         VulkanError::LoadingError(err)
+    }
+}
+
+impl From<VulkanError> for crate::MlError {
+    fn from(err: VulkanError) -> Self {
+        crate::MlError::BackendError(crate::backend::BackendError::VulkanError(err))
     }
 }
