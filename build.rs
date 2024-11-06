@@ -26,14 +26,14 @@ fn find_cuda_path() -> String {
     "/usr/local/cuda".to_string()
 }
 
-fn compile_shaders() -> std::io::Result<()> {
+fn compile_vulkan_shaders() -> std::io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Compile reduction shader
-    println!("cargo:rerun-if-changed=shaders/reduction.comp");
+    println!("cargo:rerun-if-changed=shaders/vulkan/reduction.comp");
     let status = Command::new("glslc")
         .args([
-            "shaders/reduction.comp",
+            "shaders/vulkan/reduction.comp",
             "-o",
             out_dir.join("reduction.spv").to_str().unwrap(),
         ])
@@ -45,10 +45,10 @@ fn compile_shaders() -> std::io::Result<()> {
     }
 
     // Compile binary operations shader
-    println!("cargo:rerun-if-changed=shaders/binary_ops.comp");
+    println!("cargo:rerun-if-changed=shaders/vulkan/binary_ops.comp");
     let status = Command::new("glslc")
         .args([
-            "shaders/binary_ops.comp",
+            "shaders/vulkan/binary_ops.comp",
             "-o",
             out_dir.join("binary_ops.spv").to_str().unwrap(),
         ])
@@ -62,6 +62,50 @@ fn compile_shaders() -> std::io::Result<()> {
     }
 }
 
+fn compile_metal_shaders() -> std::io::Result<()> {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    
+    let shader_files = ["binary_ops.metal", "reduction.metal"];
+    
+    for shader in shader_files.iter() {
+        println!("cargo:rerun-if-changed=shaders/metal/{}", shader);
+        
+        let status = Command::new("xcrun")
+            .args([
+                "-sdk", "macosx", "metal",
+                "-c", &format!("shaders/metal/{}", shader),
+                "-o", &format!("{}/{}.air", out_dir.display(), shader.replace(".metal", "")),
+            ])
+            .status()?;
+
+        if !status.success() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to compile {}", shader)
+            ));
+        }
+    }
+
+    // Link the air files into a single metallib
+    let status = Command::new("xcrun")
+        .args([
+            "-sdk", "macosx", "metallib",
+            "-o", &format!("{}/shaders.metallib", out_dir.display()),
+        ])
+        .args(shader_files.iter().map(|f| 
+            format!("{}/{}.air", out_dir.display(), f.replace(".metal", ""))
+        ))
+        .status()?;
+
+    if !status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to create metallib"
+        ));
+    }
+
+    Ok(())
+}
 
 fn main() {
     println!("cargo:rerun-if-changed=cuda/");
@@ -100,7 +144,12 @@ Diagnostics:
     }
 
     // Compile shaders
-    compile_shaders().expect("Failed to compile shaders");
+    compile_vulkan_shaders().expect("Failed to compile Vulkan shaders");
+
+    // Compile Metal shaders
+    if cfg!(target_os = "macos") {
+        compile_metal_shaders().expect("Failed to compile Metal shaders");
+    }
 
     let dst = cmake::Config::new(".")
         .define("CMAKE_BUILD_TYPE", "Release")
