@@ -201,10 +201,10 @@ mod tests {
 
         let exp_result = compute.exp(&a);
         assert!((exp_result[0] - 1.0).abs() < 1e-6);
-        assert!((exp_result[1] - 2.718281828459045).abs() < 1e-6);
-        assert!((exp_result[2] - 7.389056098930650).abs() < 1e-6);
+        assert!((exp_result[1] - 2.718_281_7).abs() < 1e-6);
+        assert!((exp_result[2] - 7.389_056).abs() < 1e-6);
 
-        let log_input = vec![1.0, 2.718281828459045, 7.389056098930650];
+        let log_input = vec![1.0, 2.718_281_7, 7.389_056];
         let log_result = compute.log(&log_input);
         assert!((log_result[0] - 0.0).abs() < 1e-6);
         assert!((log_result[1] - 1.0).abs() < 1e-6);
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         let compute = CpuCompute::new();
-        
+
         // Test division by zero handling
         let a = vec![1.0];
         let b = vec![0.0];
@@ -268,15 +268,18 @@ mod tests {
     #[test]
     fn test_matrix_multiplication_different_sizes() {
         let compute = CpuCompute::new();
-        
+
         // 2x3 * 3x2 matrix multiplication
-        let a = vec![1.0, 2.0, 3.0,  // 2x3 matrix
-                    4.0, 5.0, 6.0];
-        
-        let b = vec![7.0, 8.0,       // 3x2 matrix
-                    9.0, 10.0,
-                    11.0, 12.0];
-        
+        let a = vec![
+            1.0, 2.0, 3.0, // 2x3 matrix
+            4.0, 5.0, 6.0,
+        ];
+
+        let b = vec![
+            7.0, 8.0, // 3x2 matrix
+            9.0, 10.0, 11.0, 12.0,
+        ];
+
         let result = compute.matmul(&a, &b, 2, 3, 2);
         assert_eq!(result, vec![58.0, 64.0, 139.0, 154.0]);
     }
