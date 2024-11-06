@@ -1,121 +1,129 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
+
+fn find_cuda_path() -> String {
+    // Linux
+    if let Ok(output) = Command::new("which").arg("nvcc").output() {
+        if let Ok(path) = String::from_utf8(output.stdout) {
+            if let Some(cuda_path) = path.trim().strip_suffix("/bin/nvcc") {
+                return cuda_path.to_string();
+            }
+        }
+    }
+
+    // Windows
+    for path in &[
+        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA",
+        "C:/CUDA",
+    ] {
+        if PathBuf::from(path).exists() {
+            return path.to_string();
+        }
+    }
+
+    "/usr/local/cuda".to_string()
+}
+
+fn compile_shaders() -> std::io::Result<()> {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+
+    // Compile reduction shader
+    println!("cargo:rerun-if-changed=shaders/reduction.comp");
+    let status = Command::new("glslc")
+        .args([
+            "shaders/reduction.comp",
+            "-o",
+            out_dir.join("reduction.spv").to_str().unwrap(),
+        ])
+        .status()
+        .expect("Failed to execute glslc");
+
+    if !status.success() {
+        panic!("Failed to compile reduction shader");
+    }
+
+    // Compile binary operations shader
+    println!("cargo:rerun-if-changed=shaders/binary_ops.comp");
+    let status = Command::new("glslc")
+        .args([
+            "shaders/binary_ops.comp",
+            "-o",
+            out_dir.join("binary_ops.spv").to_str().unwrap(),
+        ])
+        .status()
+        .expect("Failed to execute glslc");
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to compile binary operations shader"))
+    }
+}
+
 
 fn main() {
-    println!("cargo:rerun-if-changed=shaders/");
     println!("cargo:rerun-if-changed=cuda/");
+    println!("cargo:rerun-if-changed=cuda-headers/");
+    println!("cargo:rerun-if-changed=CMakeLists.txt");
 
-    // Compile CUDA kernels
-    compile_cuda_kernels();
+    let cuda_path = find_cuda_path();
+    let clangd_path = PathBuf::from(".clangd");
 
-    // Process SPIR-V shaders
-    compile_shaders();
-}
+    if !clangd_path.exists() {
+        let clangd_content = format!(
+            r#"CompileFlags:
+  Remove: 
+    - "-forward-unknown-to-host-compiler"
+    - "-rdc=*"
+    - "-Xcompiler*"
+    - "--options-file"
+    - "--generate-code*"
+  Add: 
+    - "-xcuda"
+    - "-std=c++14"
+    - "-I{}/include"
+    - "-I../../cuda-headers"
+    - "--cuda-gpu-arch=sm_75"
+  Compiler: clang
 
-fn compile_cuda_kernels() {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("Failed to get OUT_DIR"));
-    let cuda_dir = PathBuf::from("cuda");
+Index:
+  Background: Build
 
-    // Ensure CUDA directory exists
-    if !cuda_dir.exists() {
-        return;
+Diagnostics:
+  UnusedIncludes: None"#,
+            cuda_path
+        );
+
+        fs::write(".clangd", clangd_content).expect("Failed to write .clangd file");
     }
 
-    // Find all .cu files
-    if let Ok(entries) = fs::read_dir(&cuda_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            if let Some(extension) = entry.path().extension() {
-                if extension == "cu" {
-                    let output_path = out_dir.join(
-                        entry
-                            .path()
-                            .file_name()
-                            .expect("Failed to get filename")
-                            .to_str()
-                            .expect("Failed to convert to string")
-                            .replace(".cu", ".ptx"),
-                    );
+    // Compile shaders
+    compile_shaders().expect("Failed to compile shaders");
 
-                    // Run nvcc to compile CUDA kernels to PTX
-                    let status = std::process::Command::new("nvcc")
-                        .args([
-                            "--ptx",
-                            "-o",
-                            output_path
-                                .to_str()
-                                .expect("Failed to convert path to string"),
-                            entry
-                                .path()
-                                .to_str()
-                                .expect("Failed to convert path to string"),
-                        ])
-                        .status();
+    let dst = cmake::Config::new(".")
+        .define("CMAKE_BUILD_TYPE", "Release")
+        .define("CUDA_PATH", cuda_path.clone())
+        .no_build_target(true)
+        .build();
 
-                    match status {
-                        Ok(exit_status) if exit_status.success() => {
-                            println!(
-                                "cargo:warning=Successfully compiled CUDA kernel: {:?}",
-                                entry.path()
-                            );
-                        }
-                        _ => panic!("Failed to compile CUDA kernel: {:?}", entry.path()),
-                    }
-                }
-            }
-        }
-    }
-}
+    // Search paths - include both lib and lib64
+    println!("cargo:rustc-link-search={}/build/lib", dst.display());
+    println!("cargo:rustc-link-search={}/build", dst.display());
+    println!("cargo:rustc-link-search=native={}/lib", dst.display());
+    println!("cargo:rustc-link-search=native={}/lib64", cuda_path.clone());
+    println!("cargo:rustc-link-search=native={}/lib", cuda_path.clone());
 
-fn compile_shaders() {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("Failed to get OUT_DIR"));
-    let shader_dir = PathBuf::from("shaders");
+    // CUDA runtime linking - only essential libraries
+    println!("cargo:rustc-link-lib=cudart");
+    println!("cargo:rustc-link-lib=cuda");
 
-    // Ensure shader directory exists
-    if !shader_dir.exists() {
-        return;
-    }
-
-    // Find all .comp files (compute shaders)
-    if let Ok(entries) = fs::read_dir(&shader_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            if let Some(extension) = entry.path().extension() {
-                if extension == "comp" {
-                    let output_path = out_dir.join(
-                        entry
-                            .path()
-                            .file_name()
-                            .expect("Failed to get filename")
-                            .to_str()
-                            .expect("Failed to convert to string")
-                            .replace(".comp", ".spv"),
-                    );
-
-                    // Run glslc to compile shaders to SPIR-V
-                    let status = std::process::Command::new("glslc")
-                        .args([
-                            entry
-                                .path()
-                                .to_str()
-                                .expect("Failed to convert path to string"),
-                            "-o",
-                            output_path
-                                .to_str()
-                                .expect("Failed to convert path to string"),
-                        ])
-                        .status();
-
-                    match status {
-                        Ok(exit_status) if exit_status.success() => {
-                            println!(
-                                "cargo:warning=Successfully compiled shader: {:?}",
-                                entry.path()
-                            );
-                        }
-                        _ => panic!("Failed to compile shader: {:?}", entry.path()),
-                    }
-                }
-            }
-        }
+    // Static libraries - if they exist
+    if PathBuf::from(format!("{}/build/lib/libnn_ops.a", dst.display())).exists() {
+        println!("cargo:rustc-link-arg=-Wl,--whole-archive");
+        println!("cargo:rustc-link-lib=static=nn_ops");
+        println!("cargo:rustc-link-lib=static=tensor_ops");
+        println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
     }
 }
