@@ -7,6 +7,7 @@ use std::sync::Once;
 use crate::backend::cuda::CudaDevice;
 use crate::backend::BackendError;
 use crate::MlResult;
+use crate::backend::feature::{DeviceFeature, *};
 
 static INIT: Once = Once::new();
 static mut GLOBAL_DEVICE_MANAGER: Option<DeviceManager> = None;
@@ -187,6 +188,49 @@ impl DeviceManager {
             }
         }
     }
+
+    pub fn get_features(&self) -> DeviceFeatures {
+        let mut features = DeviceFeatures::new();
+        
+        // Add CPU features
+        #[cfg(target_arch = "x86_64")]
+        {
+            features.add_feature(
+                CPU_FEATURE_AVX,
+                is_x86_feature_detected!("avx"),
+                Some("Advanced Vector Extensions".to_string()),
+            );
+            
+            features.add_feature(
+                CPU_FEATURE_AVX2,
+                is_x86_feature_detected!("avx2"),
+                Some("Advanced Vector Extensions 2".to_string()),
+            );
+            
+            features.add_feature(
+                CPU_FEATURE_AVX512F,
+                is_x86_feature_detected!("avx512f"),
+                Some("AVX-512 Foundation".to_string()),
+            );
+        }
+
+        // Add GPU features if available
+        #[cfg(feature = "cuda")]
+        if self.available_devices.contains(&DeviceType::Cuda) {
+            features.add_feature(
+                GPU_FEATURE_FP16,
+                true,
+                Some("Half-precision floating point support".to_string()),
+            );
+            features.add_feature(
+                GPU_FEATURE_TENSOR_CORES,
+                true,
+                Some("NVIDIA Tensor Cores support".to_string()),
+            );
+        }
+
+        features
+    }
 }
 
 // Helper functions for checking device availability
@@ -203,11 +247,9 @@ fn mps_is_available() -> bool {
 }
 
 pub trait Device {
-    fn new() -> MlResult<Self>
-    where
-        Self: Sized;
+    fn new() -> MlResult<Self> where Self: Sized;
     fn device_type(&self) -> DeviceType;
-    fn supports_feature(&self, feature: &str) -> bool;
+    fn get_features(&self) -> DeviceFeatures;
 }
 
 #[cfg(test)]

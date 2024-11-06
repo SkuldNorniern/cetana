@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
 mod device;
+mod feature;
 pub use device::{Device, DeviceManager, DeviceType};
 
 #[cfg(feature = "cpu")]

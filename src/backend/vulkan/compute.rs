@@ -5,6 +5,7 @@ use crate::MlResult;
 use ash::LoadingError;
 use ash::{vk, Device, Instance};
 use std::fmt;
+use crate::backend::feature::{DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64};
 
 const REDUCTION_SHADER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/reduction.spv"));
 const BINARY_OPS_SHADER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/binary_ops.spv"));
@@ -169,8 +170,23 @@ impl DeviceTrait for VulkanBackend {
         DeviceType::Vulkan
     }
 
-    fn supports_feature(&self, _feature: &str) -> bool {
-        true // Implement actual feature checking if needed
+    fn get_features(&self) -> DeviceFeatures {
+        let mut features = DeviceFeatures::new();
+        
+        // Basic Vulkan features - you might want to query these from the actual device
+        features.add_feature(
+            GPU_FEATURE_FP16,
+            false, // Should be queried from device features
+            Some("Half-precision floating point support".to_string()),
+        );
+        
+        features.add_feature(
+            GPU_FEATURE_FP64,
+            false, // Should be queried from device features
+            Some("Double-precision floating point support".to_string()),
+        );
+        
+        features
     }
 }
 
