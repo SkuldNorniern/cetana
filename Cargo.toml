@@ -22,3 +22,9 @@ pinax = "0.1.0"
 
 [build-dependencies]
 cmake = "0.1"
+
+[profile.dev]
+debug = true
+
+[profile.release]
+opt-level = 3
