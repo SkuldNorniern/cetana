@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(feature = "cuda")]
 fn find_cuda_path() -> String {
     // Linux
     if let Ok(output) = Command::new("which").arg("nvcc").output() {
@@ -26,6 +27,7 @@ fn find_cuda_path() -> String {
     "/usr/local/cuda".to_string()
 }
 
+#[cfg(feature = "vulkan")]
 fn compile_vulkan_shaders() -> std::io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -62,45 +64,67 @@ fn compile_vulkan_shaders() -> std::io::Result<()> {
     }
 }
 
+#[cfg(all(feature = "metal", target_os = "macos"))]
 fn compile_metal_shaders() -> std::io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    
-    let shader_files = ["binary_ops.metal", "reduction.metal"];
-    
+    let shader_dir = PathBuf::from("shaders/metal");
+
+    if !shader_dir.exists() {
+        return Ok(());  // Skip if metal shaders directory doesn't exist
+    }
+
+    // Create output directory if it doesn't exist
+    std::fs::create_dir_all(&out_dir)?;
+
+    let shader_files = ["binary_ops.metal", "operations.metal", "reduction.metal"];
+
     for shader in shader_files.iter() {
+        let shader_path = shader_dir.join(shader);
+        if !shader_path.exists() {
+            continue;  // Skip if shader file doesn't exist
+        }
+
         println!("cargo:rerun-if-changed=shaders/metal/{}", shader);
-        
+
+        // Compile .metal to .air
         let status = Command::new("xcrun")
             .args([
                 "-sdk", "macosx", "metal",
-                "-c", &format!("shaders/metal/{}", shader),
-                "-o", &format!("{}/{}.air", out_dir.display(), shader.replace(".metal", "")),
+                "-c",
+                shader_path.to_str().unwrap(),
+                "-o",
+                out_dir.join(format!("{}.air", shader.replace(".metal", "")))
+                .to_str().unwrap()
             ])
             .status()?;
 
         if !status.success() {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to compile {}", shader)
+                    std::io::ErrorKind::Other,
+                    format!("Failed to compile {}", shader)
             ));
         }
     }
 
-    // Link the air files into a single metallib
+    // Link .air files into metallib
+    let air_files: Vec<String> = shader_files.iter()
+        .map(|f| out_dir.join(format!("{}.air", f.replace(".metal", "")))
+            .to_str().unwrap().to_string())
+        .collect();
+
     let status = Command::new("xcrun")
         .args([
             "-sdk", "macosx", "metallib",
-            "-o", &format!("{}/shaders.metallib", out_dir.display()),
+            "-o",
+            out_dir.join("shaders.metallib").to_str().unwrap(),
         ])
-        .args(shader_files.iter().map(|f| 
-            format!("{}/{}.air", out_dir.display(), f.replace(".metal", ""))
-        ))
+        .args(&air_files)
         .status()?;
 
     if !status.success() {
         return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Failed to create metallib"
+                std::io::ErrorKind::Other,
+                "Failed to create metallib"
         ));
     }
 
@@ -108,71 +132,80 @@ fn compile_metal_shaders() -> std::io::Result<()> {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=cuda/");
-    println!("cargo:rerun-if-changed=cuda-headers/");
-    println!("cargo:rerun-if-changed=CMakeLists.txt");
+    #[cfg(feature = "cuda")] {
+        println!("cargo:rerun-if-changed=cuda/");
+        println!("cargo:rerun-if-changed=cuda-headers/");
+        println!("cargo:rerun-if-changed=CMakeLists.txt");
 
-    let cuda_path = find_cuda_path();
-    let clangd_path = PathBuf::from(".clangd");
+        let cuda_path = find_cuda_path();
+        let clangd_path = PathBuf::from(".clangd");
 
-    if !clangd_path.exists() {
-        let clangd_content = format!(
-            r#"CompileFlags:
-  Remove: 
-    - "-forward-unknown-to-host-compiler"
-    - "-rdc=*"
-    - "-Xcompiler*"
-    - "--options-file"
-    - "--generate-code*"
-  Add: 
-    - "-xcuda"
-    - "-std=c++14"
-    - "-I{}/include"
-    - "-I../../cuda-headers"
-    - "--cuda-gpu-arch=sm_75"
-  Compiler: clang
+        if !clangd_path.exists() {
+            let clangd_content = format!(
+                r#"CompileFlags:
+                Remove: 
+                - "-forward-unknown-to-host-compiler"
+                - "-rdc=*"
+                - "-Xcompiler*"
+                - "--options-file"
+                - "--generate-code*"
+                Add: 
+                - "-xcuda"
+                - "-std=c++14"
+                - "-I{}/include"
+                - "-I../../cuda-headers"
+                - "--cuda-gpu-arch=sm_75"
+                Compiler: clang
 
-Index:
-  Background: Build
+                Index:
+                Background: Build
 
-Diagnostics:
-  UnusedIncludes: None"#,
-            cuda_path
-        );
+                Diagnostics:
+                UnusedIncludes: None"#,
+                cuda_path
+                    );
 
-        fs::write(".clangd", clangd_content).expect("Failed to write .clangd file");
+            fs::write(".clangd", clangd_content).expect("Failed to write .clangd file");
+        }
+        let dst = cmake::Config::new(".")
+            .define("CMAKE_BUILD_TYPE", "Release")
+            .define("CUDA_PATH", cuda_path.clone())
+            .no_build_target(true)
+            .build();
+
+        // Search paths - include both lib and lib64
+        println!("cargo:rustc-link-search={}/build/lib", dst.display());
+        println!("cargo:rustc-link-search={}/build", dst.display());
+        println!("cargo:rustc-link-search=native={}/lib", dst.display());
+        println!("cargo:rustc-link-search=native={}/lib64", cuda_path.clone());
+        println!("cargo:rustc-link-search=native={}/lib", cuda_path.clone());
+
+        // CUDA runtime linking - only essential libraries
+        println!("cargo:rustc-link-lib=cudart");
+        println!("cargo:rustc-link-lib=cuda");
+
+        // Static libraries - if they exist
+        if PathBuf::from(format!("{}/build/lib/libnn_ops.a", dst.display())).exists() {
+            println!("cargo:rustc-link-arg=-Wl,--whole-archive");
+            println!("cargo:rustc-link-lib=static=nn_ops");
+            println!("cargo:rustc-link-lib=static=tensor_ops");
+            println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
+        }
     }
 
-    // Compile shaders
-    compile_vulkan_shaders().expect("Failed to compile Vulkan shaders");
+    // Compile Vulkan shaders only if the "vulkan" feature is enabled
+    #[cfg(feature = "vulkan")]
+    {
+        println!("cargo:rerun-if-changed=shaders/vulkan/");
+        compile_vulkan_shaders().expect("Failed to compile Vulkan shaders");
+    }
 
-    // Compile Metal shaders
-    if cfg!(target_os = "macos") {
+    // Compile Metal shaders only if the "metal" feature is enabled and on macOS
+    #[cfg(all(feature = "metal", target_os = "macos"))]
+    {
+        println!("cargo:rerun-if-changed=shaders/metal/");
         compile_metal_shaders().expect("Failed to compile Metal shaders");
     }
 
-    let dst = cmake::Config::new(".")
-        .define("CMAKE_BUILD_TYPE", "Release")
-        .define("CUDA_PATH", cuda_path.clone())
-        .no_build_target(true)
-        .build();
 
-    // Search paths - include both lib and lib64
-    println!("cargo:rustc-link-search={}/build/lib", dst.display());
-    println!("cargo:rustc-link-search={}/build", dst.display());
-    println!("cargo:rustc-link-search=native={}/lib", dst.display());
-    println!("cargo:rustc-link-search=native={}/lib64", cuda_path.clone());
-    println!("cargo:rustc-link-search=native={}/lib", cuda_path.clone());
-
-    // CUDA runtime linking - only essential libraries
-    println!("cargo:rustc-link-lib=cudart");
-    println!("cargo:rustc-link-lib=cuda");
-
-    // Static libraries - if they exist
-    if PathBuf::from(format!("{}/build/lib/libnn_ops.a", dst.display())).exists() {
-        println!("cargo:rustc-link-arg=-Wl,--whole-archive");
-        println!("cargo:rustc-link-lib=static=nn_ops");
-        println!("cargo:rustc-link-lib=static=tensor_ops");
-        println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
-    }
 }
