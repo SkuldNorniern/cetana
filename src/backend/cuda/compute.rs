@@ -55,7 +55,7 @@ impl CudaBuffer {
             let result = cudaMemcpy(
                 self.ptr as *mut std::ffi::c_void,
                 data.as_ptr() as *const std::ffi::c_void,
-                data.len() * std::mem::size_of::<f32>(),
+                std::mem::size_of_val(data),
                 cudaMemcpyKind::HostToDevice,
             );
             if result != CUDA_SUCCESS {
@@ -73,7 +73,7 @@ impl CudaBuffer {
             let result = cudaMemcpy(
                 data.as_mut_ptr() as *mut std::ffi::c_void,
                 self.ptr as *const std::ffi::c_void,
-                data.len() * std::mem::size_of::<f32>(),
+                std::mem::size_of_val(data),
                 cudaMemcpyKind::DeviceToHost,
             );
             if result != CUDA_SUCCESS {

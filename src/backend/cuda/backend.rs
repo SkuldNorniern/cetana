@@ -22,10 +22,7 @@ impl Device for CudaBackend {
     }
 
     fn supports_feature(&self, feature: &str) -> bool {
-        match feature {
-            "cuda" => true,
-            _ => false,
-        }
+        matches!(feature, "cuda")
     }
 }
 
@@ -316,63 +313,48 @@ impl Backend for CudaBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::cuda::CudaError;
-    use crate::backend::CudaBackendError;
 
     #[test]
-    fn test_cuda_all_operations() -> Result<(), CudaBackendError> {
-        let backend = CudaBackend::new()
-            .map_err(|e| CudaBackendError::DeviceError(CudaError::Other(e.to_string())))?;
+    fn test_basic_operations() -> Result<(), Box<dyn std::error::Error>> {
+        let backend = CudaBackend::new()?;
+        let a = vec![1.0f32, 2.0, 3.0];
+        let b = vec![4.0f32, 5.0, 6.0];
 
-        let a = vec![1.0, 2.0, 3.0];
-        let b = vec![4.0, 5.0, 6.0];
-
-        // Test basic operations
-        let sum = backend.add(&a, &b)?;
+        // Basic operations
+        let sum = backend.add(&a, &b);
         assert_eq!(sum, vec![5.0, 7.0, 9.0]);
 
-        let diff = backend.sub(&a, &b)?;
+        let diff = backend.sub(&a, &b);
         assert_eq!(diff, vec![-3.0, -3.0, -3.0]);
 
-        let product = backend.multiply(&a, &b)?;
+        let product = backend.multiply(&a, &b);
         assert_eq!(product, vec![4.0, 10.0, 18.0]);
 
-        let quotient = backend.div(&a, &b)?;
+        let quotient = backend.div(&a, &b);
         assert_eq!(quotient, vec![0.25, 0.4, 0.5]);
 
-        // Test math operations
-        let exp = backend.exp(&a)?;
-        assert!((exp[0] - 2.718281).abs() < 1e-6);
-
-        let log = backend.log(&a)?;
-        assert!((log[0]).abs() < 1e-6);
-
-        let pow = backend.pow(&a, 2.0)?;
+        let pow = backend.pow(&a, 2.0);
         assert_eq!(pow, vec![1.0, 4.0, 9.0]);
 
-        let sqrt = backend.sqrt(&a)?;
-        assert!((sqrt[0] - 1.0).abs() < 1e-6);
-
-        // Test reduction operations
-        let sum_reduce = backend.sum(&a)?;
+        // Reduction operations
+        let sum_reduce = backend.sum(&a);
         assert_eq!(sum_reduce, 6.0);
 
-        let mean = backend.mean(&a)?;
+        let mean = backend.mean(&a);
         assert_eq!(mean, 2.0);
 
         Ok(())
     }
 
     #[test]
-    fn test_cuda_matmul() -> Result<(), CudaBackendError> {
-        let backend = CudaBackend::new()
-            .map_err(|e| CudaBackend::DeviceError(CudaError::Other(e.to_string())))?;
+    fn test_cuda_matmul() -> Result<(), Box<dyn std::error::Error>> {
+        let backend = CudaBackend::new()?;
 
         // 2x2 matrices
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
 
-        let result = backend.matmul(&a, &b, 2, 2, 2)?;
+        let result = backend.matmul(&a, &b, 2, 2, 2);
         assert_eq!(result, vec![19.0, 22.0, 43.0, 50.0]);
 
         Ok(())

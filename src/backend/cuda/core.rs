@@ -160,7 +160,6 @@ pub fn initialize_cuda() -> Result<(), CudaError> {
             result = Err(CudaError::InitializationFailed(
                 "Failed to initialize CUDA".into(),
             ));
-            return;
         }
     });
     result

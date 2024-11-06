@@ -16,12 +16,12 @@ use crate::backend::{Device, DeviceType};
 
 #[cfg(feature = "cpu")]
 use crate::backend::CpuBackend;
+#[cfg(feature = "cuda")]
+use crate::backend::CudaBackend;
 #[cfg(any(feature = "vulkan", feature = "cuda", feature = "mps", feature = "cpu"))]
 use crate::backend::DeviceManager;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
-#[cfg(feature = "cuda")]
-use crate::backend::CudaBackend;
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
