@@ -8,10 +8,11 @@ default = ["cpu"]
 cpu = []
 cuda = []
 vulkan = ["dep:ash"]
-mps = []
+mps = ["dep:metal"]
 
 [dependencies]
 ash = { version = "0.38.0", optional = true, features = ["linked"] }
+metal = { version = "0.30.0", optional = true, features = ["mps"] }
 
 
 [dev-dependencies]
