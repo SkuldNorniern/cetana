@@ -1,0 +1,50 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer InputBufferA {
+    float input_a[];
+};
+
+layout(set = 0, binding = 1) readonly buffer InputBufferB {
+    float input_b[];
+};
+
+layout(set = 0, binding = 2) buffer OutputBuffer {
+    float output_data[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint op_type;
+    uint input_length;
+} push;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= push.input_length) {
+        return;
+    }
+
+    float a = input_a[gid];
+    float b = input_b[gid];
+    float result;
+
+    switch (push.op_type) {
+        case 0: // Add
+            result = a + b;
+            break;
+        case 1: // Multiply
+            result = a * b;
+            break;
+        case 2: // Divide
+            result = a / b;
+            break;
+        case 3: // Subtract
+            result = a - b;
+            break;
+        default:
+            result = 0.0;
+    }
+
+    output_data[gid] = result;
+} 
