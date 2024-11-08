@@ -1,4 +1,5 @@
-use metal::{Device, MTLDevice};
+use crate::backend::DeviceType;
+use metal::Device;
 use std::sync::Arc;
 
 pub struct MpsDevice {
@@ -6,12 +7,16 @@ pub struct MpsDevice {
 }
 
 impl MpsDevice {
-    pub fn new() -> Result<Self, crate::MpsError> {
-        let device = Device::system_default().ok_or(crate::MpsError::DeviceNotFound)?;
+    pub fn new() -> Result<Self, crate::backend::MpsError> {
+        let device = Device::system_default().ok_or(crate::backend::MpsError::DeviceNotFound)?;
 
         Ok(Self {
             device: Arc::new(device),
         })
+    }
+
+    pub fn device_type(&self) -> DeviceType {
+        DeviceType::Mps
     }
 
     pub fn device(&self) -> &Device {

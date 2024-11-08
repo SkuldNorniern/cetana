@@ -1,8 +1,10 @@
 use super::{MpsCompute, MpsDevice, MpsError};
-use crate::backend::{Backend, DeviceType};
-use metal::{Buffer, MTLDataType, MTLResourceOptions, MTLSize};
-use std::sync::Arc;
 use crate::backend::feature::{DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64};
+use crate::backend::{Backend, Device, DeviceType};
+use crate::MlResult;
+use metal::{Buffer, MTLResourceOptions, MTLSize};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 
 pub struct MpsBackend {
     device: Arc<MpsDevice>,
@@ -20,11 +22,16 @@ impl MpsBackend {
     pub fn create_buffer<T: Copy>(&self, data: &[T]) -> Result<Buffer, MpsError> {
         let buffer = self.device.device().new_buffer_with_data(
             data.as_ptr() as *const _,
-            (data.len() * std::mem::size_of::<T>()) as u64,
+            (data.len() * size_of::<T>()) as u64,
             MTLResourceOptions::StorageModeShared,
         );
 
-        buffer.ok_or(MpsError::BufferCreationError)
+        /** Maybe Metal-rs Buffer structure doesn't have ok_or method
+         *  Can't find in the source code AND there is no description on methods.
+         *  So, I will comment this line and return buffer directly.
+         */
+        Result::Ok(buffer)
+        // buffer.ok_or(MpsError::BufferCreationError)
     }
 
     pub fn matmul(
@@ -43,8 +50,9 @@ impl MpsBackend {
         let result_buffer = self
             .device
             .device()
-            .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared)
-            .ok_or(MpsError::BufferCreationError)?;
+            .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared);
+            // Read comments create_buffer function above
+            // .ok_or(MpsError::BufferCreationError)?;
 
         let library = self
             .device
@@ -73,7 +81,12 @@ impl MpsBackend {
         let thread_group_size = MTLSize::new(16, 16, 1);
         let grid_size = MTLSize::new(((n + 15) / 16) as u64, ((m + 15) / 16) as u64, 1);
 
-        let command_buffer = self.compute.command_queue.new_command_buffer();
+        /**
+         * MpsCompute doesn't have command_queue
+         * So, create a new command queue from device
+         */
+        // let command_buffer = self.compute.command_queue.new_command_buffer();
+        let command_buffer = self.device.device().new_command_queue().new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
         compute_encoder.set_compute_pipeline_state(&pipeline);
@@ -100,8 +113,9 @@ impl MpsBackend {
             .new_buffer(
                 (size * std::mem::size_of::<f32>()) as u64,
                 MTLResourceOptions::StorageModeShared,
-            )
-            .ok_or(MpsError::BufferCreationError)?;
+            );
+        // Read comments create_buffer function above
+            // .ok_or(MpsError::BufferCreationError)?;
 
         // Create and compile the addition kernel
         let library = self
@@ -127,7 +141,12 @@ impl MpsBackend {
         let thread_group_size = MTLSize::new(256, 1, 1);
         let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
 
-        let command_buffer = self.compute.command_queue.new_command_buffer();
+        /**
+         * MpsCompute doesn't have command_queue
+         * So, create a new command queue from device
+         */
+        // let command_buffer = self.compute.command_queue.new_command_buffer();
+        let command_buffer = self.device.device().new_command_queue().new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
         compute_encoder.set_compute_pipeline_state(&pipeline);
@@ -151,8 +170,9 @@ impl MpsBackend {
             .new_buffer(
                 (size * std::mem::size_of::<f32>()) as u64,
                 MTLResourceOptions::StorageModeShared,
-            )
-            .ok_or(MpsError::BufferCreationError)?;
+            );
+            // Read comments create_buffer function above
+            // .ok_or(MpsError::BufferCreationError)?;
 
         let library = self
             .device
@@ -176,7 +196,12 @@ impl MpsBackend {
         let thread_group_size = MTLSize::new(256, 1, 1);
         let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
 
-        let command_buffer = self.compute.command_queue.new_command_buffer();
+        /**
+         * MpsCompute doesn't have command_queue
+         * So, create a new command queue from device
+         */
+        // let command_buffer = self.compute.command_queue.new_command_buffer();
+        let command_buffer = self.device.device().new_command_queue().new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
         compute_encoder.set_compute_pipeline_state(&pipeline);
@@ -219,19 +244,80 @@ impl Default for MpsBackend {
     }
 }
 
-impl crate::Backend for MpsBackend {
-    type Error = MpsError;
+impl Debug for MpsBackend {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
 
-    fn name(&self) -> &str {
-        "MPS"
+impl Backend for MpsBackend {
+    // type Error = MpsError;
+
+    fn execute_compute(&self, dimensions: [u32; 3]) -> MlResult<()> {
+        todo!()
     }
 
-    fn device_type(&self) -> crate::DeviceType {
-        crate::DeviceType::Mps
+    fn device(&self) -> DeviceType {
+        todo!()
+    }
+
+    fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
+        todo!()
+    }
+
+    fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn exp(&self, a: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn log(&self, a: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
+        todo!()
+    }
+
+    fn sqrt(&self, a: &[f32]) -> Vec<f32> {
+        todo!()
+    }
+
+    fn sum(&self, a: &[f32]) -> f32 {
+        todo!()
+    }
+
+    fn mean(&self, a: &[f32]) -> f32 {
+        todo!()
     }
 }
 
 impl Device for MpsBackend {
+    fn new() -> MlResult<Self>
+    where
+        Self: Sized
+    {
+        todo!()
+    }
+
+    fn device_type(&self) -> DeviceType {
+        DeviceType::Mps
+    }
+
     fn get_features(&self) -> DeviceFeatures {
         self.get_supported_features()
     }
