@@ -2,6 +2,7 @@ use crate::backend::DeviceType;
 use metal::Device;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct MpsDevice {
     device: Arc<Device>,
 }

@@ -2,6 +2,7 @@ use super::core::MpsDevice;
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct MpsCompute {
     device: Arc<MpsDevice>,
     command_queue: CommandQueue,
