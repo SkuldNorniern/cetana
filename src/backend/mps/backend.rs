@@ -1,8 +1,8 @@
 use super::{MpsCompute, MpsDevice, MpsError};
+use crate::backend::feature::{DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64};
 use crate::backend::{Backend, DeviceType};
 use metal::{Buffer, MTLDataType, MTLResourceOptions, MTLSize};
 use std::sync::Arc;
-use crate::backend::feature::{DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64};
 
 pub struct MpsBackend {
     device: Arc<MpsDevice>,
@@ -195,20 +195,20 @@ impl MpsBackend {
 
     pub fn get_supported_features(&self) -> DeviceFeatures {
         let mut features = DeviceFeatures::new();
-        
+
         // Check MPS-specific features
         features.add_feature(
             GPU_FEATURE_FP16,
-            true,  // MPS supports FP16
+            true, // MPS supports FP16
             Some("Half-precision floating point support".to_string()),
         );
-        
+
         features.add_feature(
             GPU_FEATURE_FP64,
-            false,  // MPS typically doesn't support FP64
+            false, // MPS typically doesn't support FP64
             Some("Double-precision floating point support".to_string()),
         );
-        
+
         features
     }
 }
