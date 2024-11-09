@@ -27,3 +27,11 @@ kernel void vector_sub(
 {
     result[index] = a[index] - b[index];
 }
+
+kernel void vector_log(
+    device const float* a [[buffer(0)]],
+    device float* result [[buffer(1)]],
+    uint index [[thread_position_in_grid]])
+{
+    result[index] = log(a[index]);
+}

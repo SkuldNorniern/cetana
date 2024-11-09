@@ -13,8 +13,6 @@ impl MpsCompute {
         let command_queue = device
             .device()
             .new_command_queue();
-            // Read comments in src/backend/mps/backend.rs create_buffer for more information
-            // .ok_or(crate::MpsError::InitializationError)?;
 
         Ok(Self {
             device,

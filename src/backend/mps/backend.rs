@@ -247,6 +247,57 @@ impl MpsBackend {
         Ok(result_buffer)
     }
 
+    pub fn log(&self, a: &Buffer, size: usize) -> Result<Buffer, MpsError> {
+        let result_buffer = self
+            .device
+            .device()
+            .new_buffer(
+                (size * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            );
+
+        // Create and compile the addition kernel
+        let library = self
+            .device
+            .device()
+            .new_library_with_source(
+                include_str!("../../../shaders/metal/binary_ops.metal"),
+                &metal::CompileOptions::new(),
+            )
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+
+        let kernel = library
+            .get_function("vector_log", None)
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+
+        let pipeline = self
+            .device
+            .device()
+            .new_compute_pipeline_state_with_function(&kernel)
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+
+        // Configure thread groups
+        let thread_group_size = MTLSize::new(256, 1, 1);
+        let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
+
+        let command_queue = self.device.device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let compute_encoder = command_buffer.new_compute_command_encoder();
+
+        compute_encoder.set_compute_pipeline_state(&pipeline);
+        compute_encoder.set_buffer(0, Some(a), 0);
+        compute_encoder.set_buffer(1, Some(b), 0);
+        compute_encoder.set_buffer(2, Some(&result_buffer), 0);
+
+        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        compute_encoder.end_encoding();
+
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Ok(result_buffer)
+    }
+
     pub fn get_supported_features(&self) -> DeviceFeatures {
         let mut features = DeviceFeatures::new();
 
@@ -377,7 +428,11 @@ impl Backend for MpsBackend {
     }
 
     fn log(&self, a: &[f32]) -> Vec<f32> {
-        todo!()
+        // Create Buffers on Apple MPS
+        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+
+        // Perform log on Apple MPS
+        let result_buffer = self.add(&buffer_a, a.len()).expect("Failed to log buffer");
     }
 
     fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
