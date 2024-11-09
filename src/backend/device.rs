@@ -5,9 +5,9 @@ use std::sync::Once;
 
 #[cfg(feature = "cuda")]
 use crate::backend::cuda::CudaDevice;
+use crate::backend::feature::*;
 use crate::backend::BackendError;
 use crate::MlResult;
-use crate::backend::feature::{DeviceFeature, *};
 
 static INIT: Once = Once::new();
 static mut GLOBAL_DEVICE_MANAGER: Option<DeviceManager> = None;
@@ -70,6 +70,8 @@ impl DeviceManager {
                         Ok(_) => {
                             println!("Vulkan GPU support confirmed");
                             available_devices.insert(DeviceType::Vulkan);
+                            // cleanup backend
+                            // backend.cleanup();
                         }
                         Err(e) => println!("Vulkan backend creation failed: {:?}", e),
                     },
@@ -191,7 +193,7 @@ impl DeviceManager {
 
     pub fn get_features(&self) -> DeviceFeatures {
         let mut features = DeviceFeatures::new();
-        
+
         // Add CPU features
         #[cfg(target_arch = "x86_64")]
         {
@@ -200,13 +202,13 @@ impl DeviceManager {
                 is_x86_feature_detected!("avx"),
                 Some("Advanced Vector Extensions".to_string()),
             );
-            
+
             features.add_feature(
                 CPU_FEATURE_AVX2,
                 is_x86_feature_detected!("avx2"),
                 Some("Advanced Vector Extensions 2".to_string()),
             );
-            
+
             features.add_feature(
                 CPU_FEATURE_AVX512F,
                 is_x86_feature_detected!("avx512f"),
@@ -247,7 +249,9 @@ fn mps_is_available() -> bool {
 }
 
 pub trait Device {
-    fn new() -> MlResult<Self> where Self: Sized;
+    fn new() -> MlResult<Self>
+    where
+        Self: Sized;
     fn device_type(&self) -> DeviceType;
     fn get_features(&self) -> DeviceFeatures;
 }

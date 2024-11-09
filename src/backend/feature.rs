@@ -12,7 +12,9 @@ pub struct DeviceFeatures {
 
 impl DeviceFeatures {
     pub fn new() -> Self {
-        Self { features: Vec::new() }
+        Self {
+            features: Vec::new(),
+        }
     }
 
     pub fn add_feature(&mut self, name: &str, supported: bool, description: Option<String>) {
