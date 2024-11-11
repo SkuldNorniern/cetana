@@ -17,4 +17,4 @@ kernel void matrix_multiply(
         sum += a[gid.y * K + k] * b[k * N + gid.x];
     }
     result[gid.y * N + gid.x] = sum;
-} 
+}

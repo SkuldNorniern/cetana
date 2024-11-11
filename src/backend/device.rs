@@ -82,6 +82,15 @@ impl DeviceManager {
             }
         }
 
+        #[cfg(feature = "mps")]
+        {
+            println!("Checking MPS support...");
+            if mps_is_available() {
+                println!("MPS support confirmed");
+                available_devices.insert(DeviceType::Mps);
+            }
+        }
+
         println!("Available devices: {:?}", available_devices);
         Self { available_devices }
     }
@@ -245,7 +254,7 @@ fn cuda_is_available() -> bool {
 #[cfg(feature = "mps")]
 fn mps_is_available() -> bool {
     // Implement MPS availability check
-    false
+    true
 }
 
 pub trait Device {

@@ -22,6 +22,8 @@ use crate::backend::CudaBackend;
 use crate::backend::DeviceManager;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
+#[cfg(feature = "mps")]
+use crate::backend::MpsBackend;
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -127,6 +129,20 @@ impl Tensor {
                     }
                 }
             }
+            #[cfg(feature = "mps")]
+            DeviceType::Mps => {
+                println!("Attempting to create MpsBackend...");
+                match MpsBackend::new() {
+                    Ok(backend) => {
+                        println!("Successfully created MpsBackend");
+                        Arc::new(backend)
+                    }
+                    Err(e) => {
+                        println!("Failed to create MpsBackend: {:?}, falling back to CPU", e);
+                        Arc::new(CpuBackend::new()?)
+                    }
+                }
+            }
             _ => {
                 println!("Using CpuBackend");
                 Arc::new(CpuBackend::new()?)
@@ -155,7 +171,7 @@ impl Tensor {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => Arc::new(CpuBackend::new()?),
             #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(CpuBackend::new()?),
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
             #[cfg(feature = "vulkan")]
             DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
         };

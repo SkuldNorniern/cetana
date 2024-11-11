@@ -5,6 +5,7 @@ use crate::MlResult;
 use metal::{Buffer, MTLResourceOptions, MTLSize};
 use std::fmt::Debug;
 use std::sync::Arc;
+use metal::objc::rc::autoreleasepool;
 
 #[derive(Debug)]
 pub struct MpsBackend {
@@ -13,9 +14,9 @@ pub struct MpsBackend {
 }
 
 impl MpsBackend {
-    pub fn new() -> Result<Self, MpsError> {
-        let device = Arc::new(MpsDevice::new()?);
-        let compute = MpsCompute::new(Arc::clone(&device))?;
+    pub fn new() -> MlResult<Self> {
+        let device = Arc::new(MpsDevice::new().expect("Failed to create MPS device"));
+        let compute = MpsCompute::new(Arc::clone(&device)).expect("Failed to create MPS compute");
 
         Ok(Self { device, compute })
     }
@@ -42,12 +43,6 @@ impl MpsBackend {
             return Err(MpsError::InvalidDimensions);
         }
 
-        let result_size = m * n * std::mem::size_of::<f32>();
-        let result_buffer = self
-            .device
-            .device()
-            .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared);
-
         let library = self
             .device
             .device()
@@ -67,31 +62,48 @@ impl MpsBackend {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
+        let result_size = (m * k);
+        let result_buffer = self
+            .device
+            .device()
+            .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared);
+
         // Create dimension buffers
         let m_buffer = self.create_buffer(&[m as u32])?;
         let n_buffer = self.create_buffer(&[n as u32])?;
         let k_buffer = self.create_buffer(&[k as u32])?;
 
-        let thread_group_size = MTLSize::new(16, 16, 1);
-        let grid_size = MTLSize::new(((n + 15) / 16) as u64, ((m + 15) / 16) as u64, 1);
+        autoreleasepool(|| {
+            let thread_group_size = MTLSize::new(16, 16, 1);
+            let grid_size = MTLSize::new(
+                (m + 16) as u64, // ceil(m / threads_per_group_x)
+                (k + 16) as u64, // ceil(n / threads_per_group_y)
+                1, // Only one layer in the z-dimension
+            );
 
-        let command_queue = self.device.device().new_command_queue();
-        let command_buffer = command_queue.new_command_buffer();
-        let compute_encoder = command_buffer.new_compute_command_encoder();
+            // println!("Grid size: {:?}", grid_size);
+            // println!("Thread group size: {:?}", thread_group_size);
+            // println!("Result size: {:?}", result_size);
+            // println!("M/N size: {}/{}", m, n);
 
-        compute_encoder.set_compute_pipeline_state(&pipeline);
-        compute_encoder.set_buffer(0, Some(a), 0);
-        compute_encoder.set_buffer(1, Some(b), 0);
-        compute_encoder.set_buffer(2, Some(&result_buffer), 0);
-        compute_encoder.set_buffer(3, Some(&m_buffer), 0);
-        compute_encoder.set_buffer(4, Some(&n_buffer), 0);
-        compute_encoder.set_buffer(5, Some(&k_buffer), 0);
+            let command_queue = self.device.device().new_command_queue();
+            let command_buffer = command_queue.new_command_buffer();
+            let compute_encoder = command_buffer.new_compute_command_encoder();
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
-        compute_encoder.end_encoding();
+            compute_encoder.set_compute_pipeline_state(&pipeline);
+            compute_encoder.set_buffer(0, Some(a), 0);
+            compute_encoder.set_buffer(1, Some(b), 0);
+            compute_encoder.set_buffer(2, Some(&result_buffer), 0);
+            compute_encoder.set_buffer(3, Some(&m_buffer), 0);
+            compute_encoder.set_buffer(4, Some(&n_buffer), 0);
+            compute_encoder.set_buffer(5, Some(&k_buffer), 0);
 
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
+            compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+            compute_encoder.end_encoding();
+
+            command_buffer.commit();
+            command_buffer.wait_until_completed();
+        });
 
         Ok(result_buffer)
     }
@@ -101,7 +113,7 @@ impl MpsBackend {
             .device
             .device()
             .new_buffer(
-                (size * std::mem::size_of::<f32>()) as u64,
+                (size * size_of::<f32>()) as u64,
                 MTLResourceOptions::StorageModeShared,
             );
 
@@ -286,8 +298,7 @@ impl MpsBackend {
 
         compute_encoder.set_compute_pipeline_state(&pipeline);
         compute_encoder.set_buffer(0, Some(a), 0);
-        compute_encoder.set_buffer(1, Some(b), 0);
-        compute_encoder.set_buffer(2, Some(&result_buffer), 0);
+        compute_encoder.set_buffer(1, Some(&result_buffer), 0);
 
         compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
         compute_encoder.end_encoding();
@@ -379,7 +390,9 @@ impl Backend for MpsBackend {
 
         // Read result buffer
         let result = result_buffer.contents();
-        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, m * n) };
+        let result_slice = unsafe {
+            std::slice::from_raw_parts(result as *const f32, (m * k))
+        };
 
         // Copy result to a Vec
         let result_vec = result_slice.to_vec();
@@ -432,7 +445,16 @@ impl Backend for MpsBackend {
         let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
 
         // Perform log on Apple MPS
-        let result_buffer = self.add(&buffer_a, a.len()).expect("Failed to log buffer");
+        let result_buffer = self.log(&buffer_a, a.len()).expect("Failed to log buffer");
+
+        // Read result buffer
+        let result = result_buffer.contents();
+        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+
+        // Copy result to a Vec
+        let result_vec = result_slice.to_vec();
+
+        result_vec
     }
 
     fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
