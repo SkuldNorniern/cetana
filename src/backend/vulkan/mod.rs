@@ -1,18 +1,30 @@
-use ash::{vk, LoadingError};
+use ash::vk;
 use std::error::Error;
 
+mod backend;
 mod compute;
-pub use compute::VulkanBackend;
+mod core;
+mod buffer;
+mod descriptor;
+mod memory;
+
+pub use backend::VulkanBackend;
+pub use core::VulkanCore;
+pub use compute::VulkanCompute;
+pub use buffer::Buffer;
+
 
 #[derive(Debug)]
 pub enum VulkanError {
     VkError(vk::Result),
-    LoadingError(LoadingError),
+    LoadingError(ash::LoadingError),
+    InitializationFailed(&'static str),
     DeviceNotSuitable,
     ComputeQueueNotFound,
     ShaderError(String),
     Other(String),
     NoSuitableMemoryType,
+    NoComputeQueue,
 }
 
 impl std::fmt::Display for VulkanError {
@@ -20,11 +32,13 @@ impl std::fmt::Display for VulkanError {
         match self {
             VulkanError::VkError(e) => write!(f, "Vulkan error: {:?}", e),
             VulkanError::LoadingError(e) => write!(f, "Loading error: {:?}", e),
+            VulkanError::InitializationFailed(s) => write!(f, "Initialization failed: {}", s),
             VulkanError::DeviceNotSuitable => write!(f, "No suitable device found"),
             VulkanError::ComputeQueueNotFound => write!(f, "No compute queue found"),
             VulkanError::ShaderError(s) => write!(f, "Shader error: {}", s),
             VulkanError::Other(s) => write!(f, "{}", s),
             VulkanError::NoSuitableMemoryType => write!(f, "No suitable memory type found"),
+            VulkanError::NoComputeQueue => write!(f, "No compute queue found"),
         }
     }
 }
@@ -37,8 +51,8 @@ impl From<vk::Result> for VulkanError {
     }
 }
 
-impl From<LoadingError> for VulkanError {
-    fn from(err: LoadingError) -> Self {
+impl From<ash::LoadingError> for VulkanError {
+    fn from(err: ash::LoadingError) -> Self {
         VulkanError::LoadingError(err)
     }
 }
