@@ -8,6 +8,7 @@ use cetana::{
     MlResult,
 };
 use std::time::Instant;
+use cetana::loss::calculate_binary_cross_entropy_loss;
 
 type Float = f32;
 type NetworkResult<T> = MlResult<T>;
@@ -64,20 +65,17 @@ impl SimpleNN {
         let predictions = self.output_act.forward(&output)?;
 
         // Compute loss (MSE)
-        let diff = predictions.sub(y)?;
-        let loss = diff.mul_scalar(0.5)?.sum(1)?;
+        let loss = calculate_binary_cross_entropy_loss(&predictions, y)?;
 
         // Backward pass
-        let output_grad = diff; // Derivative of MSE
-        self.output
-            .backward(&hidden_activated, &output_grad, learning_rate)?;
+        let output_grad = predictions.sub(y)?;
+        self.output.backward(&hidden_activated, &output_grad, learning_rate)?;
 
-        let hidden_grad = self
-            .output
+        let hidden_grad = self.output
             .backward(&hidden_activated, &output_grad, learning_rate)?;
         self.hidden.backward(x, &hidden_grad, learning_rate)?;
 
-        Ok(loss.data()[0])
+        Ok(loss)
     }
 
     fn evaluate(

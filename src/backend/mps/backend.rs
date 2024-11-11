@@ -43,6 +43,17 @@ impl MpsBackend {
             return Err(MpsError::InvalidDimensions);
         }
 
+        let result_size = m * k * std::mem::size_of::<f32>();
+        let result_buffer = self
+            .device
+            .device()
+            .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared);
+
+        // Create dimension buffers
+        let m_buffer = self.create_buffer(&[m as u32])?;
+        let n_buffer = self.create_buffer(&[n as u32])?;
+        let k_buffer = self.create_buffer(&[k as u32])?;
+
         let library = self
             .device
             .device()
@@ -62,48 +73,31 @@ impl MpsBackend {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        let result_size = (m * k);
-        let result_buffer = self
-            .device
-            .device()
-            .new_buffer(result_size as u64, MTLResourceOptions::StorageModeShared);
+        let thread_group_size = MTLSize::new(16, 16, 1);
+        let grid_size = MTLSize::new(
+            (m + 16) as u64, // ceil(m / threads_per_group_x)
+            (k + 16) as u64, // ceil(n / threads_per_group_y)
+            1, // Only one layer in the z-dimension
+        );
 
-        // Create dimension buffers
-        let m_buffer = self.create_buffer(&[m as u32])?;
-        let n_buffer = self.create_buffer(&[n as u32])?;
-        let k_buffer = self.create_buffer(&[k as u32])?;
 
-        autoreleasepool(|| {
-            let thread_group_size = MTLSize::new(16, 16, 1);
-            let grid_size = MTLSize::new(
-                (m + 16) as u64, // ceil(m / threads_per_group_x)
-                (k + 16) as u64, // ceil(n / threads_per_group_y)
-                1, // Only one layer in the z-dimension
-            );
+        let command_queue = self.device.device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let compute_encoder = command_buffer.new_compute_command_encoder();
 
-            // println!("Grid size: {:?}", grid_size);
-            // println!("Thread group size: {:?}", thread_group_size);
-            // println!("Result size: {:?}", result_size);
-            // println!("M/N size: {}/{}", m, n);
+        compute_encoder.set_compute_pipeline_state(&pipeline);
+        compute_encoder.set_buffer(0, Some(a), 0);
+        compute_encoder.set_buffer(1, Some(b), 0);
+        compute_encoder.set_buffer(2, Some(&result_buffer), 0);
+        compute_encoder.set_buffer(3, Some(&m_buffer), 0);
+        compute_encoder.set_buffer(4, Some(&n_buffer), 0);
+        compute_encoder.set_buffer(5, Some(&k_buffer), 0);
 
-            let command_queue = self.device.device().new_command_queue();
-            let command_buffer = command_queue.new_command_buffer();
-            let compute_encoder = command_buffer.new_compute_command_encoder();
+        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        compute_encoder.end_encoding();
 
-            compute_encoder.set_compute_pipeline_state(&pipeline);
-            compute_encoder.set_buffer(0, Some(a), 0);
-            compute_encoder.set_buffer(1, Some(b), 0);
-            compute_encoder.set_buffer(2, Some(&result_buffer), 0);
-            compute_encoder.set_buffer(3, Some(&m_buffer), 0);
-            compute_encoder.set_buffer(4, Some(&n_buffer), 0);
-            compute_encoder.set_buffer(5, Some(&k_buffer), 0);
-
-            compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
-            compute_encoder.end_encoding();
-
-            command_buffer.commit();
-            command_buffer.wait_until_completed();
-        });
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
 
         Ok(result_buffer)
     }
@@ -327,6 +321,39 @@ impl MpsBackend {
 
         features
     }
+
+    pub fn sum_backend(&self, input: &Buffer, size: usize) -> Result<Buffer, MpsError> {
+        let result_buffer = self.device.device().new_buffer(
+            (size * std::mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let library = self.device.device().new_library_with_source(
+            include_str!("../../../shaders/metal/binary_ops.metal"),
+            &metal::CompileOptions::new(),
+        ).map_err(|_| MpsError::ShaderCompilationError)?;
+
+        let kernel = library.get_function("vector_sum", None).map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.device.device().new_compute_pipeline_state_with_function(&kernel).map_err(|_| MpsError::ShaderCompilationError)?;
+        let thread_group_size = MTLSize::new(1, 1, 1);
+        let grid_size = MTLSize::new(1, 1, 1);
+
+        let command_queue = self.device.device().new_command_queue();
+        let command_buffer = command_queue.new_command_buffer();
+        let compute_encoder = command_buffer.new_compute_command_encoder();
+
+        compute_encoder.set_compute_pipeline_state(&pipeline);
+        compute_encoder.set_buffer(0, Some(input), 0);
+        compute_encoder.set_buffer(1, Some(&result_buffer), 0);
+
+        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        compute_encoder.end_encoding();
+
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Ok(result_buffer)
+    }
 }
 
 impl Default for MpsBackend {
@@ -345,93 +372,113 @@ impl Backend for MpsBackend {
     }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        // Create Buffers on Apple MPS
-        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
-        let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
+        let mut result_vec: Vec<f32> = vec![];
 
-        // Perform addition on Apple MPS
-        let result_buffer = self.add(&buffer_a, &buffer_b, a.len()).expect("Failed to add buffers");
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
 
-        // Read result buffer
-        let result = result_buffer.contents();
-        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+            // Perform addition on Apple MPS
+            let result_buffer = self.add(&buffer_a, &buffer_b, a.len()).expect("Failed to add buffers");
 
-        // Copy result to a Vec
-        let result_vec = result_slice.to_vec();
+            // Read result buffer
+            let result = result_buffer.contents();
+            let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+
+            // Copy result to a Vec
+            result_vec = result_slice.to_vec();
+        });
 
         result_vec
     }
 
     fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        // Create Buffers on Apple MPS
-        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
-        let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
+        let mut result_vec: Vec<f32> = vec![];
 
-        // Perform multiplication on Apple MPS
-        let result_buffer = self.multiply(&buffer_a, &buffer_b, a.len()).expect("Failed to multiply buffers");
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
 
-        // Read result buffer
-        let result = result_buffer.contents();
-        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+            // Perform multiplication on Apple MPS
+            let result_buffer = self.multiply(&buffer_a, &buffer_b, a.len()).expect("Failed to multiply buffers");
 
-        // Copy result to a Vec
-        let result_vec = result_slice.to_vec();
+            // Read result buffer
+            let result = result_buffer.contents();
+            let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+
+            // Copy result to a Vec
+            result_vec = result_slice.to_vec();
+        });
 
         result_vec
     }
 
     fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-        // Create Buffers on Apple MPS
-        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
-        let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
+        let mut result_vec: Vec<f32> = vec![];
 
-        // Perform matrix multiplication on Apple MPS
-        let result_buffer = self.matmul(&buffer_a, &buffer_b, m, n, k).expect("Failed to multiply matrices");
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
 
-        // Read result buffer
-        let result = result_buffer.contents();
-        let result_slice = unsafe {
-            std::slice::from_raw_parts(result as *const f32, (m * k))
-        };
+            // Perform matrix multiplication on Apple MPS
+            let result_buffer = self.matmul(&buffer_a, &buffer_b, m, n, k).expect("Failed to multiply matrices");
 
-        // Copy result to a Vec
-        let result_vec = result_slice.to_vec();
+            // Read result buffer
+            let result = result_buffer.contents();
+            let result_slice = unsafe {
+                std::slice::from_raw_parts(result as *const f32, (m * k))
+            };
+
+            // Copy result to a Vec
+            result_vec = result_slice.to_vec();
+        });
 
         result_vec
     }
 
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        // Create Buffers on Apple MPS
-        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
-        let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
+        let mut result_vec: Vec<f32> = vec![];
 
-        // Perform division on Apple MPS
-        let result_buffer = self.add(&buffer_a, &buffer_b, a.len()).expect("Failed to divide buffers");
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
 
-        // Read result buffer
-        let result = result_buffer.contents();
-        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+            // Perform division on Apple MPS
+            let result_buffer = self.add(&buffer_a, &buffer_b, a.len()).expect("Failed to divide buffers");
 
-        // Copy result to a Vec
-        let result_vec = result_slice.to_vec();
+            // Read result buffer
+            let result = result_buffer.contents();
+            let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+
+            // Copy result to a Vec
+            result_vec = result_slice.to_vec();
+        });
 
         result_vec
     }
 
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        // Create Buffers on Apple MPS
-        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
-        let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
+        let mut result_vec: Vec<f32> = vec![];
 
-        // Perform subtraction on Apple MPS
-        let result_buffer = self.sub(&buffer_a, &buffer_b, a.len()).expect("Failed to subtract buffers");
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_b = self.create_buffer(b).expect("Failed to create buffer B");
 
-        // Read result buffer
-        let result = result_buffer.contents();
-        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+            // Perform subtraction on Apple MPS
+            let result_buffer = self.sub(&buffer_a, &buffer_b, a.len()).expect("Failed to subtract buffers");
 
-        // Copy result to a Vec
-        let result_vec = result_slice.to_vec();
+            // Read result buffer
+            let result = result_buffer.contents();
+            let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+
+            // Copy result to a Vec
+            result_vec = result_slice.to_vec();
+        });
 
         result_vec
     }
@@ -441,18 +488,22 @@ impl Backend for MpsBackend {
     }
 
     fn log(&self, a: &[f32]) -> Vec<f32> {
-        // Create Buffers on Apple MPS
-        let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+        let mut result_vec: Vec<f32> = vec![];
 
-        // Perform log on Apple MPS
-        let result_buffer = self.log(&buffer_a, a.len()).expect("Failed to log buffer");
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
 
-        // Read result buffer
-        let result = result_buffer.contents();
-        let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+            // Perform log on Apple MPS
+            let result_buffer = self.log(&buffer_a, a.len()).expect("Failed to log buffer");
 
-        // Copy result to a Vec
-        let result_vec = result_slice.to_vec();
+            // Read result buffer
+            let result = result_buffer.contents();
+            let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, a.len()) };
+
+            // Copy result to a Vec
+            result_vec = result_slice.to_vec();
+        });
 
         result_vec
     }
@@ -466,11 +517,31 @@ impl Backend for MpsBackend {
     }
 
     fn sum(&self, a: &[f32]) -> f32 {
-        todo!()
+        let mut result_slice: &[f32] = &[];
+
+        autoreleasepool(|| {
+            // Create Buffers on Apple MPS
+            let buffer_a = self.create_buffer(a).expect("Failed to create buffer A");
+
+            // Perform sum on Apple MPS
+            let result_buffer = self.sum_backend(&buffer_a, a.len()).expect("Failed to sum buffer");
+
+            // Read result buffer
+            let result = result_buffer.contents();
+            result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, 1) };
+        });
+
+        result_slice[0]
     }
 
     fn mean(&self, a: &[f32]) -> f32 {
-        todo!()
+        if a.is_empty() {
+            return 0.0f32;
+        }
+
+        let sum_result: f32 = self.sum(a);
+
+        sum_result / a.len() as f32
     }
 }
 
