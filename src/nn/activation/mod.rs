@@ -1,10 +1,12 @@
 mod relu;
 mod sigmoid;
+mod softmax;
 mod swish;
 mod tanh;
 
 pub use relu::ReLU;
 pub use sigmoid::Sigmoid;
+pub use softmax::Softmax;
 pub use swish::Swish;
 pub use tanh::Tanh;
 

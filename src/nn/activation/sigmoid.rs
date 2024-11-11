@@ -1,4 +1,4 @@
-use crate::{nn::Activation, nn::Layer, tensor::Tensor, MlResult};
+use crate::{nn::Activation, tensor::Tensor, MlResult};
 
 /// Sigmoid activation function module.
 ///
@@ -20,25 +20,56 @@ impl Sigmoid {
 
 impl Activation for Sigmoid {
     fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let data: Vec<f32> = input
-            .data()
-            .iter()
-            .map(|&x| 1.0 / (1.0 + (-x).exp()))
-            .collect();
+        // sigmoid(x) = 1 / (1 + exp(-x))
+        let neg_input = input.neg()?;
+        let exp_neg = neg_input.exp()?;
+        let denominator = exp_neg.add_scalar(1.0)?;
 
-        Tensor::from_vec(data, input.shape())
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
+        ones.div(&denominator)
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
-        // Derivative of sigmoid is σ(x) * (1 - σ(x))
-        let sigmoid_x = self.forward(input)?;
-        let grad_input: Vec<f32> = sigmoid_x
-            .data()
-            .iter()
-            .zip(grad_output.data().iter())
-            .map(|(&s, &grad)| grad * s * (1.0 - s))
-            .collect();
+        // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
+        let sigmoid_x = self.act_forward(input)?;
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
+        let grad = sigmoid_x.mul(&ones.sub(&sigmoid_x)?)?;
 
-        Tensor::from_vec(grad_input, input.shape())
+        grad_output.mul(&grad)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sigmoid_forward() -> MlResult<()> {
+        let sigmoid = Sigmoid::new();
+        let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
+        let output = sigmoid.act_forward(&input)?;
+
+        // Check approximate values
+        let expected = vec![0.119, 0.269, 0.5, 0.731, 0.881];
+        for (a, &b) in output.data().iter().zip(expected.iter()) {
+            assert!((a - b).abs() < 0.001);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_sigmoid_backward() -> MlResult<()> {
+        let sigmoid = Sigmoid::new();
+        let input = Tensor::from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
+        let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
+
+        let grad_input = sigmoid.act_backward(&input, &grad_output)?;
+
+        // Check derivative values: sigmoid(x) * (1 - sigmoid(x))
+        let expected = vec![0.197, 0.25, 0.197];
+        for (a, &b) in grad_input.data().iter().zip(expected.iter()) {
+            assert!((a - b).abs() < 0.001);
+        }
+        Ok(())
     }
 }

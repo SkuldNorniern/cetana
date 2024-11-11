@@ -21,27 +21,55 @@ impl ReLU {
 
 impl Activation for ReLU {
     fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let data: Vec<f32> = input
-            .data()
-            .iter()
-            .map(|&x| if x > 0.0 { x } else { 0.0 })
-            .collect();
-
-        Tensor::from_vec(data, input.shape())
+        input.clip(0.0, f32::INFINITY)
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
-        let mut grad_input = vec![0.0; input.data().len()];
+        // Create a tensor of ones and zeros based on input > 0
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
+        let zeros = Tensor::from_vec(vec![0.0; input.data().len()], input.shape())?;
 
-        for (i, (&x, &grad)) in input
-            .data()
-            .iter()
-            .zip(grad_output.data().iter())
-            .enumerate()
-        {
-            grad_input[i] = if x > 0.0 { grad } else { 0.0 };
-        }
+        // Use backend operations to create mask
+        let mask = input.clip(0.0, 1.0)?;
+        let mask = mask.mul(&ones)?.add(&zeros)?;
 
-        Tensor::from_vec(grad_input, input.shape())
+        // Element-wise multiplication using backend
+        grad_output.mul(&mask)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_relu_forward() -> MlResult<()> {
+        let relu = ReLU::new();
+        let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
+        let output = relu.act_forward(&input)?;
+
+        assert_eq!(output.data(), &[0.0, 0.0, 0.0, 1.0, 2.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_relu_backward() -> MlResult<()> {
+        let relu = ReLU::new();
+        let input = Tensor::from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
+        let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
+
+        let grad_input = relu.act_backward(&input, &grad_output)?;
+        assert_eq!(grad_input.data(), &[0.0, 0.0, 1.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_relu_2d() -> MlResult<()> {
+        let relu = ReLU::new();
+        let input = Tensor::new(vec![vec![-1.0, 2.0], vec![3.0, -4.0]])?;
+
+        let output = relu.act_forward(&input)?;
+        assert_eq!(output.data(), &[0.0, 2.0, 3.0, 0.0]);
+        Ok(())
     }
 }
