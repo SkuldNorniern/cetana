@@ -1,8 +1,9 @@
-use crate::nn::random::SimpleRng;
-use crate::serialize::{Deserialize, Model, Serialize};
-use crate::{nn::Layer, tensor::Tensor, MlResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::serialize::{Deserialize, Model, Serialize};
+use crate::{nn::Layer, tensor::Tensor, MlResult};
+
+use aporia::{Rng, backend::Xoshiro256StarStar};
 /// A fully connected (linear/dense) neural network layer.
 ///
 /// Applies a linear transformation to the incoming data: y = xW^T + b
@@ -30,14 +31,22 @@ impl Linear {
             .map(|d| d.as_nanos() as u64)
             .map_err(|e| format!("Time went backwards: {}", e))?;
 
-        let mut rng = SimpleRng::new(seed);
+        let rng_backend = Xoshiro256StarStar::new(seed);
+        let mut rng = Rng::new(rng_backend);
+
+        // Add this helper function within the new() method
+        // FEAT: TODO: implement this in aporia
+        fn gen_range(rng: &mut Rng<Xoshiro256StarStar>, min: f32, max: f32) -> f32 {
+            let random = rng.next_f64() as f32;  // Convert to f32
+            min + (random * (max - min))
+        }
 
         // Xavier initialization
         let k = 1.0 / (in_features as f32).sqrt();
         let weight_data: Vec<f32> = (0..in_features * out_features)
             .map(|_| {
-                // Ensure we get values strictly within [-k, k]
-                let val = rng.gen_range(-k, k);
+                // Replace rng.gen_range with our implementation
+                let val = gen_range(&mut rng, -k, k);
                 if val == k {
                     k - f32::EPSILON
                 } else if val == -k {
@@ -51,7 +60,9 @@ impl Linear {
         let weight = Tensor::from_vec(weight_data, &[out_features, in_features])?;
 
         let bias = if bias {
-            let bias_data: Vec<f32> = (0..out_features).map(|_| rng.gen_range(-k, k)).collect();
+            let bias_data: Vec<f32> = (0..out_features)
+                .map(|_| gen_range(&mut rng, -k, k))
+                .collect();
             Some(Tensor::from_vec(bias_data, &[out_features])?)
         } else {
             None
