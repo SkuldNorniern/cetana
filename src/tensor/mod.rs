@@ -238,9 +238,6 @@ impl Tensor {
     }
 
     pub fn sub(&self, other: &Tensor) -> MlResult<Tensor> {
-        // println!("Self shape: {:?}, data len: {}", self.shape, self.data.len());
-        // println!("Other shape: {:?}, data len: {}", other.shape, other.data.len());
-
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
             let mut result = vec![0.0; self.data.len()];
             let (batch_size, features) = (self.shape[0], self.shape[1]);
@@ -253,21 +250,15 @@ impl Tensor {
             return Tensor::from_vec(result, &self.shape);
         }
 
-        if self.shape != other.shape || self.data.len() != other.data.len() {
+        if self.shape != other.shape {
             return Err(MlError::TensorError(TensorError::InvalidShape {
                 expected: self.shape.clone(),
                 got: other.shape.clone(),
             }));
         }
 
-        let data: Vec<f32> = self
-            .data
-            .iter()
-            .zip(other.data.iter())
-            .map(|(&a, &b)| a - b)
-            .collect();
-
-        Tensor::from_vec(data, &self.shape)
+        let result = self.backend.sub(&self.data, &other.data);
+        Tensor::from_vec(result, &self.shape)
     }
 
     pub fn mul_scalar(&self, scalar: f32) -> MlResult<Tensor> {
@@ -383,6 +374,81 @@ impl Tensor {
         }
 
         Ok(self.backend.mean(&self.data))
+    }
+
+    pub fn exp(&self) -> MlResult<Tensor> {
+        let result = self.backend.exp(&self.data);
+        Tensor::from_vec(result, &self.shape)
+    }
+
+    pub fn div(&self, other: &Tensor) -> MlResult<Tensor> {
+        if self.shape != other.shape {
+            return Err(MlError::TensorError(TensorError::InvalidShape {
+                expected: self.shape.clone(),
+                got: other.shape.clone(),
+            }));
+        }
+
+        let result = self.backend.div(&self.data, &other.data);
+        Tensor::from_vec(result, &self.shape)
+    }
+
+    pub fn pow(&self, power: f32) -> MlResult<Tensor> {
+        let result = self.backend.pow(&self.data, power);
+        Tensor::from_vec(result, &self.shape)
+    }
+
+    pub fn sqrt(&self) -> MlResult<Tensor> {
+        let result = self.backend.sqrt(&self.data);
+        Tensor::from_vec(result, &self.shape)
+    }
+
+    pub fn sum_all(&self) -> MlResult<f32> {
+        Ok(self.backend.sum(&self.data))
+    }
+
+    pub fn max_along_axis(&self, axis: usize) -> MlResult<Tensor> {
+        if axis >= self.shape.len() {
+            return Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis,
+                shape: self.shape.clone(),
+            }));
+        }
+
+        if self.shape.len() != 2 {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "max_along_axis",
+                reason: "Operation currently only supports 2D tensors".to_string(),
+            }));
+        }
+
+        let (rows, cols) = (self.shape[0], self.shape[1]);
+        match axis {
+            0 => {
+                // Max along rows to get a [1, cols] tensor
+                let mut result = vec![f32::NEG_INFINITY; cols];
+                for (j, max) in result.iter_mut().enumerate().take(cols) {
+                    for i in 0..rows {
+                        *max = max.max(self.data[i * cols + j]);
+                    }
+                }
+                Tensor::from_vec(result, &[1, cols])
+            }
+            1 => {
+                // Max along columns to get a [rows, 1] tensor
+                let mut result = vec![f32::NEG_INFINITY; rows];
+                for (i, max) in result.iter_mut().enumerate().take(rows) {
+                    for j in 0..cols {
+                        *max = max.max(self.data[i * cols + j]);
+                    }
+                }
+                Tensor::from_vec(result, &[rows, 1])
+            }
+            _ => Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis,
+                shape: self.shape.clone(),
+            })),
+        }
     }
 }
 
@@ -553,6 +619,41 @@ mod tests {
         let b = Tensor::new(vec![vec![2.0, 3.0], vec![4.0, 5.0]])?;
         let c = a.mul(&b)?;
         assert_eq!(c.data(), &[2.0, 6.0, 12.0, 20.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_exp() -> MlResult<()> {
+        let a = Tensor::new(vec![vec![1.0, 2.0]])?;
+        let b = a.exp()?;
+        assert_eq!(b.shape(), &[1, 2]);
+        assert!((b.data()[0] - 2.718281828).abs() < 1e-6);
+        assert!((b.data()[1] - 7.389056099).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_div() -> MlResult<()> {
+        let a = Tensor::new(vec![vec![4.0, 6.0]])?;
+        let b = Tensor::new(vec![vec![2.0, 3.0]])?;
+        let c = a.div(&b)?;
+        assert_eq!(c.data(), &[2.0, 2.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pow() -> MlResult<()> {
+        let a = Tensor::new(vec![vec![2.0, 3.0]])?;
+        let b = a.pow(2.0)?;
+        assert_eq!(b.data(), &[4.0, 9.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sqrt() -> MlResult<()> {
+        let a = Tensor::new(vec![vec![4.0, 9.0]])?;
+        let b = a.sqrt()?;
+        assert_eq!(b.data(), &[2.0, 3.0]);
         Ok(())
     }
 }
