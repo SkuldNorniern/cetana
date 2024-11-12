@@ -201,8 +201,8 @@ impl Tensor {
             }));
         }
 
-        let mut result = vec![0.0; self.data.len()];
         let (m, n) = (self.shape[0], self.shape[1]);
+        let mut result = vec![0.0; self.data.len()];
 
         for i in 0..m {
             for j in 0..n {
@@ -215,12 +215,12 @@ impl Tensor {
 
     pub fn add(&self, other: &Tensor) -> MlResult<Tensor> {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
-            let (batch_size, features) = (self.shape[0], self.shape[1]);
+            let (_batch_size, features) = (self.shape[0], self.shape[1]);
             let mut result = vec![0.0; self.data.len()];
 
-            for i in 0..batch_size {
-                for j in 0..features {
-                    result[i * features + j] = self.data[i * features + j] + other.data[j];
+            for (i, chunk) in result.chunks_mut(features).enumerate() {
+                for (j, val) in chunk.iter_mut().enumerate() {
+                    *val = self.data[i * features + j] + other.data[j];
                 }
             }
             return Tensor::from_vec(result, &self.shape);
@@ -282,25 +282,24 @@ impl Tensor {
         }
 
         let (rows, cols) = (self.shape[0], self.shape[1]);
+        let _total_sum = self.backend.sum(&self.data);
 
         match axis {
             0 => {
-                // Sum along rows to get a [1, cols] tensor
                 let mut result = vec![0.0; cols];
-                for (j, sum) in result.iter_mut().enumerate().take(cols) {
+                for j in 0..cols {
+                    let mut sum = 0.0;
                     for i in 0..rows {
-                        *sum += self.data[i * cols + j];
+                        sum += self.data[i * cols + j];
                     }
+                    result[j] = sum;
                 }
                 Tensor::from_vec(result, &[1, cols])
             }
             1 => {
-                // Sum along columns to get a [rows, 1] tensor
                 let mut result = vec![0.0; rows];
-                for (i, sum) in result.iter_mut().enumerate().take(rows) {
-                    for j in 0..cols {
-                        *sum += self.data[i * cols + j];
-                    }
+                for (i, chunk) in self.data.chunks(cols).enumerate() {
+                    result[i] = chunk.iter().sum();
                 }
                 Tensor::from_vec(result, &[rows, 1])
             }
@@ -425,7 +424,6 @@ impl Tensor {
         let (rows, cols) = (self.shape[0], self.shape[1]);
         match axis {
             0 => {
-                // Max along rows to get a [1, cols] tensor
                 let mut result = vec![f32::NEG_INFINITY; cols];
                 for (j, max) in result.iter_mut().enumerate().take(cols) {
                     for i in 0..rows {
@@ -435,7 +433,6 @@ impl Tensor {
                 Tensor::from_vec(result, &[1, cols])
             }
             1 => {
-                // Max along columns to get a [rows, 1] tensor
                 let mut result = vec![f32::NEG_INFINITY; rows];
                 for (i, max) in result.iter_mut().enumerate().take(rows) {
                     for j in 0..cols {

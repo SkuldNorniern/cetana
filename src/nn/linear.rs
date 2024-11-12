@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::serialize::{Deserialize, Model, Serialize};
 use crate::{nn::Layer, tensor::Tensor, MlResult};
 
-use aporia::{Rng, backend::Xoshiro256StarStar};
+use aporia::{backend::Xoshiro256StarStar, Rng};
 /// A fully connected (linear/dense) neural network layer.
 ///
 /// Applies a linear transformation to the incoming data: y = xW^T + b
@@ -37,7 +37,7 @@ impl Linear {
         // Add this helper function within the new() method
         // FEAT: TODO: implement this in aporia
         fn gen_range(rng: &mut Rng<Xoshiro256StarStar>, min: f32, max: f32) -> f32 {
-            let random = rng.next_f64() as f32;  // Convert to f32
+            let random = rng.next_f64() as f32; // Convert to f32
             min + (random * (max - min))
         }
 
