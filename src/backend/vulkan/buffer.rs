@@ -74,20 +74,15 @@ impl Buffer {
         unsafe {
             let ptr = self
                 .device
-                .map_memory(
-                    self.memory,
-                    0,
-                    size,
-                    vk::MemoryMapFlags::empty()
-                )
+                .map_memory(self.memory, 0, size, vk::MemoryMapFlags::empty())
                 .map_err(VulkanError::from)?;
 
             std::ptr::copy_nonoverlapping(
                 data.as_ptr() as *const u8,
                 ptr as *mut u8,
-                size as usize
+                size as usize,
             );
-            
+
             self.device.unmap_memory(self.memory);
         }
         Ok(())

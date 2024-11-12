@@ -1,7 +1,7 @@
-use super::{VulkanCore, VulkanCompute};
- use std::fmt::Debug;
+use super::{VulkanCompute, VulkanCore};
 use crate::backend::{Backend, DeviceType};
 use crate::MlResult;
+use std::fmt::Debug;
 
 pub struct VulkanBackend {
     core: VulkanCore,
@@ -24,10 +24,7 @@ impl VulkanBackend {
             core.queue_family_index,
         )?;
 
-        Ok(Self {
-            core,
-            compute,
-        })
+        Ok(Self { core, compute })
     }
 }
 
@@ -37,27 +34,32 @@ impl Backend for VulkanBackend {
     }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        self.compute.execute_binary_op(a, b, 0)
+        self.compute
+            .execute_binary_op(a, b, 0)
             .unwrap_or_else(|_| vec![0.0; a.len()])
     }
 
     fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        self.compute.execute_binary_op(a, b, 1)
+        self.compute
+            .execute_binary_op(a, b, 1)
             .unwrap_or_else(|_| vec![0.0; a.len()])
     }
 
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        self.compute.execute_binary_op(a, b, 2)
+        self.compute
+            .execute_binary_op(a, b, 2)
             .unwrap_or_else(|_| vec![0.0; a.len()])
     }
 
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        self.compute.execute_binary_op(a, b, 3)
+        self.compute
+            .execute_binary_op(a, b, 3)
             .unwrap_or_else(|_| vec![0.0; a.len()])
     }
 
     fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-        self.compute.matmul(a, b, m, n, k)
+        self.compute
+            .matmul(a, b, m, n, k)
             .unwrap_or_else(|_| vec![0.0; m * k])
     }
 

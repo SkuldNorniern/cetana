@@ -1,5 +1,5 @@
 use super::VulkanError;
-use ash::{vk, Entry, Instance, Device};
+use ash::{vk, Device, Entry, Instance};
 use std::ffi::CStr;
 use std::sync::Arc;
 
@@ -30,10 +30,11 @@ impl VulkanCore {
 
             let validation_layer = CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
                 .map_err(|_| VulkanError::InitializationFailed("Invalid layer name"))?;
-            
-            let available_layers = entry.enumerate_instance_layer_properties()
+
+            let available_layers = entry
+                .enumerate_instance_layer_properties()
                 .map_err(VulkanError::from)?;
-            
+
             let layers_names_raw = if available_layers.iter().any(|layer| {
                 let name = CStr::from_ptr(layer.layer_name.as_ptr());
                 name == validation_layer
@@ -51,27 +52,27 @@ impl VulkanCore {
                 ..Default::default()
             };
 
-            let instance = entry.create_instance(&create_info, None)
+            let instance = entry
+                .create_instance(&create_info, None)
                 .map_err(VulkanError::from)?;
             let instance = Arc::new(instance);
 
-            let pdevices = instance.enumerate_physical_devices()
+            let pdevices = instance
+                .enumerate_physical_devices()
                 .map_err(VulkanError::from)?;
 
             let (physical_device, queue_family_index) = pdevices
                 .iter()
                 .find_map(|pdevice| {
-                    let queue_families = instance.get_physical_device_queue_family_properties(*pdevice);
-                    queue_families
-                        .iter()
-                        .enumerate()
-                        .find_map(|(index, info)| {
-                            if info.queue_flags.contains(vk::QueueFlags::COMPUTE) {
-                                Some((*pdevice, index))
-                            } else {
-                                None
-                            }
-                        })
+                    let queue_families =
+                        instance.get_physical_device_queue_family_properties(*pdevice);
+                    queue_families.iter().enumerate().find_map(|(index, info)| {
+                        if info.queue_flags.contains(vk::QueueFlags::COMPUTE) {
+                            Some((*pdevice, index))
+                        } else {
+                            None
+                        }
+                    })
                 })
                 .ok_or(VulkanError::NoComputeQueue)?;
 
@@ -91,7 +92,8 @@ impl VulkanCore {
                 ..Default::default()
             };
 
-            let device = instance.create_device(physical_device, &device_create_info, None)
+            let device = instance
+                .create_device(physical_device, &device_create_info, None)
                 .map_err(VulkanError::from)?;
             let device = Arc::new(device);
 

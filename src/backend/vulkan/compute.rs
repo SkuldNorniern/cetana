@@ -1,8 +1,8 @@
 use super::{Buffer, VulkanError};
 use crate::MlResult;
 use ash::{vk, Device, Instance};
-use std::sync::Arc;
 use std::fs::read;
+use std::sync::Arc;
 
 pub struct VulkanCompute {
     device: Arc<Device>,
@@ -27,9 +27,7 @@ impl VulkanCompute {
         physical_device: vk::PhysicalDevice,
         queue_family_index: u32,
     ) -> MlResult<Self> {
-        let compute_queue = unsafe { 
-            device.get_device_queue(queue_family_index, 0)
-        };
+        let compute_queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
         let command_pool_info = vk::CommandPoolCreateInfo {
             s_type: vk::StructureType::COMMAND_POOL_CREATE_INFO,
@@ -39,7 +37,8 @@ impl VulkanCompute {
         };
 
         let command_pool = unsafe {
-            device.create_command_pool(&command_pool_info, None)
+            device
+                .create_command_pool(&command_pool_info, None)
                 .map_err(VulkanError::from)?
         };
 
@@ -52,11 +51,12 @@ impl VulkanCompute {
         };
 
         let command_buffer = unsafe {
-            device.allocate_command_buffers(&command_buffer_info)
+            device
+                .allocate_command_buffers(&command_buffer_info)
                 .map_err(VulkanError::from)?[0]
         };
 
-        let (descriptor_pool, descriptor_set_layout) = 
+        let (descriptor_pool, descriptor_set_layout) =
             super::descriptor::create_descriptor_resources(&device)?;
 
         let push_constant_range = [vk::PushConstantRange {
@@ -76,7 +76,8 @@ impl VulkanCompute {
         };
 
         let pipeline_layout = unsafe {
-            device.create_pipeline_layout(&pipeline_layout_create_info, None)
+            device
+                .create_pipeline_layout(&pipeline_layout_create_info, None)
                 .map_err(VulkanError::from)?
         };
 
@@ -92,11 +93,8 @@ impl VulkanCompute {
             "shaders/vulkan/reduction.spv",
         )?;
 
-        let matmul_pipeline = Self::create_compute_pipeline(
-            &device,
-            pipeline_layout,
-            "shaders/vulkan/matmul.spv",
-        )?;
+        let matmul_pipeline =
+            Self::create_compute_pipeline(&device, pipeline_layout, "shaders/vulkan/matmul.spv")?;
 
         let fence_info = vk::FenceCreateInfo {
             s_type: vk::StructureType::FENCE_CREATE_INFO,
@@ -104,7 +102,8 @@ impl VulkanCompute {
         };
 
         let fence = unsafe {
-            device.create_fence(&fence_info, None)
+            device
+                .create_fence(&fence_info, None)
                 .map_err(VulkanError::from)?
         };
 
@@ -125,14 +124,19 @@ impl VulkanCompute {
         })
     }
 
-    pub fn execute_binary_op(&self, input_a: &[f32], input_b: &[f32], op_type: u32) -> MlResult<Vec<f32>> {
+    pub fn execute_binary_op(
+        &self,
+        input_a: &[f32],
+        input_b: &[f32],
+        op_type: u32,
+    ) -> MlResult<Vec<f32>> {
         let size = input_a.len();
-        
+
         let input_buffer_a = Buffer::new(
             self.device.clone(),
             self.instance.clone(),
             self.physical_device,
-            (std::mem::size_of::<f32>() * size) as u64,
+            std::mem::size_of_val(input_a) as u64,
             vk::BufferUsageFlags::STORAGE_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
@@ -142,7 +146,7 @@ impl VulkanCompute {
             self.device.clone(),
             self.instance.clone(),
             self.physical_device,
-            (std::mem::size_of::<f32>() * size) as u64,
+            std::mem::size_of_val(input_a) as u64,
             vk::BufferUsageFlags::STORAGE_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
@@ -152,7 +156,7 @@ impl VulkanCompute {
             self.device.clone(),
             self.instance.clone(),
             self.physical_device,
-            (std::mem::size_of::<f32>() * size) as u64,
+            std::mem::size_of_val(input_a) as u64,
             vk::BufferUsageFlags::STORAGE_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
@@ -165,10 +169,9 @@ impl VulkanCompute {
         )?;
 
         unsafe {
-            self.device.reset_command_buffer(
-                self.command_buffer,
-                vk::CommandBufferResetFlags::empty(),
-            ).map_err(VulkanError::from)?;
+            self.device
+                .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(VulkanError::from)?;
 
             let begin_info = vk::CommandBufferBeginInfo {
                 s_type: vk::StructureType::COMMAND_BUFFER_BEGIN_INFO,
@@ -212,14 +215,11 @@ impl VulkanCompute {
                 &[],
             );
 
-            self.device.cmd_dispatch(
-                self.command_buffer,
-                ((size + 255) / 256) as u32,
-                1,
-                1,
-            );
+            self.device
+                .cmd_dispatch(self.command_buffer, ((size + 255) / 256) as u32, 1, 1);
 
-            self.device.end_command_buffer(self.command_buffer)
+            self.device
+                .end_command_buffer(self.command_buffer)
                 .map_err(VulkanError::from)?;
 
             self.device
@@ -233,11 +233,9 @@ impl VulkanCompute {
                 ..Default::default()
             };
 
-            self.device.queue_submit(
-                self.compute_queue,
-                &[submit_info],
-                self.fence,
-            ).map_err(VulkanError::from)?;
+            self.device
+                .queue_submit(self.compute_queue, &[submit_info], self.fence)
+                .map_err(VulkanError::from)?;
 
             self.device
                 .wait_for_fences(&[self.fence], true, u64::MAX)
@@ -278,12 +276,11 @@ impl VulkanCompute {
         )?;
 
         let push_constant_data = [input.len() as u32];
-        
+
         unsafe {
-            self.device.reset_command_buffer(
-                self.command_buffer,
-                vk::CommandBufferResetFlags::empty(),
-            ).map_err(VulkanError::from)?;
+            self.device
+                .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(VulkanError::from)?;
 
             let begin_info = vk::CommandBufferBeginInfo {
                 s_type: vk::StructureType::COMMAND_BUFFER_BEGIN_INFO,
@@ -328,7 +325,8 @@ impl VulkanCompute {
                 1,
             );
 
-            self.device.end_command_buffer(self.command_buffer)
+            self.device
+                .end_command_buffer(self.command_buffer)
                 .map_err(VulkanError::from)?;
 
             self.device
@@ -342,11 +340,9 @@ impl VulkanCompute {
                 ..Default::default()
             };
 
-            self.device.queue_submit(
-                self.compute_queue,
-                &[submit_info],
-                self.fence,
-            ).map_err(VulkanError::from)?;
+            self.device
+                .queue_submit(self.compute_queue, &[submit_info], self.fence)
+                .map_err(VulkanError::from)?;
 
             self.device
                 .wait_for_fences(&[self.fence], true, u64::MAX)
@@ -398,10 +394,9 @@ impl VulkanCompute {
         )?;
 
         unsafe {
-            self.device.reset_command_buffer(
-                self.command_buffer,
-                vk::CommandBufferResetFlags::empty(),
-            ).map_err(VulkanError::from)?;
+            self.device
+                .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(VulkanError::from)?;
 
             let begin_info = vk::CommandBufferBeginInfo {
                 s_type: vk::StructureType::COMMAND_BUFFER_BEGIN_INFO,
@@ -451,7 +446,8 @@ impl VulkanCompute {
                 1,
             );
 
-            self.device.end_command_buffer(self.command_buffer)
+            self.device
+                .end_command_buffer(self.command_buffer)
                 .map_err(VulkanError::from)?;
 
             self.device
@@ -465,11 +461,9 @@ impl VulkanCompute {
                 ..Default::default()
             };
 
-            self.device.queue_submit(
-                self.compute_queue,
-                &[submit_info],
-                self.fence,
-            ).map_err(VulkanError::from)?;
+            self.device
+                .queue_submit(self.compute_queue, &[submit_info], self.fence)
+                .map_err(VulkanError::from)?;
 
             self.device
                 .wait_for_fences(&[self.fence], true, u64::MAX)
@@ -488,7 +482,7 @@ impl VulkanCompute {
         shader_path: &str,
     ) -> MlResult<vk::Pipeline> {
         let shader_code = read(shader_path).map_err(|e| VulkanError::ShaderError(e.to_string()))?;
-        
+
         let shader_module_create_info = vk::ShaderModuleCreateInfo {
             s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
             code_size: shader_code.len(),
@@ -519,13 +513,9 @@ impl VulkanCompute {
 
         let pipeline = unsafe {
             let pipeline = device
-                .create_compute_pipelines(
-                    vk::PipelineCache::null(),
-                    &[compute_pipeline_info],
-                    None,
-                )
+                .create_compute_pipelines(vk::PipelineCache::null(), &[compute_pipeline_info], None)
                 .map_err(|e| VulkanError::VkError(e.1))?[0];
-            
+
             device.destroy_shader_module(shader_module, None);
             pipeline
         };
@@ -577,11 +567,11 @@ impl VulkanCompute {
             self.device
                 .reset_fences(&[self.fence])
                 .map_err(VulkanError::from)?;
-            
+
             self.device
                 .queue_submit(self.compute_queue, &[], self.fence)
                 .map_err(VulkanError::from)?;
-            
+
             self.device
                 .wait_for_fences(&[self.fence], true, u64::MAX)
                 .map_err(VulkanError::from)?;
@@ -597,9 +587,12 @@ impl Drop for VulkanCompute {
             self.device.destroy_pipeline(self.reduction_pipeline, None);
             self.device.destroy_pipeline(self.binary_ops_pipeline, None);
             self.device.destroy_pipeline(self.matmul_pipeline, None);
-            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
-            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.device.destroy_descriptor_pool(self.descriptor_pool, None);
+            self.device
+                .destroy_pipeline_layout(self.pipeline_layout, None);
+            self.device
+                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
             self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_fence(self.fence, None);
         }

@@ -2,17 +2,16 @@ use ash::vk;
 use std::error::Error;
 
 mod backend;
+mod buffer;
 mod compute;
 mod core;
-mod buffer;
 mod descriptor;
 mod memory;
 
 pub use backend::VulkanBackend;
-pub use core::VulkanCore;
-pub use compute::VulkanCompute;
 pub use buffer::Buffer;
-
+pub use compute::VulkanCompute;
+pub use core::VulkanCore;
 
 #[derive(Debug)]
 pub enum VulkanError {
