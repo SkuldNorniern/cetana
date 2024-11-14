@@ -1,5 +1,6 @@
 mod relu;
 mod sigmoid;
+mod silu;
 mod softmax;
 mod swish;
 mod tanh;
