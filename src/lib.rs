@@ -1,22 +1,25 @@
 use std::fmt::{Display, Formatter};
 
 pub mod backend;
+pub mod log;
 pub mod loss;
 pub mod nn;
+pub mod optimizer;
 pub mod prelude;
 pub mod serialize;
 pub mod tensor;
 
 use backend::BackendError;
 use loss::LossError;
+use optimizer::OptimError;
 use tensor::TensorError;
-
 #[derive(Debug)]
 pub enum MlError {
     TensorError(TensorError),
     LossError(LossError),
     StringError(String),
     BackendError(BackendError),
+    OptimError(OptimError),
 }
 
 impl Display for MlError {
@@ -26,6 +29,7 @@ impl Display for MlError {
             MlError::LossError(e) => write!(f, "Loss error: {}", e),
             MlError::StringError(s) => write!(f, "{}", s),
             MlError::BackendError(e) => write!(f, "Backend error: {}", e),
+            MlError::OptimError(e) => write!(f, "Optimizer error: {}", e),
         }
     }
 }
@@ -77,6 +81,12 @@ impl From<String> for MlError {
 impl From<&str> for MlError {
     fn from(error: &str) -> Self {
         MlError::StringError(error.to_string())
+    }
+}
+
+impl From<OptimError> for MlError {
+    fn from(error: OptimError) -> Self {
+        MlError::OptimError(error)
     }
 }
 
