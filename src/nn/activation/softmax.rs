@@ -93,7 +93,7 @@ mod tests {
         assert!((sum - 1.0).abs() < 1e-6);
 
         // Check approximate values
-        let expected = vec![0.090, 0.245, 0.665];
+        let expected = [0.090, 0.245, 0.665];
         for (a, &b) in output.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }

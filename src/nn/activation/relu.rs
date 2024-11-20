@@ -21,7 +21,7 @@ impl ReLU {
 
 impl Activation for ReLU {
     fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        input.clip(0.0, f32::INFINITY)
+        input.clamp_full(Some(0.0), None)
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
@@ -30,7 +30,7 @@ impl Activation for ReLU {
         let zeros = Tensor::from_vec(vec![0.0; input.data().len()], input.shape())?;
 
         // Use backend operations to create mask
-        let mask = input.clip(0.0, 1.0)?;
+        let mask = input.clamp_full(Some(0.0), Some(1.0))?;
         let mask = mask.mul(&ones)?.add(&zeros)?;
 
         // Element-wise multiplication using backend

@@ -54,7 +54,7 @@ mod tests {
         let output = tanh.act_forward(&input)?;
 
         // Check approximate values
-        let expected = vec![-0.964, -0.762, 0.0, 0.762, 0.964];
+        let expected = [-0.964, -0.762, 0.0, 0.762, 0.964];
         for (a, &b) in output.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }
@@ -70,7 +70,7 @@ mod tests {
         let grad_input = tanh.act_backward(&input, &grad_output)?;
 
         // Check derivative values: 1 - tanh²(x)
-        let expected = vec![0.419, 1.0, 0.419];
+        let expected = [0.419, 1.0, 0.419];
         for (a, &b) in grad_input.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }

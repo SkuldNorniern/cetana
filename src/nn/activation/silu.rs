@@ -47,7 +47,7 @@ mod tests {
         let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
         let output = silu.act_forward(&input)?;
 
-        let expected = vec![-0.238, -0.269, 0.0, 0.731, 1.762];
+        let expected = [-0.238, -0.269, 0.0, 0.731, 1.762];
         for (a, &b) in output.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }
@@ -61,7 +61,7 @@ mod tests {
         let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
         let grad_input = silu.act_backward(&input, &grad_output)?;
 
-        let expected = vec![0.072, 0.5, 0.928];
+        let expected = [0.072, 0.5, 0.928];
         for (a, &b) in grad_input.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }

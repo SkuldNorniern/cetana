@@ -50,7 +50,7 @@ mod tests {
         let output = sigmoid.act_forward(&input)?;
 
         // Check approximate values
-        let expected = vec![0.119, 0.269, 0.5, 0.731, 0.881];
+        let expected = [0.119, 0.269, 0.5, 0.731, 0.881];
         for (a, &b) in output.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }
@@ -66,7 +66,7 @@ mod tests {
         let grad_input = sigmoid.act_backward(&input, &grad_output)?;
 
         // Check derivative values: sigmoid(x) * (1 - sigmoid(x))
-        let expected = vec![0.197, 0.25, 0.197];
+        let expected = [0.197, 0.25, 0.197];
         for (a, &b) in grad_input.data().iter().zip(expected.iter()) {
             assert!((a - b).abs() < 0.001);
         }
