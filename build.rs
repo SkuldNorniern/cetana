@@ -1,7 +1,5 @@
-use std::env;
+#[cfg(feature = "cuda")]
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
 
 #[cfg(feature = "cuda")]
 fn find_cuda_path() -> String {
@@ -29,42 +27,92 @@ fn find_cuda_path() -> String {
 
 #[cfg(feature = "vulkan")]
 fn compile_vulkan_shaders() -> std::io::Result<()> {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("Failed to get OUT_DIR"));
+    let shader_dir = PathBuf::from("shaders/vulkan");
 
-    // Compile reduction shader
+    // Create shader directory if it doesn't exist
+    std::fs::create_dir_all(&shader_dir)?;
+
+    // Compile and copy reduction shader
     println!("cargo:rerun-if-changed=shaders/vulkan/reduction.comp");
+    let reduction_out = out_dir.join("reduction.spv");
+    let reduction_final = shader_dir.join("reduction.spv");
+
     let status = Command::new("glslc")
         .args([
+            "--target-env=vulkan1.0",
+            "-O",
+            "-g",
             "shaders/vulkan/reduction.comp",
             "-o",
-            out_dir.join("reduction.spv").to_str().unwrap(),
+            reduction_out.to_str().expect("Invalid path"),
         ])
-        .status()
-        .expect("Failed to execute glslc");
+        .status()?;
 
     if !status.success() {
-        panic!("Failed to compile reduction shader");
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to compile reduction shader",
+        ));
     }
 
-    // Compile binary operations shader
+    // Copy reduction shader to final location
+    std::fs::copy(&reduction_out, &reduction_final)?;
+
+    // Compile and copy binary operations shader
     println!("cargo:rerun-if-changed=shaders/vulkan/binary_ops.comp");
+    let binary_ops_out = out_dir.join("binary_ops.spv");
+    let binary_ops_final = shader_dir.join("binary_ops.spv");
+
     let status = Command::new("glslc")
         .args([
+            "--target-env=vulkan1.0",
+            "-O",
+            "-g",
             "shaders/vulkan/binary_ops.comp",
             "-o",
-            out_dir.join("binary_ops.spv").to_str().unwrap(),
+            binary_ops_out.to_str().expect("Invalid path"),
         ])
-        .status()
-        .expect("Failed to execute glslc");
+        .status()?;
 
-    if status.success() {
-        Ok(())
-    } else {
-        Err(std::io::Error::new(
+    if !status.success() {
+        return Err(std::io::Error::new(
             std::io::ErrorKind::Other,
             "Failed to compile binary operations shader",
-        ))
+        ));
     }
+
+    // Copy binary ops shader to final location
+    std::fs::copy(&binary_ops_out, &binary_ops_final)?;
+
+    // Compile and copy matrix multiplication shader
+    println!("cargo:rerun-if-changed=shaders/vulkan/matmul.comp");
+    let matmul_out = out_dir.join("matmul.spv");
+    let matmul_final = shader_dir.join("matmul.spv");
+
+    let status = Command::new("glslc")
+        .args([
+            "--target-env=vulkan1.0",
+            "-O",
+            "-g",
+            "shaders/vulkan/matmul.comp",
+            "-o",
+            matmul_out.to_str().expect("Invalid path"),
+        ])
+        .status()?;
+
+    if !status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to compile matrix multiplication shader",
+        ));
+    }
+
+    // Copy matmul shader to final location
+    std::fs::copy(&matmul_out, &matmul_final)?;
+
+    println!("Successfully compiled and copied Vulkan shaders");
+    Ok(())
 }
 
 #[cfg(all(feature = "mps", target_os = "macos"))]
