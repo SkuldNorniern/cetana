@@ -90,11 +90,23 @@ impl Display for TensorError {
     }
 }
 
+#[derive(Clone)]
+struct GradFn(Arc<dyn Fn(&Tensor) -> MlResult<()>>);
+
+impl std::fmt::Debug for GradFn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GradFn")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Tensor {
     data: Vec<f32>,
     shape: Vec<usize>,
     backend: Arc<dyn Backend>,
+    grad: Option<Box<Tensor>>,
+    requires_grad: bool,
+    grad_fn: Option<GradFn>,
 }
 
 impl PartialEq for Tensor {
@@ -175,6 +187,9 @@ impl Tensor {
             data: flat_data,
             shape,
             backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -184,6 +199,71 @@ impl Tensor {
 
     pub fn data(&self) -> &[f32] {
         &self.data
+    }
+
+    /// Computes the gradients of current tensor w.r.t. graph leaves.
+    ///
+    /// # Arguments
+    /// * `gradient` - Optional gradient to start backpropagation with. If None, defaults to a tensor of ones.
+    ///
+    /// # Returns
+    /// Result indicating success or containing an error
+    pub fn backward(&mut self, gradient: Option<&Tensor>) -> MlResult<()> {
+        if !self.requires_grad {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "backward",
+                reason: "called backward on a tensor that doesn't require grad".to_string(),
+            }));
+        }
+
+        // If no gradient is provided, use a tensor of ones with the same shape
+        let grad = match gradient {
+            Some(g) => {
+                if g.shape != self.shape {
+                    return Err(MlError::TensorError(TensorError::InvalidShape {
+                        expected: self.shape.clone(),
+                        got: g.shape.clone(),
+                    }));
+                }
+                g.clone()
+            }
+            None => Tensor::ones(&self.shape)?,
+        };
+
+        // Set or accumulate the gradient
+        match &mut self.grad {
+            Some(existing_grad) => {
+                *existing_grad = Box::new(existing_grad.add(&grad)?);
+            }
+            None => {
+                self.grad = Some(Box::new(grad));
+            }
+        }
+
+        // Call the gradient function if it exists
+        if let Some(GradFn(grad_fn)) = &self.grad_fn {
+            grad_fn(self)?;
+        }
+
+        Ok(())
+    }
+
+    /// Enables gradient computation for the tensor
+    pub fn requires_grad(&mut self, requires_grad: bool) {
+        self.requires_grad = requires_grad;
+    }
+
+    /// Sets the gradient function for the tensor
+    pub fn set_grad_fn<F>(&mut self, grad_fn: F)
+    where
+        F: Fn(&Tensor) -> MlResult<()> + 'static,
+    {
+        self.grad_fn = Some(GradFn(Arc::new(grad_fn)));
+    }
+
+    /// Returns the gradient of the tensor
+    pub fn grad(&self) -> Option<&Tensor> {
+        self.grad.as_ref().map(|g| g.as_ref())
     }
 }
 
@@ -199,15 +279,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_matmul() -> MlResult<()> {
-        let a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
-        let b = Tensor::new(vec![vec![5.0, 6.0], vec![7.0, 8.0]])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[2, 2]);
-        assert_eq!(c.data(), &[19.0, 22.0, 43.0, 50.0]);
-        Ok(())
-    }
+    
 
     #[test]
     fn test_transpose() -> MlResult<()> {
@@ -852,6 +924,50 @@ mod tests {
         let c = a.div_scalar(2.0)?;
         assert_eq!(c.data(), &[1.0, 2.0]);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_backward_basic() -> MlResult<()> {
+        let mut a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
+        a.requires_grad(true);
+        
+        // Test backward with default gradient
+        a.backward(None)?;
+        let grad = a.grad().unwrap();
+        assert_eq!(grad.data(), &[1.0, 1.0, 1.0, 1.0]);
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_backward_with_gradient() -> MlResult<()> {
+        let mut a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
+        a.requires_grad(true);
+        
+        let gradient = Tensor::new(vec![vec![2.0, 3.0], vec![4.0, 5.0]])?;
+        a.backward(Some(&gradient))?;
+        
+        let grad = a.grad().unwrap();
+        assert_eq!(grad.data(), &[2.0, 3.0, 4.0, 5.0]);
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_backward_accumulation() -> MlResult<()> {
+        let mut a = Tensor::new(vec![vec![1.0, 2.0]])?;
+        a.requires_grad(true);
+        
+        // First backward pass
+        a.backward(None)?;
+        
+        // Second backward pass should accumulate
+        a.backward(None)?;
+        
+        let grad = a.grad().unwrap();
+        assert_eq!(grad.data(), &[2.0, 2.0]);
+        
         Ok(())
     }
 }

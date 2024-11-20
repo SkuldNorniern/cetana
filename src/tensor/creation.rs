@@ -25,6 +25,9 @@ impl Tensor {
             data,
             shape: shape.to_vec(),
             backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -64,6 +67,9 @@ impl Tensor {
             data,
             shape: shape.to_vec(),
             backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -120,6 +126,9 @@ impl Tensor {
             data,
             shape: shape.to_vec(),
             backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,  
         })
     }
 
@@ -188,6 +197,9 @@ impl Tensor {
             data,
             shape: shape.to_vec(),
             backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,  
         })
     }
 
@@ -275,6 +287,9 @@ impl Tensor {
             data,
             shape: vec![data_len],
             backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,  
         })
     }
 }
