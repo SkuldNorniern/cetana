@@ -3,6 +3,9 @@
 debug/
 target/
 
+# Data used for Testing
+data/
+
 # Remove Cargo.lock from gitignore if creating an executable, leave it for libraries
 # More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 Cargo.lock
@@ -13,6 +16,24 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 *.spv
+
+# Model files
+*.spn 
+*.safetensors
+*.pt
+*.pth
+
+
+# logs
+*.txt
+*.log
+
+# Shell scripts
+*.sh
+
+# Old Rust files
+*.rs_old
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
