@@ -65,7 +65,7 @@ impl SimpleNN {
 
         // Compute loss (MSE)
         let diff = predictions.sub(y)?;
-        let loss = diff.mul_scalar(0.5)?.sum(1)?;
+        let loss = diff.mul_scalar(0.5)?.sum(&[1], true)?;
 
         // Backward pass
         let output_grad = diff; // Derivative of MSE
@@ -105,7 +105,7 @@ impl SimpleNN {
 
     fn compute_loss(&self, predictions: &Tensor, targets: &Tensor) -> NetworkResult<Float> {
         let diff = predictions.sub(targets)?;
-        let loss = diff.mul_scalar(0.5)?.sum(1)?;
+        let loss = diff.mul_scalar(0.5)?.sum(&[1], true)?;
         Ok(loss.data()[0])
     }
 }
