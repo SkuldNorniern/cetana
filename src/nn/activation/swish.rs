@@ -30,15 +30,13 @@ impl Activation for Swish {
         let sigmoid = Sigmoid::new();
         let sigmoid_x = sigmoid.forward(input)?;
 
-        // Derivative of swish is: σ(x) + x * σ(x) * (1 - σ(x))
-        let grad_input: Vec<f32> = input
-            .data()
-            .iter()
-            .zip(sigmoid_x.data().iter())
-            .zip(grad_output.data().iter())
-            .map(|((&x, &s), &grad)| grad * (s + x * s * (1.0 - s)))
-            .collect();
+        // Use backend operations for the derivative calculation
+        let one = Tensor::from_vec(vec![1.0], &[1])?;
+        let complement = one.sub(&sigmoid_x)?;
+        let term1 = sigmoid_x.mul(&complement)?;
+        let term2 = input.mul(&term1)?;
+        let derivative = sigmoid_x.add(&term2)?;
 
-        Tensor::from_vec(grad_input, input.shape())
+        grad_output.mul(&derivative)
     }
 }

@@ -1,13 +1,19 @@
 pub mod activation;
 pub mod conv;
+pub mod dropout;
+pub mod embedding;
+pub mod layernorm;
 pub mod linear;
 pub mod pooling;
 pub mod random;
 
 pub use activation::{Activation, ReLU, Sigmoid, Swish, Tanh};
 pub use conv::{Conv2d, PaddingMode};
+pub use dropout::Dropout;
+pub use layernorm::LayerNorm;
 pub use linear::Linear;
 pub use pooling::{Pooling, PoolingType};
+// use crate::optimizer::Parameter;
 
 /// A trait representing a neural network module/layer.
 ///
@@ -35,4 +41,7 @@ pub trait Layer {
         grad_output: &crate::tensor::Tensor,
         learning_rate: f32,
     ) -> crate::MlResult<crate::tensor::Tensor>;
+
+    // Returns the parameters of the layer.
+    // fn parameters(&self) -> Vec<Parameter>;
 }

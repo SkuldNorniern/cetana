@@ -36,9 +36,28 @@ impl CpuCompute {
     pub fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         if let Some(len) = self.check_dimensions(a, b) {
             let mut result = Vec::with_capacity(len);
-            for (x, y) in a.chunks(4).zip(b.chunks(4)) {
-                result.extend(x.iter().zip(y.iter()).map(|(a, b)| a * b));
+            let chunks = len / 8;
+            let remainder = len % 8;
+
+            for i in 0..chunks {
+                let idx = i * 8;
+                result.extend_from_slice(&[
+                    a[idx] * b[idx],
+                    a[idx + 1] * b[idx + 1],
+                    a[idx + 2] * b[idx + 2],
+                    a[idx + 3] * b[idx + 3],
+                    a[idx + 4] * b[idx + 4],
+                    a[idx + 5] * b[idx + 5],
+                    a[idx + 6] * b[idx + 6],
+                    a[idx + 7] * b[idx + 7],
+                ]);
             }
+
+            let start = chunks * 8;
+            for i in 0..remainder {
+                result.push(a[start + i] * b[start + i]);
+            }
+
             result
         } else {
             Vec::new()
@@ -48,22 +67,31 @@ impl CpuCompute {
     // Optimized matrix multiplication with cache-friendly access
     pub fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
         let mut result = vec![0.0; m * k];
-        let block_size = 8; // Cache-friendly block size
+        let block_size = 32;
 
+        // Pre-transpose matrix B and store in contiguous memory
+        let mut b_trans = vec![0.0; n * k];
+        for j in 0..k {
+            for i in 0..n {
+                b_trans[j * n + i] = b[i * k + j];
+            }
+        }
+
+        // Process blocks with better cache utilization
         for i0 in (0..m).step_by(block_size) {
-            for j0 in (0..k).step_by(block_size) {
-                for l0 in (0..n).step_by(block_size) {
+            for l0 in (0..n).step_by(block_size) {
+                for j0 in (0..k).step_by(block_size) {
                     let i_end = (i0 + block_size).min(m);
-                    let j_end = (j0 + block_size).min(k);
                     let l_end = (l0 + block_size).min(n);
+                    let j_end = (j0 + block_size).min(k);
 
                     for i in i0..i_end {
-                        for j in j0..j_end {
-                            let mut sum = result[i * k + j];
-                            for l in l0..l_end {
-                                sum += a[i * n + l] * b[l * k + j];
+                        for l in l0..l_end {
+                            let a_val = a[i * n + l];
+                            let row_idx = i * k;
+                            for j in j0..j_end {
+                                result[row_idx + j] += a_val * b_trans[j * n + l];
                             }
-                            result[i * k + j] = sum;
                         }
                     }
                 }
@@ -147,9 +175,28 @@ impl CpuCompute {
     // Optimized reduction operations
     pub fn sum(&self, a: &[f32]) -> f32 {
         let mut sum = 0.0;
-        for chunk in a.chunks(8) {
-            sum += chunk.iter().sum::<f32>();
+        let chunks = a.len() / 8;
+        let remainder = a.len() % 8;
+
+        // Process 8 elements at a time
+        for i in 0..chunks {
+            let idx = i * 8;
+            sum += a[idx]
+                + a[idx + 1]
+                + a[idx + 2]
+                + a[idx + 3]
+                + a[idx + 4]
+                + a[idx + 5]
+                + a[idx + 6]
+                + a[idx + 7];
         }
+
+        // Handle remaining elements
+        let start = chunks * 8;
+        for i in 0..remainder {
+            sum += a[start + i];
+        }
+
         sum
     }
 

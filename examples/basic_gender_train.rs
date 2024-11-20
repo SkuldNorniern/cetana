@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs::File;
 use std::time::Instant;
 
+use aporia::backend::Xoshiro256StarStar;
 use cetana::{
     backend::DeviceManager,
     loss::calculate_binary_cross_entropy_loss,
@@ -33,9 +34,9 @@ impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
             learning_rate: 0.01,
-            epochs: 1000,
+            epochs: 10000,
             display_interval: 100,
-            early_stopping_patience: 50,
+            early_stopping_patience: 5,
             early_stopping_min_delta: 1e-6,
         }
     }
@@ -98,7 +99,7 @@ impl GenderClassifier {
         }
 
         let accuracy = (correct as Float) / (n_samples as Float) * 100.0;
-        let loss = cetana::loss::calculate_mse_loss(&predictions, y)?;
+        let loss = cetana::loss::calculate_binary_cross_entropy_loss(&predictions, y)?;
 
         Ok((accuracy, loss))
     }
@@ -180,6 +181,7 @@ fn train_test_split(
     seed: u64,
 ) -> (Tensor, Tensor, Tensor, Tensor) {
     let mut rng = StdRng::seed_from_u64(seed);
+    let _rng_backend = Xoshiro256StarStar::new(seed);
     let n_samples = x_data.len();
     let test_size = (n_samples as f32 * test_ratio) as usize;
 
@@ -217,6 +219,7 @@ fn train_test_split(
 }
 
 fn main() -> MlResult<()> {
+    cetana::log::init().expect("Failed to initialize logger");
     println!("Training Gender Classification Model\n");
 
     // Initialize device manager and select device

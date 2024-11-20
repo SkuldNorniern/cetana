@@ -20,21 +20,60 @@ impl Tanh {
 
 impl Activation for Tanh {
     fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let data: Vec<f32> = input.data().iter().map(|&x| x.tanh()).collect();
+        // Using exp from backend
+        let pos_exp = input.mul_scalar(2.0)?.exp()?;
 
-        Tensor::from_vec(data, input.shape())
+        // (exp(2x) - 1) / (exp(2x) + 1)
+        let numerator = pos_exp.add_scalar(-1.0)?;
+        let denominator = pos_exp.add_scalar(1.0)?;
+
+        numerator.div(&denominator)
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
-        // Derivative of tanh is 1 - tanh²(x)
+        // Calculate tanh(x) using forward pass
         let tanh_x = self.forward(input)?;
-        let grad_input: Vec<f32> = tanh_x
-            .data()
-            .iter()
-            .zip(grad_output.data().iter())
-            .map(|(&t, &grad)| grad * (1.0 - t * t))
-            .collect();
 
-        Tensor::from_vec(grad_input, input.shape())
+        // 1 - tanh²(x)
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
+        let grad = ones.sub(&tanh_x.mul(&tanh_x)?)?;
+
+        // Multiply with incoming gradient
+        grad_output.mul(&grad)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tanh_forward() -> MlResult<()> {
+        let tanh = Tanh::new();
+        let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
+        let output = tanh.act_forward(&input)?;
+
+        // Check approximate values
+        let expected = [-0.964, -0.762, 0.0, 0.762, 0.964];
+        for (a, &b) in output.data().iter().zip(expected.iter()) {
+            assert!((a - b).abs() < 0.001);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_tanh_backward() -> MlResult<()> {
+        let tanh = Tanh::new();
+        let input = Tensor::from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
+        let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
+
+        let grad_input = tanh.act_backward(&input, &grad_output)?;
+
+        // Check derivative values: 1 - tanh²(x)
+        let expected = [0.419, 1.0, 0.419];
+        for (a, &b) in grad_input.data().iter().zip(expected.iter()) {
+            assert!((a - b).abs() < 0.001);
+        }
+        Ok(())
     }
 }

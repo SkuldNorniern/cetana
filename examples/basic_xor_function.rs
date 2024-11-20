@@ -109,7 +109,8 @@ impl SimpleNN {
 }
 
 fn main() -> MlResult<()> {
-    println!("Training XOR function with Neural Network\n");
+    cetana::log::init().expect("Failed to initialize logger");
+    println!("XOR Neural Network Example\n");
 
     // Initialize device manager and select device
     let device_manager = DeviceManager::new();

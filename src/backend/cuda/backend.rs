@@ -1,8 +1,10 @@
 use super::{initialize_cuda, vector_add, vector_multiply, CudaBuffer, CudaDevice};
 use crate::backend::cuda::compute::*;
+use crate::backend::feature::{
+    DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64, GPU_FEATURE_TENSOR_CORES,
+};
 use crate::backend::{Backend, Device, DeviceType};
 use crate::MlResult;
-use crate::backend::feature::{DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64, GPU_FEATURE_TENSOR_CORES};
 
 #[derive(Debug)]
 pub struct CudaBackend {
@@ -24,26 +26,26 @@ impl Device for CudaBackend {
 
     fn get_features(&self) -> DeviceFeatures {
         let mut features = DeviceFeatures::new();
-        
+
         // Basic CUDA features - you might want to actually query these from the device
         features.add_feature(
             GPU_FEATURE_FP16,
             true,
             Some("Half-precision floating point support".to_string()),
         );
-        
+
         features.add_feature(
             GPU_FEATURE_FP64,
             true,
             Some("Double-precision floating point support".to_string()),
         );
-        
+
         features.add_feature(
             GPU_FEATURE_TENSOR_CORES,
             false, // This should be queried from the actual device
             Some("Tensor Cores support".to_string()),
         );
-        
+
         features
     }
 }
