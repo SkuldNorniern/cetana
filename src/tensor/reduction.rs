@@ -320,4 +320,61 @@ impl Tensor {
             }
         }
     }
+
+    /// Sums all elements in the tensor
+    ///
+    /// # Returns
+    /// The sum of all elements in the tensor
+    pub fn sum_all(&self) -> MlResult<f32> {
+        Ok(self.backend.sum(&self.data))
+    }
+
+    /// Finds the maximum value along a specified axis
+    ///
+    /// # Arguments
+    /// * `axis` - The axis to find the maximum value along
+    ///
+    /// # Returns
+    /// A new tensor with the maximum value along the specified axis
+    pub fn max_along_axis(&self, axis: usize) -> MlResult<Tensor> {
+        if axis >= self.shape.len() {
+            return Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis,
+                shape: self.shape.clone(),
+            }));
+        }
+
+        if self.shape.len() != 2 {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "max_along_axis",
+                reason: "Operation currently only supports 2D tensors".to_string(),
+            }));
+        }
+
+        let (rows, cols) = (self.shape[0], self.shape[1]);
+        match axis {
+            0 => {
+                let mut result = vec![f32::NEG_INFINITY; cols];
+                for (j, max) in result.iter_mut().enumerate().take(cols) {
+                    for i in 0..rows {
+                        *max = max.max(self.data[i * cols + j]);
+                    }
+                }
+                return Tensor::from_vec(result, &[1, cols]);
+            }
+            1 => {
+                let mut result = vec![f32::NEG_INFINITY; rows];
+                for (i, max) in result.iter_mut().enumerate().take(rows) {
+                    for j in 0..cols {
+                        *max = max.max(self.data[i * cols + j]);
+                    }
+                }
+                return Tensor::from_vec(result, &[rows, 1]);
+            }
+            _ => Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis,
+                shape: self.shape.clone(),
+            })),
+        }
+    }
 }

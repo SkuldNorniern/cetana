@@ -299,4 +299,114 @@ impl Tensor {
         let result = self.backend.matmul(&self.data, &other.data, m, k, n);
         Tensor::from_vec(result, &[m, n])
     }
+
+    /// Returns the k largest elements of the tensor along the last dimension.
+    ///
+    /// # Arguments
+    /// * `k` - Number of top elements to return
+    /// * `sorted` - Whether to return the elements in sorted order
+    ///
+    /// # Returns
+    /// A tuple of two tensors (values, indices) containing the top k values and their indices
+    pub fn topk(&self, k: usize, sorted: bool) -> MlResult<(Tensor, Tensor)> {
+        if k == 0 {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "topk",
+                reason: "k must be greater than 0".to_string(),
+            }));
+        }
+
+        let last_dim = self.shape.len() - 1;
+        let last_dim_size = self.shape[last_dim];
+
+        if k > last_dim_size {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "topk",
+                reason: format!(
+                    "k ({}) cannot be larger than last dimension size ({})",
+                    k, last_dim_size
+                ),
+            }));
+        }
+
+        // Calculate the number of slices
+        let slice_size = last_dim_size;
+        let num_slices: usize = self.shape[..last_dim].iter().product();
+
+        // Prepare output tensors
+        let mut values = Vec::with_capacity(num_slices * k);
+        let mut indices = Vec::with_capacity(num_slices * k);
+
+        // Process each slice
+        for slice_idx in 0..num_slices {
+            let start_idx = slice_idx * slice_size;
+            let end_idx = start_idx + slice_size;
+            let slice_data = &self.data[start_idx..end_idx];
+
+            // Create (value, index) pairs for sorting
+            let mut pairs: Vec<(f32, usize)> = slice_data
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, v)| (v, i))
+                .collect();
+
+            // Sort by value in descending order
+            pairs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Take top k elements
+            let top_k = &pairs[..k];
+
+            // If not sorted, restore original order
+            let mut selected = top_k.to_vec();
+            if !sorted {
+                selected.sort_by_key(|pair| pair.1);
+            }
+
+            // Split into values and indices (convert indices to f32)
+            values.extend(selected.iter().map(|pair| pair.0));
+            indices.extend(selected.iter().map(|pair| pair.1 as f32));
+        }
+
+        // Create new shape for output tensors
+        let mut new_shape = self.shape.clone();
+        new_shape[last_dim] = k;
+
+        Ok((
+            Tensor::from_vec(values, &new_shape)?,
+            Tensor::from_vec(indices, &new_shape)?,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_topk() -> MlResult<()> {
+        // Test 1: Basic 1D tensor
+        let tensor = Tensor::from_vec(vec![1.0, 4.0, 3.0, 2.0, 5.0], &[5])?;
+        let (values, indices) = tensor.topk(3, true)?;
+        assert_eq!(values.data(), &[5.0, 4.0, 3.0]);
+        assert_eq!(indices.data(), &[4.0, 1.0, 2.0]);
+
+        // Test 2: 2D tensor
+        let tensor = Tensor::from_vec(
+            vec![1.0, 4.0, 3.0, 2.0, 5.0, 2.0, 3.0, 1.0, 4.0, 5.0],
+            &[2, 5],
+        )?;
+        let (values, indices) = tensor.topk(2, true)?;
+        assert_eq!(values.shape(), &[2, 2]);
+        assert_eq!(values.data(), &[5.0, 4.0, 5.0, 4.0]);
+        assert_eq!(indices.data(), &[4.0, 1.0, 4.0, 3.0]);
+
+        // Test 3: Unsorted output
+        let tensor = Tensor::from_vec(vec![1.0, 4.0, 3.0, 2.0, 5.0], &[5])?;
+        let (values, indices) = tensor.topk(3, false)?;
+        assert_eq!(values.data(), &[4.0, 3.0, 5.0]);
+        assert_eq!(indices.data(), &[1.0, 2.0, 4.0]);
+
+        Ok(())
+    }
 }

@@ -489,4 +489,513 @@ impl Tensor {
 
         Tensor::from_vec(new_data, &new_shape)
     }
+
+    /// Clamps all elements in input into the range [min, max].
+    ///
+    /// # Arguments
+    /// * `min` - Optional lower-bound of the range to be clamped to
+    /// * `max` - Optional upper-bound of the range to be clamped to
+    ///
+    /// # Returns
+    /// A new tensor with values clamped between min and max
+    pub fn clamp_full(&self, min: Option<f32>, max: Option<f32>) -> MlResult<Tensor> {
+        let data: Vec<f32> = self
+            .data
+            .iter()
+            .map(|&x| {
+                let mut val = x;
+                if let Some(min_val) = min {
+                    val = val.max(min_val);
+                }
+                if let Some(max_val) = max {
+                    val = val.min(max_val);
+                }
+                val
+            })
+            .collect();
+
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    /// Clamps all elements in input to be larger than min.
+    ///
+    /// # Arguments
+    /// * `min` - Minimum value for the output tensor
+    ///
+    /// # Returns
+    /// A new tensor with values clamped to minimum value
+    pub fn clamp_min(&self, min: f32) -> MlResult<Tensor> {
+        self.clamp_full(Some(min), None)
+    }
+
+    /// Clamps all elements in input to be smaller than max.
+    ///
+    /// # Arguments
+    /// * `max` - Maximum value for the output tensor
+    ///
+    /// # Returns
+    /// A new tensor with values clamped to maximum value
+    pub fn clamp_max(&self, max: f32) -> MlResult<Tensor> {
+        self.clamp_full(None, Some(max))
+    }
+
+    /// Returns the lower triangular part of the matrix (2-D tensor) or batch of matrices.
+    /// The other elements of the result tensor are set to 0.
+    ///
+    /// # Arguments
+    /// * `diagonal` - the diagonal to consider (default: 0)
+    ///   - 0: main diagonal
+    ///   - positive: diagonals above main diagonal
+    ///   - negative: diagonals below main diagonal
+    ///
+    /// # Returns
+    /// A new tensor containing the lower triangular part of the input tensor
+    pub fn tril(&self, diagonal: i32) -> MlResult<Tensor> {
+        if self.shape.len() < 2 {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "tril",
+                reason: "Input tensor must have at least 2 dimensions".to_string(),
+            }));
+        }
+
+        let rows = self.shape[self.shape.len() - 2];
+        let cols = self.shape[self.shape.len() - 1];
+        let batch_size: usize = self.shape[..self.shape.len() - 2].iter().product();
+
+        let mut result = vec![0.0; self.data.len()];
+        let matrix_size = rows * cols;
+
+        for batch in 0..batch_size {
+            let batch_offset = batch * matrix_size;
+            for i in 0..rows {
+                for j in 0..cols {
+                    let idx = batch_offset + i * cols + j;
+                    if (j as i32) <= (i as i32) + diagonal {
+                        result[idx] = self.data[idx];
+                    }
+                }
+            }
+        }
+
+        Ok(Tensor {
+            data: result,
+            shape: self.shape.clone(),
+            backend: self.backend.clone(),
+        })
+    }
+
+    /// Creates a lower triangular mask matrix'
+    ///
+    /// # Arguments
+    /// * `size` - The size of the square matrix
+    /// * `diagonal` - The diagonal to consider (default: 0)
+    ///   - 0: main diagonal
+    ///   - positive: diagonals above main diagonal
+    ///   - negative: diagonals below main diagonal
+    ///
+    /// # Returns
+    /// A new tensor containing the lower triangular mask matrix
+    pub fn tril_mask(size: usize, diagonal: i32) -> MlResult<Tensor> {
+        let mut data = vec![0.0; size * size];
+
+        for i in 0..size {
+            for j in 0..size {
+                if (j as i32) <= (i as i32) + diagonal {
+                    data[i * size + j] = 1.0;
+                }
+            }
+        }
+
+        Tensor::from_vec(data, &[size, size])
+    }
+
+    /// Fills elements of self tensor with value where mask is True.
+    /// The shape of mask must be broadcastable with the shape of the underlying tensor.
+    ///
+    /// # Arguments
+    /// * `mask` - the boolean mask
+    /// * `value` - the value to fill in with
+    ///
+    /// # Returns
+    /// A new tensor with the masked fill applied
+    pub fn masked_fill(&self, mask: &Tensor, value: f32) -> MlResult<Tensor> {
+        // Verify mask contains only 0s and 1s
+        if !mask.data.iter().all(|&x| x == 0.0 || x == 1.0) {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "masked_fill",
+                reason: "Mask tensor must contain only 0s and 1s".to_string(),
+            }));
+        }
+
+        // Create output tensor
+        let mut result = self.data.clone();
+
+        if self.shape == mask.shape {
+            // Direct application for same shapes
+            for (i, &mask_val) in mask.data.iter().enumerate() {
+                if mask_val == 1.0 {
+                    result[i] = value;
+                }
+            }
+        } else {
+            // Handle broadcasting
+            let broadcast_dims = self.shape.len().max(mask.shape.len());
+            let mut mask_shape = vec![1; broadcast_dims];
+            let mut self_shape = vec![1; broadcast_dims];
+
+            // Right-align shapes
+            for (i, &dim) in mask.shape.iter().rev().enumerate() {
+                mask_shape[broadcast_dims - 1 - i] = dim;
+            }
+            for (i, &dim) in self.shape.iter().rev().enumerate() {
+                self_shape[broadcast_dims - 1 - i] = dim;
+            }
+
+            // Calculate strides
+            let mut mask_strides = vec![1; broadcast_dims];
+            let mut self_strides = vec![1; broadcast_dims];
+
+            for i in (0..broadcast_dims - 1).rev() {
+                mask_strides[i] = mask_strides[i + 1] * mask_shape[i + 1];
+                self_strides[i] = self_strides[i + 1] * self_shape[i + 1];
+            }
+
+            // Apply mask with broadcasting
+            let total_size: usize = self_shape.iter().product();
+            for i in 0..total_size {
+                let mut mask_idx = 0;
+                let mut self_idx = 0;
+
+                let mut temp = i;
+                for d in 0..broadcast_dims {
+                    let coord = temp / self_strides[d];
+                    temp %= self_strides[d];
+
+                    if mask_shape[d] > 1 {
+                        mask_idx += coord * mask_strides[d];
+                    }
+                    self_idx += coord * self_strides[d];
+                }
+
+                if mask.data[mask_idx % mask.data.len()] == 1.0 {
+                    result[self_idx] = value;
+                }
+            }
+        }
+
+        Ok(Tensor {
+            data: result,
+            shape: self.shape.clone(),
+            backend: self.backend.clone(),
+        })
+    }
+
+    // Helper method to check if tensor is broadcastable with another tensor
+    fn is_broadcastable_with(&self, other: &Tensor) -> bool {
+        let self_rank = self.shape.len();
+        let other_rank = other.shape.len();
+        let max_rank = self_rank.max(other_rank);
+
+        // Pad shapes with 1s to match ranks
+        let self_padded = self.pad_shape(max_rank);
+        let other_padded = other.pad_shape(max_rank);
+
+        // Check broadcasting rules
+        self_padded
+            .iter()
+            .zip(other_padded.iter())
+            .all(|(&a, &b)| a == b || a == 1 || b == 1)
+    }
+
+    // Helper method to pad shape with leading 1s
+    fn pad_shape(&self, target_rank: usize) -> Vec<usize> {
+        let mut padded = vec![1; target_rank];
+        let offset = target_rank - self.shape.len();
+        padded[offset..].copy_from_slice(&self.shape);
+        padded
+    }
+
+    // Helper method to get broadcast shape
+    fn get_broadcast_shape(&self, other: &Tensor) -> MlResult<Vec<usize>> {
+        let self_padded = self.pad_shape(self.shape.len().max(other.shape.len()));
+        let other_padded = other.pad_shape(self.shape.len().max(other.shape.len()));
+
+        let mut result = Vec::with_capacity(self_padded.len());
+        for (a, b) in self_padded.iter().zip(other_padded.iter()) {
+            result.push((*a).max(*b));
+        }
+        Ok(result)
+    }
+
+    // Helper method to get index in broadcast tensor
+    fn get_broadcast_index(&self, coords: &[usize], shape: &[usize]) -> MlResult<usize> {
+        let rank = shape.len();
+        let mut idx = 0;
+        let mut stride = 1;
+
+        for i in (0..rank).rev() {
+            let coord = coords[coords.len() - rank + i];
+            let dim_size = shape[i];
+
+            // Handle broadcasting: if dimension size is 1, use 0 as coordinate
+            let effective_coord = if dim_size == 1 { 0 } else { coord };
+
+            idx += effective_coord * stride;
+            stride *= dim_size;
+        }
+
+        Ok(idx)
+    }
+
+    /// Writes all values from src into self at indices specified in the index tensor.
+    ///
+    /// # Arguments
+    /// * `index` - The indices where to scatter the values from src
+    /// * `src` - The source values to scatter
+    /// * `dim` - The axis along which to index
+    ///
+    /// # Returns
+    /// Result containing the modified tensor
+    pub fn scatter(&mut self, index: &Tensor, src: &Tensor, dim: i32) -> MlResult<()> {
+        // Convert negative dim to positive
+        let ndim = self.shape.len();
+        let dim = if dim < 0 {
+            (dim + ndim as i32) as usize
+        } else {
+            dim as usize
+        };
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis: dim,
+                shape: self.shape.clone(),
+            }));
+        }
+
+        // Validate shapes
+        if index.shape() != src.shape() {
+            return Err(MlError::TensorError(TensorError::InvalidShape {
+                expected: index.shape().to_vec(),
+                got: src.shape().to_vec(),
+            }));
+        }
+
+        // Calculate strides for the self tensor
+        let mut strides = vec![1usize; ndim];
+        for i in (0..ndim - 1).rev() {
+            strides[i] = strides[i + 1] * self.shape[i + 1];
+        }
+
+        // Iterate through the index tensor
+        let mut coords = vec![0usize; ndim];
+        let total_elements = index.data().len();
+
+        for flat_idx in 0..total_elements {
+            // Calculate source coordinates
+            let mut temp_idx = flat_idx;
+            for d in 0..ndim {
+                coords[d] = temp_idx / (src.shape()[d..].iter().product::<usize>().max(1));
+                temp_idx %= src.shape()[d..].iter().product::<usize>().max(1);
+            }
+
+            // Get the target index from the index tensor
+            let target_idx = index.data()[flat_idx] as usize;
+            if target_idx >= self.shape[dim] {
+                return Err(MlError::TensorError(TensorError::InvalidOperation {
+                    op: "scatter",
+                    reason: format!(
+                        "Index {} out of bounds for dimension {} with size {}",
+                        target_idx, dim, self.shape[dim]
+                    ),
+                }));
+            }
+
+            // Calculate target position
+            let mut target_pos = 0;
+            for d in 0..ndim {
+                let idx = if d == dim { target_idx } else { coords[d] };
+                target_pos += idx * strides[d];
+            }
+
+            // Copy the value
+            self.data[target_pos] = src.data()[flat_idx];
+        }
+
+        Ok(())
+    }
+
+    /// Concatenates a sequence of tensors along a given dimension
+    ///
+    /// # Arguments
+    /// * `tensors` - Sequence of tensors to concatenate
+    /// * `dim` - The dimension along which to concatenate
+    ///
+    /// # Returns
+    /// A new tensor containing the concatenated tensors
+    pub fn cat(tensors: &[&Tensor], dim: i32) -> MlResult<Tensor> {
+        if tensors.is_empty() {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "cat",
+                reason: "Empty tensor list".to_string(),
+            }));
+        }
+
+        // Get reference shape from first tensor
+        let ref_shape = tensors[0].shape();
+        let ndim = ref_shape.len();
+
+        // Convert negative dim to positive
+        let dim = if dim < 0 { dim + ndim as i32 } else { dim } as usize;
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis: dim,
+                shape: ref_shape.to_vec(),
+            }));
+        }
+
+        // Validate shapes
+        for (i, tensor) in tensors.iter().enumerate().skip(1) {
+            if tensor.shape().len() != ndim {
+                return Err(MlError::TensorError(TensorError::InvalidShape {
+                    expected: ref_shape.to_vec(),
+                    got: tensor.shape().to_vec(),
+                }));
+            }
+
+            for (d, (&s1, &s2)) in ref_shape.iter().zip(tensor.shape().iter()).enumerate() {
+                if d != dim && s1 != s2 {
+                    return Err(MlError::TensorError(TensorError::InvalidOperation {
+                        op: "cat",
+                        reason: format!("Tensor {} has incompatible shape at dimension {}", i, d),
+                    }));
+                }
+            }
+        }
+
+        // Calculate new shape
+        let mut new_shape = ref_shape.to_vec();
+        new_shape[dim] = tensors.iter().map(|t| t.shape()[dim]).sum();
+
+        // Calculate total elements
+        let total_elements: usize = new_shape.iter().product();
+        let mut result = Vec::with_capacity(total_elements);
+
+        // Calculate strides for the output tensor
+        let mut strides = vec![1usize; ndim];
+        for i in (0..ndim - 1).rev() {
+            strides[i] = strides[i + 1] * new_shape[i + 1];
+        }
+
+        // Helper closure to calculate flat index from coordinates
+        let calc_index = |coords: &[usize], shape: &[usize], strides: &[usize]| -> usize {
+            coords
+                .iter()
+                .zip(strides.iter())
+                .map(|(&c, &s)| c * s)
+                .sum()
+        };
+
+        // Initialize coordinates
+        let mut coords = vec![0; ndim];
+
+        // Iterate through all coordinates of the output tensor
+        while coords[0] < new_shape[0] {
+            // Find which input tensor this coordinate belongs to
+            let mut offset = coords[dim];
+            let mut tensor_idx = 0;
+            let mut inner_dim_pos = offset;
+
+            for (i, tensor) in tensors.iter().enumerate() {
+                if offset >= tensor.shape()[dim] {
+                    offset -= tensor.shape()[dim];
+                } else {
+                    tensor_idx = i;
+                    inner_dim_pos = offset;
+                    break;
+                }
+            }
+
+            // Get value from appropriate input tensor
+            let mut input_coords = coords.clone();
+            input_coords[dim] = inner_dim_pos;
+            let input_idx = calc_index(&input_coords, &tensors[tensor_idx].shape(), &strides);
+            result.push(tensors[tensor_idx].data()[input_idx]);
+
+            // Update coordinates
+            for d in (0..ndim).rev() {
+                coords[d] += 1;
+                if coords[d] < new_shape[d] {
+                    break;
+                }
+                coords[d] = 0;
+            }
+        }
+
+        Ok(Tensor::from_vec(result, &new_shape)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scatter() -> MlResult<()> {
+        // Test 2D scatter
+        let mut x = Tensor::zeros(&[3, 5])?;
+        let src = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
+        let index = Tensor::from_vec(vec![0.0, 2.0, 4.0], &[3, 1])?;
+        x.scatter(&index, &src, 1)?;
+
+        let expected = vec![
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0,
+        ];
+        assert_eq!(x.data(), &expected);
+
+        // Test negative dimension
+        let mut x = Tensor::zeros(&[3, 4])?;
+        let src = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
+        let index = Tensor::from_vec(vec![0.0, 1.0, 2.0], &[3, 1])?;
+        x.scatter(&index, &src, -1)?;
+
+        let expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0];
+        assert_eq!(x.data(), &expected);
+
+        Ok(())
+    }
+    #[test]
+    fn test_cat() -> MlResult<()> {
+        // Test 1: Basic concatenation along dimension 0
+        let t1 = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let t2 = Tensor::from_vec(vec![3.0, 4.0], &[1, 2])?;
+        let result = Tensor::cat(&[&t1, &t2], 0)?;
+        assert_eq!(result.shape(), &[2, 2]);
+        assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);
+
+        // Test 2: Concatenation along dimension 1
+        let t1 = Tensor::from_vec(vec![1.0, 2.0], &[2, 1])?;
+        let t2 = Tensor::from_vec(vec![3.0, 4.0], &[2, 1])?;
+        let result = Tensor::cat(&[&t1, &t2], 1)?;
+        assert_eq!(result.shape(), &[2, 2]);
+        assert_eq!(result.data(), &[1.0, 3.0, 2.0, 4.0]);
+
+        // Test 3: 3D tensor concatenation
+        let t1 = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2])?;
+        let t2 = Tensor::from_vec(vec![5.0, 6.0, 7.0, 8.0], &[1, 2, 2])?;
+        let result = Tensor::cat(&[&t1, &t2], 0)?;
+        assert_eq!(result.shape(), &[2, 2, 2]);
+        assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+
+        // Test 4: Negative dimension
+        let t1 = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let t2 = Tensor::from_vec(vec![3.0, 4.0], &[1, 2])?;
+        let result = Tensor::cat(&[&t1, &t2], -2)?;
+        assert_eq!(result.shape(), &[2, 2]);
+        assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);
+
+        Ok(())
+    }
 }
