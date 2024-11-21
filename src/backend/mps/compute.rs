@@ -1,7 +1,10 @@
-use crate::backend::{feature::{GPU_FEATURE_FP16, GPU_FEATURE_FP64}, DeviceFeatures};
+use crate::backend::{
+    feature::{GPU_FEATURE_FP16, GPU_FEATURE_FP64},
+    DeviceFeatures,
+};
 
 use super::{core::MpsDevice, MpsError};
-use metal::{Buffer, CommandQueue, ComputePipelineState, MTLResourceOptions, MTLSize};
+use metal::{Buffer, CommandQueue, MTLResourceOptions, MTLSize, NSUInteger};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -12,9 +15,7 @@ pub struct MpsCompute {
 
 impl MpsCompute {
     pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::backend::MpsError> {
-        let command_queue = device
-            .device()
-            .new_command_queue();
+        let command_queue = device.device().new_command_queue();
 
         Ok(Self {
             device,
@@ -25,7 +26,7 @@ impl MpsCompute {
     pub fn create_buffer<T: Copy>(&self, data: &[T]) -> Result<Buffer, MpsError> {
         let buffer = self.device.device().new_buffer_with_data(
             data.as_ptr() as *const _,
-            (data.len() * std::mem::size_of::<T>()) as u64,
+            std::mem::size_of_val(data) as u64,
             MTLResourceOptions::StorageModeShared,
         );
 
@@ -50,7 +51,6 @@ impl MpsCompute {
 
     //     Ok(())
     // }
-
 
     pub fn matmul(
         &self,
@@ -94,13 +94,6 @@ impl MpsCompute {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        let thread_group_size = MTLSize::new(16, 16, 1);
-        let grid_size = MTLSize::new(
-            (m + 16) as u64, // ceil(m / threads_per_group_x)
-            (k + 16) as u64, // ceil(n / threads_per_group_y)
-            1, // Only one layer in the z-dimension
-        );
-
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
@@ -112,7 +105,21 @@ impl MpsCompute {
         compute_encoder.set_buffer(4, Some(&n_buffer), 0);
         compute_encoder.set_buffer(5, Some(&k_buffer), 0);
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: (((m * k) as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
         compute_encoder.end_encoding();
 
         command_buffer.commit();
@@ -122,13 +129,10 @@ impl MpsCompute {
     }
 
     pub fn add(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
-        let result_buffer = self
-            .device
-            .device()
-            .new_buffer(
-                (size * size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
+        let result_buffer = self.device.device().new_buffer(
+            (size * size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
 
         // Create and compile the addition kernel
         let library = self
@@ -150,10 +154,6 @@ impl MpsCompute {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        // Configure thread groups
-        let thread_group_size = MTLSize::new(256, 1, 1);
-        let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
-
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
@@ -162,7 +162,21 @@ impl MpsCompute {
         compute_encoder.set_buffer(1, Some(b), 0);
         compute_encoder.set_buffer(2, Some(&result_buffer), 0);
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: ((size as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
         compute_encoder.end_encoding();
 
         command_buffer.commit();
@@ -172,13 +186,10 @@ impl MpsCompute {
     }
 
     pub fn sub(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
-        let result_buffer = self
-            .device
-            .device()
-            .new_buffer(
-                (size * std::mem::size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
+        let result_buffer = self.device.device().new_buffer(
+            (size * std::mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
 
         // Create and compile the addition kernel
         let library = self
@@ -200,10 +211,6 @@ impl MpsCompute {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        // Configure thread groups
-        let thread_group_size = MTLSize::new(256, 1, 1);
-        let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
-
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
@@ -212,7 +219,21 @@ impl MpsCompute {
         compute_encoder.set_buffer(1, Some(b), 0);
         compute_encoder.set_buffer(2, Some(&result_buffer), 0);
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: ((size as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
         compute_encoder.end_encoding();
 
         command_buffer.commit();
@@ -222,13 +243,10 @@ impl MpsCompute {
     }
 
     pub fn multiply(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
-        let result_buffer = self
-            .device
-            .device()
-            .new_buffer(
-                (size * std::mem::size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
+        let result_buffer = self.device.device().new_buffer(
+            (size * std::mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
 
         let library = self
             .device
@@ -249,9 +267,6 @@ impl MpsCompute {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        let thread_group_size = MTLSize::new(256, 1, 1);
-        let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
-
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
@@ -260,7 +275,21 @@ impl MpsCompute {
         compute_encoder.set_buffer(1, Some(b), 0);
         compute_encoder.set_buffer(2, Some(&result_buffer), 0);
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: ((size as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
         compute_encoder.end_encoding();
 
         command_buffer.commit();
@@ -270,13 +299,10 @@ impl MpsCompute {
     }
 
     pub fn log(&self, a: &Buffer, size: usize) -> Result<Buffer, MpsError> {
-        let result_buffer = self
-            .device
-            .device()
-            .new_buffer(
-                (size * std::mem::size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
+        let result_buffer = self.device.device().new_buffer(
+            (size * std::mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
 
         // Create and compile the addition kernel
         let library = self
@@ -298,10 +324,6 @@ impl MpsCompute {
             .new_compute_pipeline_state_with_function(&kernel)
             .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        // Configure thread groups
-        let thread_group_size = MTLSize::new(256, 1, 1);
-        let grid_size = MTLSize::new(((size + 255) / 256) as u64, 1, 1);
-
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
@@ -309,7 +331,21 @@ impl MpsCompute {
         compute_encoder.set_buffer(0, Some(a), 0);
         compute_encoder.set_buffer(1, Some(&result_buffer), 0);
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: ((size as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
         compute_encoder.end_encoding();
 
         command_buffer.commit();
@@ -343,15 +379,23 @@ impl MpsCompute {
             MTLResourceOptions::StorageModeShared,
         );
 
-        let library = self.device.device().new_library_with_source(
-            include_str!("../../../shaders/metal/binary_ops.metal"),
-            &metal::CompileOptions::new(),
-        ).map_err(|_| MpsError::ShaderCompilationError)?;
+        let library = self
+            .device
+            .device()
+            .new_library_with_source(
+                include_str!("../../../shaders/metal/binary_ops.metal"),
+                &metal::CompileOptions::new(),
+            )
+            .map_err(|_| MpsError::ShaderCompilationError)?;
 
-        let kernel = library.get_function("vector_sum", None).map_err(|_| MpsError::ShaderCompilationError)?;
-        let pipeline = self.device.device().new_compute_pipeline_state_with_function(&kernel).map_err(|_| MpsError::ShaderCompilationError)?;
-        let thread_group_size = MTLSize::new(1, 1, 1);
-        let grid_size = MTLSize::new(1, 1, 1);
+        let kernel = library
+            .get_function("vector_sum", None)
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self
+            .device
+            .device()
+            .new_compute_pipeline_state_with_function(&kernel)
+            .map_err(|_| MpsError::ShaderCompilationError)?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
@@ -360,7 +404,21 @@ impl MpsCompute {
         compute_encoder.set_buffer(0, Some(input), 0);
         compute_encoder.set_buffer(1, Some(&result_buffer), 0);
 
-        compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: ((size as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
         compute_encoder.end_encoding();
 
         command_buffer.commit();

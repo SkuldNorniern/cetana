@@ -96,7 +96,7 @@ impl Backend for MpsBackend {
             // Read result buffer
             let result = result_buffer.contents();
             let result_slice = unsafe {
-                std::slice::from_raw_parts(result as *const f32, (m * k))
+                std::slice::from_raw_parts(result as *const f32, m * k)
             };
 
             // Copy result to a Vec
@@ -214,9 +214,7 @@ impl Backend for MpsBackend {
         if a.len() < self.minimum_mps_compute_size {
             // fallback to cpu compute
 
-        } else {
-
-        }
+        } 
 
         let mut result_slice: &[f32] = &[];
 
