@@ -809,7 +809,11 @@ impl Tensor {
                 if d == dim {
                     base_idx += target_idx * strides[d];
                 } else {
-                    let size = if d == ndim - 1 { 1 } else { src.shape()[d + 1..].iter().product() };
+                    let size = if d == ndim - 1 {
+                        1
+                    } else {
+                        src.shape()[d + 1..].iter().product()
+                    };
                     let coord = temp_i / size;
                     temp_i %= size;
                     base_idx += coord * strides[d];
