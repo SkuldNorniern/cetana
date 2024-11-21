@@ -111,7 +111,7 @@ impl SimpleNN {
 }
 
 fn main() -> MlResult<()> {
-    cetana::log::init().expect("Failed to initialize logger");
+    cetana::log::init(log::LevelFilter::Info).expect("Failed to initialize logger");
     println!("XOR Neural Network Example\n");
 
     // Initialize device manager and select device
