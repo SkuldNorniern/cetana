@@ -131,6 +131,9 @@ impl Tensor {
             data: self.data.clone(),
             shape: new_shape,
             backend: self.backend.clone(),
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -197,6 +200,9 @@ impl Tensor {
             data: expanded_data,
             shape: sizes.to_vec(),
             backend: self.backend.clone(),
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -278,6 +284,9 @@ impl Tensor {
             data: self.data.clone(),
             shape: new_shape,
             backend: self.backend.clone(),
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -581,6 +590,9 @@ impl Tensor {
             data: result,
             shape: self.shape.clone(),
             backend: self.backend.clone(),
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -687,6 +699,9 @@ impl Tensor {
             data: result,
             shape: self.shape.clone(),
             backend: self.backend.clone(),
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
         })
     }
 
@@ -757,15 +772,10 @@ impl Tensor {
     /// # Returns
     /// Result containing the modified tensor
     pub fn scatter(&mut self, index: &Tensor, src: &Tensor, dim: i32) -> MlResult<()> {
-        // Convert negative dim to positive
         let ndim = self.shape.len();
-        let dim = if dim < 0 {
-            (dim + ndim as i32) as usize
-        } else {
-            dim as usize
-        };
+        let dim = if dim < 0 { dim + ndim as i32 } else { dim } as usize;
 
-        // Validate dimension
+        // Validate dimensions
         if dim >= ndim {
             return Err(MlError::TensorError(TensorError::InvalidAxis {
                 axis: dim,
@@ -773,34 +783,15 @@ impl Tensor {
             }));
         }
 
-        // Validate shapes
-        if index.shape() != src.shape() {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: index.shape().to_vec(),
-                got: src.shape().to_vec(),
-            }));
-        }
-
-        // Calculate strides for the self tensor
+        // Calculate strides for the output tensor
         let mut strides = vec![1usize; ndim];
         for i in (0..ndim - 1).rev() {
             strides[i] = strides[i + 1] * self.shape[i + 1];
         }
 
         // Iterate through the index tensor
-        let mut coords = vec![0usize; ndim];
-        let total_elements = index.data().len();
-
-        for flat_idx in 0..total_elements {
-            // Calculate source coordinates
-            let mut temp_idx = flat_idx;
-            for d in 0..ndim {
-                coords[d] = temp_idx / (src.shape()[d..].iter().product::<usize>().max(1));
-                temp_idx %= src.shape()[d..].iter().product::<usize>().max(1);
-            }
-
-            // Get the target index from the index tensor
-            let target_idx = index.data()[flat_idx] as usize;
+        for i in 0..index.data().len() {
+            let target_idx = index.data()[i] as usize;
             if target_idx >= self.shape[dim] {
                 return Err(MlError::TensorError(TensorError::InvalidOperation {
                     op: "scatter",
@@ -811,15 +802,21 @@ impl Tensor {
                 }));
             }
 
-            // Calculate target position
-            let mut target_pos = 0;
-            for d in 0..ndim {
-                let idx = if d == dim { target_idx } else { coords[d] };
-                target_pos += idx * strides[d];
+            // Calculate base index
+            let mut base_idx = 0;
+            let mut temp_i = i;
+            for d in (0..ndim).rev() {
+                if d == dim {
+                    base_idx += target_idx * strides[d];
+                } else {
+                    let size = if d == ndim - 1 { 1 } else { src.shape()[d + 1..].iter().product() };
+                    let coord = temp_i / size;
+                    temp_i %= size;
+                    base_idx += coord * strides[d];
+                }
             }
 
-            // Copy the value
-            self.data[target_pos] = src.data()[flat_idx];
+            self.data[base_idx] = src.data()[i];
         }
 
         Ok(())
@@ -841,14 +838,10 @@ impl Tensor {
             }));
         }
 
-        // Get reference shape from first tensor
         let ref_shape = tensors[0].shape();
         let ndim = ref_shape.len();
-
-        // Convert negative dim to positive
         let dim = if dim < 0 { dim + ndim as i32 } else { dim } as usize;
 
-        // Validate dimension
         if dim >= ndim {
             return Err(MlError::TensorError(TensorError::InvalidAxis {
                 axis: dim,
@@ -856,8 +849,11 @@ impl Tensor {
             }));
         }
 
-        // Validate shapes
-        for (i, tensor) in tensors.iter().enumerate().skip(1) {
+        // Validate shapes and calculate new shape
+        let mut new_shape = ref_shape.to_vec();
+        new_shape[dim] = 0;
+
+        for (i, tensor) in tensors.iter().enumerate() {
             if tensor.shape().len() != ndim {
                 return Err(MlError::TensorError(TensorError::InvalidShape {
                     expected: ref_shape.to_vec(),
@@ -873,68 +869,119 @@ impl Tensor {
                     }));
                 }
             }
+            new_shape[dim] += tensor.shape()[dim];
         }
 
-        // Calculate new shape
-        let mut new_shape = ref_shape.to_vec();
-        new_shape[dim] = tensors.iter().map(|t| t.shape()[dim]).sum();
-
-        // Calculate total elements
-        let total_elements: usize = new_shape.iter().product();
+        let total_elements = new_shape.iter().product();
         let mut result = Vec::with_capacity(total_elements);
 
-        // Calculate strides for the output tensor
-        let mut strides = vec![1usize; ndim];
-        for i in (0..ndim - 1).rev() {
-            strides[i] = strides[i + 1] * new_shape[i + 1];
+        // Pre-calculate dimension sizes for each tensor
+        let dim_sizes: Vec<usize> = tensors.iter().map(|t| t.shape()[dim]).collect();
+        let mut offsets = vec![0];
+        for size in dim_sizes.iter() {
+            offsets.push(offsets.last().unwrap() + size);
         }
 
-        // Helper closure to calculate flat index from coordinates
-        let calc_index = |coords: &[usize], shape: &[usize], strides: &[usize]| -> usize {
-            coords
-                .iter()
-                .zip(strides.iter())
-                .map(|(&c, &s)| c * s)
-                .sum()
-        };
-
-        // Initialize coordinates
-        let mut coords = vec![0; ndim];
-
-        // Iterate through all coordinates of the output tensor
-        while coords[0] < new_shape[0] {
-            // Find which input tensor this coordinate belongs to
-            let mut offset = coords[dim];
-            let mut tensor_idx = 0;
-            let mut inner_dim_pos = offset;
-
-            for (i, tensor) in tensors.iter().enumerate() {
-                if offset >= tensor.shape()[dim] {
-                    offset -= tensor.shape()[dim];
-                } else {
-                    tensor_idx = i;
-                    inner_dim_pos = offset;
-                    break;
-                }
-            }
-
-            // Get value from appropriate input tensor
-            let mut input_coords = coords.clone();
-            input_coords[dim] = inner_dim_pos;
-            let input_idx = calc_index(&input_coords, &tensors[tensor_idx].shape(), &strides);
-            result.push(tensors[tensor_idx].data()[input_idx]);
-
-            // Update coordinates
+        // Copy data
+        for i in 0..total_elements {
+            let mut coords = vec![0; ndim];
+            let mut temp = i;
             for d in (0..ndim).rev() {
-                coords[d] += 1;
-                if coords[d] < new_shape[d] {
-                    break;
-                }
-                coords[d] = 0;
+                coords[d] = temp % new_shape[d];
+                temp /= new_shape[d];
             }
+
+            let dim_pos = coords[dim];
+            let tensor_idx = offsets.partition_point(|&x| x <= dim_pos) - 1;
+            coords[dim] = dim_pos - offsets[tensor_idx];
+
+            let mut src_idx = 0;
+            let mut stride = 1;
+            for d in (0..ndim).rev() {
+                src_idx += coords[d] * stride;
+                stride *= tensors[tensor_idx].shape()[d];
+            }
+
+            result.push(tensors[tensor_idx].data()[src_idx]);
         }
 
         Ok(Tensor::from_vec(result, &new_shape)?)
+    }
+
+    /// Splits the tensor into chunks of specified size along a given dimension.
+    ///
+    /// # Arguments
+    /// * `split_size` - Size of each chunk (except for the last chunk which might be smaller)
+    /// * `dim` - Dimension along which to split the tensor (default: 0)
+    ///
+    /// # Returns
+    /// A vector of tensors that are views of the input tensor
+    pub fn split(&self, split_size: usize, dim: i32) -> MlResult<Vec<Tensor>> {
+        let ndim = self.shape.len();
+        let dim = if dim < 0 {
+            (dim + ndim as i32) as usize
+        } else {
+            dim as usize
+        };
+
+        if dim >= ndim {
+            return Err(MlError::TensorError(TensorError::InvalidAxis {
+                axis: dim,
+                shape: self.shape.clone(),
+            }));
+        }
+
+        if split_size == 0 {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "split",
+                reason: "Split size must be positive".to_string(),
+            }));
+        }
+
+        let dim_size = self.shape[dim];
+        let num_splits = (dim_size + split_size - 1) / split_size; // ceiling division
+        let mut result = Vec::with_capacity(num_splits);
+
+        let mut start_idx = 0;
+        while start_idx < dim_size {
+            let end_idx = (start_idx + split_size).min(dim_size);
+            if start_idx >= end_idx {
+                break;
+            }
+
+            // Calculate the shape and data for this split
+            let mut new_shape = self.shape.clone();
+            new_shape[dim] = end_idx - start_idx;
+
+            // Calculate strides for the original shape
+            let mut strides = vec![1usize; ndim];
+            for i in (0..ndim - 1).rev() {
+                strides[i] = strides[i + 1] * self.shape[i + 1];
+            }
+
+            // Extract data for this split
+            let mut split_data = Vec::with_capacity(new_shape.iter().product());
+            let mut coords = vec![0usize; ndim];
+
+            for i in 0..self.data.len() {
+                // Calculate coordinates
+                let mut idx = i;
+                for j in 0..ndim {
+                    coords[j] = idx / strides[j];
+                    idx %= strides[j];
+                }
+
+                // Check if this element belongs in the current split
+                if coords[dim] >= start_idx && coords[dim] < end_idx {
+                    split_data.push(self.data[i]);
+                }
+            }
+
+            result.push(Tensor::from_vec(split_data, &new_shape)?);
+            start_idx = end_idx;
+        }
+
+        Ok(result)
     }
 }
 
@@ -995,6 +1042,39 @@ mod tests {
         let result = Tensor::cat(&[&t1, &t2], -2)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_split() -> MlResult<()> {
+        // Test 1: Basic splitting along dimension 0
+        let tensor = Tensor::new(vec![
+            vec![1.0, 2.0, 3.0],
+            vec![4.0, 5.0, 6.0],
+            vec![7.0, 8.0, 9.0],
+        ])?;
+
+        let splits = tensor.split(2, 0)?;
+        assert_eq!(splits.len(), 2);
+        assert_eq!(splits[0].shape(), &[2, 3]);
+        assert_eq!(splits[1].shape(), &[1, 3]);
+        assert_eq!(splits[0].data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(splits[1].data(), &[7.0, 8.0, 9.0]);
+
+        // Test 2: Splitting along dimension 1
+        let splits = tensor.split(2, 1)?;
+        assert_eq!(splits.len(), 2);
+        assert_eq!(splits[0].shape(), &[3, 2]);
+        assert_eq!(splits[1].shape(), &[3, 1]);
+        assert_eq!(splits[0].data(), &[1.0, 2.0, 4.0, 5.0, 7.0, 8.0]);
+        assert_eq!(splits[1].data(), &[3.0, 6.0, 9.0]);
+
+        // Test 3: Negative dimension
+        let splits = tensor.split(2, -1)?;
+        assert_eq!(splits.len(), 2);
+        assert_eq!(splits[0].shape(), &[3, 2]);
+        assert_eq!(splits[1].shape(), &[3, 1]);
 
         Ok(())
     }

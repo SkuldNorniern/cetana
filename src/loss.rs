@@ -46,7 +46,7 @@ pub fn calculate_cross_entropy_loss(predictions: &Tensor, targets: &Tensor) -> M
     let epsilon = 1e-15; // Small constant to prevent log(0)
 
     // Clip predictions to prevent numerical instability
-    let clipped_preds = predictions.clip(epsilon, 1.0 - epsilon)?;
+    let clipped_preds = predictions.clamp_full(Some(epsilon), Some(1.0 - epsilon))?;
 
     // Calculate -y * log(p) - (1-y) * log(1-p)
     let log_probs = clipped_preds.log()?;
@@ -56,9 +56,9 @@ pub fn calculate_cross_entropy_loss(predictions: &Tensor, targets: &Tensor) -> M
     let term2 = targets.neg()?.add_scalar(1.0)?.mul(&log_neg_probs)?;
 
     let losses = term1.add(&term2)?;
-    let mean_loss = losses.neg()?.mean()?;
+    let mean_loss = losses.neg()?.mean(&[0], false)?;
 
-    Ok(mean_loss)
+    Ok(mean_loss.data()[0])
 }
 
 /// Computes the Binary Cross Entropy Loss between predictions and targets
@@ -68,10 +68,11 @@ pub fn calculate_binary_cross_entropy_loss(
     predictions: &Tensor,
     targets: &Tensor,
 ) -> MlResult<f32> {
-    if predictions.shape() != targets.shape() {
+    // Check that predictions and targets have same batch dimension
+    if predictions.shape()[0] != targets.shape()[0] {
         return Err(LossError::InvalidShape {
-            expected: predictions.shape().to_vec(),
-            got: targets.shape().to_vec(),
+            expected: targets.shape().to_vec(),
+            got: predictions.shape().to_vec(),
         }
         .into());
     }
@@ -79,7 +80,7 @@ pub fn calculate_binary_cross_entropy_loss(
     let epsilon = 1e-15; // Small constant to prevent log(0)
 
     // Clip predictions to prevent numerical instability
-    let clipped_preds = predictions.clip(epsilon, 1.0 - epsilon)?;
+    let clipped_preds = predictions.clamp_full(Some(epsilon), Some(1.0 - epsilon))?;
 
     // BCE formula: -1/N * Σ(y * log(p) + (1-y) * log(1-p))
     let log_probs = clipped_preds.log()?;
@@ -92,9 +93,9 @@ pub fn calculate_binary_cross_entropy_loss(
     let term2 = neg_targets.mul(&log_neg_probs)?;
 
     let sum = term1.add(&term2)?;
-    let mean_loss = sum.mean()?;
+    let mean_loss = sum.mean(&[0], false)?;
 
-    Ok(-mean_loss)
+    Ok(-mean_loss.data()[0])
 }
 
 #[cfg(test)]

@@ -1,30 +1,37 @@
 [package]
 name = "cetana"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
+description = "Yet Another Neural Network Library"
+license = "Apache-2.0"
+categories = ["science"]
+build = "build.rs"
+authors = ["SkuldNorniern <skuldnorniern@gmail.com>"]
 
 [features]
 default = ["cpu"]
 cpu = []
 cuda = []
-vulkan = ["dep:ash"]
+vulkan = ["dep:ash", "dep:vulkano"]
 mps = ["dep:metal"]
 wgpu = []
+opencl = []
+rayon = ["dep:rayon"]
 
 [dependencies]
 aporia = "0.1.1"
 ash = { version = "0.38.0", optional = true, features = ["linked","debug","std"] }
+log = "0.4.22"
 metal = { version = "0.30.0", optional = true, features = ["mps"] }
-
-
-
+rayon = { version = "1.10.0", optional = true }
+vulkano = { version = "0.34.1", optional = true }
 
 [dev-dependencies]
 csv = "1.3"
 rand = "0.8.5"
 pinax = "0.1.0"
 flate2 = "1.0.34"
-reqwest = "0.12.9"
+reqwest = { version = "0.12.9", features = ["json","blocking"] }
 tokio = { version = "1.41.0", features = ["full"] }
 
 [build-dependencies]
