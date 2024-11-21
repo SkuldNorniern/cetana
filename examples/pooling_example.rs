@@ -9,7 +9,7 @@ use cetana::{
 use pinax::{BorderStyle, Grid};
 
 fn main() -> MlResult<()> {
-    cetana::log::init().expect("Failed to initialize logger");
+    cetana::log::init(log::LevelFilter::Trace).expect("Failed to initialize logger");
     println!("Pooling Layer Example\n");
 
     // Create a 4x4 "image" with a single channel and batch size of 1

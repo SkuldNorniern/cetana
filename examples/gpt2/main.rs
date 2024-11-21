@@ -38,7 +38,7 @@ fn main() -> MlResult<()> {
     let decay_lr = true;
 
     // Initialize device and logging
-    cetana::log::init().expect("Failed to initialize logger");
+    cetana::log::init(log::LevelFilter::Trace).expect("Failed to initialize logger");
     let device_manager = DeviceManager::new();
     let device = device_manager.select_device(None)?;
     DeviceManager::set_default_device(device)?;

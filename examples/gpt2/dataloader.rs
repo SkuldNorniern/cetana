@@ -15,9 +15,16 @@ pub struct DataLoader {
 
 impl DataLoader {
     pub fn new(data_path: &str, batch_size: usize, context_length: usize) -> MlResult<Self> {
+        // if data_path is not a file, download the data
+        if !Path::new(data_path).exists() {
+            std::fs::create_dir_all("data").unwrap();
+            Self::download_shakespeare_data(data_path)?;
+        }
+
         // Load text
-        let file = File::open(Path::new(data_path))
-            .map_err(|e| MlError::StringError(format!("Failed to open file: {}", e)))?;
+        let file = File::open(Path::new(data_path)).map_err(|e| {
+            MlError::StringError(format!("Failed to open file: {}", e))
+        })?;
         let reader = BufReader::new(file);
         let text: String = reader
             .lines()
