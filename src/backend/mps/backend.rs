@@ -10,16 +10,14 @@ use metal::objc::rc::autoreleasepool;
 pub struct MpsBackend {
     device: Arc<MpsDevice>,
     compute: MpsCompute,
-    minimum_mps_compute_size: usize
 }
 
 impl MpsBackend {
     pub fn new() -> MlResult<Self> {
         let device = Arc::new(MpsDevice::new().expect("Failed to create MPS device"));
         let compute = MpsCompute::new(Arc::clone(&device)).expect("Failed to create MPS compute");
-        let minimum_mps_compute_size = 256;
 
-        Ok(Self { device, compute, minimum_mps_compute_size })
+        Ok(Self { device, compute })
     }
 }
 
@@ -211,11 +209,6 @@ impl Backend for MpsBackend {
     }
 
     fn sum(&self, a: &[f32]) -> f32 {
-        if a.len() < self.minimum_mps_compute_size {
-            // fallback to cpu compute
-
-        } 
-
         let mut result_slice: &[f32] = &[];
 
         autoreleasepool(|| {
