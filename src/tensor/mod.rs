@@ -57,6 +57,7 @@ pub enum TensorError {
         left_shape: Vec<usize>,
         right_shape: Vec<usize>,
     },
+    EmptyTensor,
     InvalidBackend {
         backend: DeviceType,
     },
@@ -87,6 +88,9 @@ impl Display for TensorError {
             }
             TensorError::InvalidBackend { backend } => {
                 write!(f, "Invalid backend: {}", backend)
+            }
+            TensorError::EmptyTensor => {
+                write!(f, "Empty tensor")
             }
         }
     }
