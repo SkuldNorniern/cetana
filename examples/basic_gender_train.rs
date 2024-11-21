@@ -52,14 +52,14 @@ struct GenderClassifier {
 impl GenderClassifier {
     fn new() -> MlResult<Self> {
         Ok(Self {
-            layer1: Linear::new(2, 4, true)?, // 2 inputs (height, weight) -> 4000 hidden neurons
+            layer1: Linear::new(2, 4, true)?, // 2 inputs (height, weight) -> 4 hidden neurons
             activation1: Swish,
-            layer2: Linear::new(4, 1, true)?, // 4000 hidden -> 1 output (0: male, 1: female)
+            layer2: Linear::new(4, 1, true)?, // 4 hidden -> 1 output (0: male, 1: female)
             output_act: Sigmoid,
         })
     }
 
-    fn forward(&self, x: &Tensor) -> MlResult<Tensor> {
+    fn forward(&mut self, x: &Tensor) -> MlResult<Tensor> {
         let hidden = self.layer1.forward(x)?;
         let activated = self.activation1.forward(&hidden)?;
         let output = self.layer2.forward(&activated)?;
@@ -67,19 +67,18 @@ impl GenderClassifier {
     }
 
     fn train_step(&mut self, x: &Tensor, y: &Tensor, learning_rate: f32) -> MlResult<f32> {
-        // Forward pass with single activation calculation
-        let predictions = self.forward(x)?;
+        // Forward pass
+        let hidden = self.layer1.forward(x)?;
+        let hidden_activated = self.activation1.forward(&hidden)?;
+        let output = self.layer2.forward(&hidden_activated)?;
+        let predictions = self.output_act.forward(&output)?;
 
-        // Compute loss using BCE instead of MSE (more appropriate for binary classification)
+        // Compute loss
         let loss = calculate_binary_cross_entropy_loss(&predictions, y)?;
 
-        // Compute gradients
-        let output_grad = predictions.sub(y)?;
-
         // Backward pass
-        let hidden_grad =
-            self.layer2
-                .backward(&self.layer1.forward(x)?, &output_grad, learning_rate)?;
+        let output_grad = predictions.sub(y)?;
+        let hidden_grad = self.layer2.backward(&hidden_activated, &output_grad, learning_rate)?;
         self.layer1.backward(x, &hidden_grad, learning_rate)?;
 
         Ok(loss)
@@ -131,7 +130,8 @@ impl Model for GenderClassifier {}
 impl Layer for GenderClassifier {
     fn forward(&self, x: &Tensor) -> MlResult<Tensor> {
         let hidden = self.layer1.forward(x)?;
-        let output = self.layer2.forward(&hidden)?;
+        let activated = self.activation1.forward(&hidden)?;
+        let output = self.layer2.forward(&activated)?;
         self.output_act.forward(&output)
     }
 
@@ -141,12 +141,12 @@ impl Layer for GenderClassifier {
         grad_output: &Tensor,
         learning_rate: f32,
     ) -> MlResult<Tensor> {
+        let hidden = self.layer1.forward(x)?;
+        let activated = self.activation1.forward(&hidden)?;
+        
         let output_grad = self.output_act.act_backward(x, grad_output)?;
-        let hidden_grad =
-            self.layer2
-                .backward(&self.layer1.forward(x)?, &output_grad, learning_rate)?;
-        self.layer1.backward(x, &hidden_grad, learning_rate)?;
-        Ok(output_grad)
+        let hidden_grad = self.layer2.backward(&activated, &output_grad, learning_rate)?;
+        self.layer1.backward(x, &hidden_grad, learning_rate)
     }
 }
 
@@ -219,7 +219,7 @@ fn train_test_split(
 }
 
 fn main() -> MlResult<()> {
-    cetana::log::init().expect("Failed to initialize logger");
+    cetana::log::init(log::LevelFilter::Info).expect("Failed to initialize logger");
     println!("Training Gender Classification Model\n");
 
     // Initialize device manager and select device
