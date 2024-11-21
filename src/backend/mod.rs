@@ -19,7 +19,7 @@ pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
 pub use cuda::{CudaBackend, CudaBackendError};
 #[cfg(feature = "mps")]
-pub use mps::MpsError;
+pub use mps::{MpsBackend, MpsError};
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
 

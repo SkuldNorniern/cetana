@@ -30,6 +30,8 @@ use crate::backend::CudaBackend;
 use crate::backend::DeviceManager;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
+#[cfg(feature = "mps")]
+use crate::backend::MpsBackend;
 
 use aporia::{backend::XorShift, RandomBackend, Rng};
 
@@ -173,6 +175,20 @@ impl Tensor {
                             "Failed to create VulkanBackend: {:?}, falling back to CPU",
                             e
                         );
+                        Arc::new(CpuBackend::new()?)
+                    }
+                }
+            }
+            #[cfg(feature = "mps")]
+            DeviceType::Mps => {
+                println!("Attempting to create MpsBackend...");
+                match MpsBackend::new() {
+                    Ok(backend) => {
+                        println!("Successfully created MpsBackend");
+                        Arc::new(backend)
+                    }
+                    Err(e) => {
+                        println!("Failed to create MpsBackend: {:?}, falling back to CPU", e);
                         Arc::new(CpuBackend::new()?)
                     }
                 }

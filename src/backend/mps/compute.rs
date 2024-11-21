@@ -2,17 +2,17 @@ use super::core::MpsDevice;
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct MpsCompute {
     device: Arc<MpsDevice>,
     command_queue: CommandQueue,
 }
 
 impl MpsCompute {
-    pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::MpsError> {
+    pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::backend::MpsError> {
         let command_queue = device
             .device()
-            .new_command_queue()
-            .ok_or(crate::MpsError::InitializationError)?;
+            .new_command_queue();
 
         Ok(Self {
             device,
@@ -25,7 +25,7 @@ impl MpsCompute {
         pipeline: &ComputePipelineState,
         grid_size: MTLSize,
         thread_group_size: MTLSize,
-    ) -> Result<(), crate::MpsError> {
+    ) -> Result<(), crate::backend::MpsError> {
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
 
