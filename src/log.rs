@@ -38,8 +38,8 @@ impl Log for SimpleLogger {
 }
 
 // Initialize the logger
-pub fn init() -> Result<(), log::SetLoggerError> {
+pub fn init(level: LevelFilter) -> Result<(), log::SetLoggerError> {
     static LOGGER: SimpleLogger = SimpleLogger;
 
-    log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Trace))
+    log::set_logger(&LOGGER).map(|()| log::set_max_level(level))
 }
