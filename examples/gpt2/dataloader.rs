@@ -2,7 +2,7 @@ use cetana::{tensor::Tensor, MlError, MlResult};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 pub struct DataLoader {
@@ -155,8 +155,8 @@ impl DataLoader {
             .map_err(|e| MlError::StringError(format!("Failed to create file: {}", e)))?;
 
         // Write the content
-        // file.write_all(content.as_bytes())
-        // .map_err(|e| MlError::StringError(format!("Failed to write data: {}", e)))?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| MlError::StringError(format!("Failed to write data: {}", e)))?;
 
         Ok(())
     }
