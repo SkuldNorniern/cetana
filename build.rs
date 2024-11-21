@@ -1,5 +1,11 @@
 #[cfg(feature = "cuda")]
 use std::fs;
+#[cfg(any(feature = "vulkan", feature = "mps", feature = "cuda"))]
+use std::{
+    env,
+    path::PathBuf,
+    process::Command,
+};
 
 #[cfg(feature = "cuda")]
 fn find_cuda_path() -> String {

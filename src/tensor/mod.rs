@@ -30,6 +30,8 @@ use crate::backend::CudaBackend;
 use crate::backend::DeviceManager;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
+#[cfg(feature = "mps")]
+use crate::backend::MpsBackend;
 
 use aporia::{backend::XorShift, RandomBackend, Rng};
 

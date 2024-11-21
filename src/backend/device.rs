@@ -159,7 +159,15 @@ impl DeviceManager {
                             DeviceType::Cpu
                         }
                     }
-                    #[cfg(not(any(feature = "cuda", feature = "vulkan")))]
+                    #[cfg(all(feature = "mps", not(feature = "vulkan"), not(feature = "cuda")))]
+                    {
+                        if manager.available_devices.contains(&DeviceType::Mps) {
+                            DeviceType::Mps
+                        } else {
+                            DeviceType::Cpu
+                        }
+                    }
+                    #[cfg(not(any(feature = "cuda", feature = "vulkan", feature = "mps")))]
                     {
                         DeviceType::Cpu
                     }
