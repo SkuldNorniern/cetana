@@ -49,7 +49,8 @@ fn main() -> MlResult<()> {
     let mut optimizer = Adam::new(learning_rate, None, None, Some(weight_decay));
 
     // Initialize data loader
-    let mut data_loader = DataLoader::new("data/shakespeare.txt", config.batch_size, config.block_size)?;
+    let mut data_loader =
+        DataLoader::new("data/shakespeare.txt", config.batch_size, config.block_size)?;
 
     println!("Starting training...");
     let start_time = Instant::now();
@@ -67,8 +68,12 @@ fn main() -> MlResult<()> {
             } else if iter_num > lr_decay_iters {
                 min_lr
             } else {
-                let decay_ratio = (iter_num - warmup_iters) as f32 / (lr_decay_iters - warmup_iters) as f32;
-                min_lr + 0.5 * (learning_rate - min_lr) * (1.0 + (std::f32::consts::PI * decay_ratio).cos())
+                let decay_ratio =
+                    (iter_num - warmup_iters) as f32 / (lr_decay_iters - warmup_iters) as f32;
+                min_lr
+                    + 0.5
+                        * (learning_rate - min_lr)
+                        * (1.0 + (std::f32::consts::PI * decay_ratio).cos())
             }
         } else {
             learning_rate

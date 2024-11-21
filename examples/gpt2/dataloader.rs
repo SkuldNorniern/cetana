@@ -22,9 +22,8 @@ impl DataLoader {
         }
 
         // Load text
-        let file = File::open(Path::new(data_path)).map_err(|e| {
-            MlError::StringError(format!("Failed to open file: {}", e))
-        })?;
+        let file = File::open(Path::new(data_path))
+            .map_err(|e| MlError::StringError(format!("Failed to open file: {}", e)))?;
         let reader = BufReader::new(file);
         let text: String = reader
             .lines()
