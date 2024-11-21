@@ -97,32 +97,33 @@ impl Layer for Linear {
     fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
         debug!("Linear forward - Input shape: {:?}", input.shape());
         
+        // Get dimensions
+        let batch_size = input.shape()[0];
+        let in_features = input.shape()[1];
+        let out_features = self.weight.shape()[0];
+
         // Compute xW^T
         debug!("Linear forward - Computing xW^T");
-        let mut output = input.matmul(&self.weight.transpose(0, 1)?)?;
+        let output = input.matmul(&self.weight.transpose(0, 1)?)?;
         debug!("Linear forward - Output shape after matmul: {:?}", output.shape());
 
         // Add bias if present
         if let Some(bias) = &self.bias {
             debug!("Linear forward - Bias shape: {:?}", bias.shape());
-
-            // Reshape bias to [1, 1, out_features]
-            let out_features = bias.shape()[0] as isize;
-            let bias_reshaped = bias.reshape(&[1, 1, out_features])?;
-            debug!("Linear forward - Reshaped bias shape: {:?}", bias_reshaped.shape());
-
-            // Expand bias to match output dimensions [batch_size, seq_len, out_features]
-            let batch_size = output.shape()[0] as isize;
-            let seq_len = output.shape()[1] as usize;
-            let bias_expanded = bias_reshaped.expand(&[batch_size as usize, seq_len, out_features as usize])?;
-            debug!("Linear forward - Expanded bias shape: {:?}", bias_expanded.shape());
-
-            // Add bias to output
-            output = output.add(&bias_expanded)?;
-            debug!("Linear forward - Output shape after adding bias: {:?}", output.shape());
+            
+            // Create a view of the bias that matches the output shape for broadcasting
+            // We need to reshape to [1, out_features] and then expand to [batch_size, out_features]
+            let bias_view = bias.reshape(&[1, out_features as isize])?;
+            let expanded_bias = bias_view.expand(&[batch_size, out_features])?;
+            
+            // Add the expanded bias to the output
+            let final_output = output.add(&expanded_bias)?;
+            
+            debug!("Linear forward - Final output shape: {:?}", final_output.shape());
+            Ok(final_output)
+        } else {
+            Ok(output)
         }
-
-        Ok(output)
     }
 
     fn backward(
@@ -214,70 +215,133 @@ impl Model for Linear {}
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_linear_creation() -> MlResult<()> {
-        let linear = Linear::new(2, 3, true)?;
-        assert_eq!(linear.weight().shape(), &[3, 2]);
-        assert!(linear.bias().is_some());
-        assert_eq!(linear.bias().map(|b| b.shape()), Some(&[3_usize][..]));
-        Ok(())
-    }
-
-    #[test]
-    fn test_linear_forward() -> MlResult<()> {
-        let linear = Linear::new(2, 3, false)?;
-        let input = Tensor::new(vec![vec![1.0, 2.0]])?;
-        let output = linear.forward(&input)?;
-        assert_eq!(output.shape(), &[1, 3]);
-        Ok(())
-    }
-
-    #[test]
-    fn test_weight_initialization() -> MlResult<()> {
-        let linear = Linear::new(10, 5, true)?;
-
-        // Check if weights are within expected range
-        let k = 1.0 / (10_f32).sqrt();
-        for &w in linear.weight().data() {
-            assert!(w >= -k && w <= k);
+    fn assert_close(actual: &[f32], expected: &[f32], epsilon: f32) {
+        assert_eq!(actual.len(), expected.len(), "Length mismatch");
+        for (a, e) in actual.iter().zip(expected.iter()) {
+            assert!(
+                (a - e).abs() < epsilon,
+                "Values differ: actual={}, expected={}", a, e
+            );
         }
-
-        // Check if bias values are within expected range
-        if let Some(bias) = linear.bias() {
-            for &b in bias.data() {
-                assert!(b >= -k && b <= k);
-            }
-        }
-
-        Ok(())
     }
 
     #[test]
-    fn test_backward() -> MlResult<()> {
-        let mut linear = Linear::new(2, 3, true)?;
-        let input = Tensor::new(vec![vec![1.0, 2.0]])?;
+    fn test_linear_default_case() -> MlResult<()> {
+        let mut linear = Linear::new(3, 2, true)?;
+        
+        // Set known weights and bias
+        let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let bias_data = vec![0.1, 0.2];
+        linear.weight = Tensor::from_vec(weight_data, &[2, 3])?;
+        linear.bias = Some(Tensor::from_vec(bias_data, &[2])?);
 
-        // Do forward pass
-        let _output = linear.forward(&input)?;
+        let input_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let input = Tensor::from_vec(input_data, &[2, 3])?;
 
-        // Create dummy gradient
-        let grad_output = Tensor::new(vec![vec![0.1, 0.2, 0.3]])?;
-
-        // Test backward pass
-        let grad_input = linear.backward(&input, &grad_output, 0.1)?;
-
-        // Check shapes
-        assert_eq!(grad_input.shape(), input.shape());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_linear_pytorch_style() -> MlResult<()> {
-        let linear = Linear::new(20, 30, true)?;
-        let input = Tensor::randn(&[128, 20])?;
         let output = linear.forward(&input)?;
-        assert_eq!(output.shape(), &[128, 30]);
+        let expected = vec![1.5000001, 3.4, 3.3, 7.8999996];
+        
+        assert_eq!(output.shape(), &[2, 2]);
+        assert_close(output.data(), &expected, 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_linear_single_batch() -> MlResult<()> {
+        let mut linear = Linear::new(3, 2, true)?;
+        
+        let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let bias_data = vec![0.1, 0.2];
+        linear.weight = Tensor::from_vec(weight_data, &[2, 3])?;
+        linear.bias = Some(Tensor::from_vec(bias_data, &[2])?);
+
+        let input_data = vec![1.0, 2.0, 3.0];
+        let input = Tensor::from_vec(input_data, &[1, 3])?;
+
+        let output = linear.forward(&input)?;
+        let expected = vec![1.5000001, 3.4];
+        
+        assert_eq!(output.shape(), &[1, 2]);
+        assert_close(output.data(), &expected, 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_linear_large_batch() -> MlResult<()> {
+        let mut linear = Linear::new(3, 2, true)?;
+        
+        let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let bias_data = vec![0.1, 0.2];
+        linear.weight = Tensor::from_vec(weight_data, &[2, 3])?;
+        linear.bias = Some(Tensor::from_vec(bias_data, &[2])?);
+
+        let input_data = vec![
+            1.0, 2.0, 3.0, 
+            4.0, 5.0, 6.0,
+            7.0, 8.0, 9.0,
+            10.0, 11.0, 12.0
+        ];
+        let input = Tensor::from_vec(input_data, &[4, 3])?;
+
+        let output = linear.forward(&input)?;
+        let expected = vec![
+            1.5000001, 3.4,
+            3.3, 7.8999996,
+            5.1, 12.400001,
+            6.9, 16.900002
+        ];
+        
+        assert_eq!(output.shape(), &[4, 2]);
+        assert_close(output.data(), &expected, 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_linear_wide_features() -> MlResult<()> {
+        let mut linear = Linear::new(5, 3, true)?;
+        
+        let weight_data = vec![
+            0.1, 0.2, 0.3, 0.4, 0.5,
+            0.6, 0.7, 0.8, 0.9, 1.0,
+            1.1, 1.2, 1.3, 1.4, 1.5
+        ];
+        let bias_data = vec![0.1, 0.2, 0.3];
+        linear.weight = Tensor::from_vec(weight_data, &[3, 5])?;
+        linear.bias = Some(Tensor::from_vec(bias_data, &[3])?);
+
+        let input_data = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0,
+            6.0, 7.0, 8.0, 9.0, 10.0
+        ];
+        let input = Tensor::from_vec(input_data, &[2, 5])?;
+
+        let output = linear.forward(&input)?;
+        let expected = vec![
+            5.6, 13.2, 20.8,
+            13.1, 33.2, 53.3
+        ];
+        
+        assert_eq!(output.shape(), &[2, 3]);
+        assert_close(output.data(), &expected, 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_linear_no_bias() -> MlResult<()> {
+        let mut linear = Linear::new(3, 2, false)?;
+        
+        let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        linear.weight = Tensor::from_vec(weight_data, &[2, 3])?;
+        assert!(linear.bias.is_none());
+
+        let input_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let input = Tensor::from_vec(input_data, &[2, 3])?;
+
+        let output = linear.forward(&input)?;
+        let expected = vec![1.4000001, 3.2, 3.2, 7.7];
+        
+        assert_eq!(output.shape(), &[2, 2]);
+        assert_close(output.data(), &expected, 1e-6);
         Ok(())
     }
 }

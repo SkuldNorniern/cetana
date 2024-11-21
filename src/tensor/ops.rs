@@ -504,6 +504,114 @@ impl Tensor {
             Tensor::from_vec(indices, &new_shape)?,
         ))
     }
+
+    /// Computes the absolute value of each element in the tensor.
+    ///
+    /// # Returns
+    /// A new tensor with the absolute values of each element
+    ///
+    /// # Example
+    /// ```
+    /// use cetana::tensor::Tensor;
+    ///
+    /// let a = Tensor::new(vec![vec![-1.0, 2.0, -3.0]]).unwrap();
+    /// let b = a.abs().unwrap();
+    /// assert_eq!(b.data(), &[1.0, 2.0, 3.0]);
+    /// ```
+    pub fn abs(&self) -> MlResult<Tensor> {
+        let data: Vec<f32> = self.data.iter().map(|&x| x.abs()).collect();
+        Tensor::from_vec(data, &self.shape)
+    }
+
+    /// Returns the maximum value of all elements in the input tensor.
+    /// If dim is specified, returns the maximum values along the given dimension.
+    ///
+    /// # Arguments
+    /// * `dim` - Optional dimension along which to find the maximum values
+    /// * `keepdim` - Whether the output tensor has dim retained or not
+    ///
+    /// # Returns
+    /// If dim is None, returns a tensor with a single element containing the maximum value.
+    /// If dim is specified, returns a tuple of two tensors (values, indices) containing the
+    /// maximum values and their indices along the specified dimension.
+    ///
+    /// # Example
+    /// ```
+    /// use cetana::tensor::Tensor;
+    ///
+    /// let a = Tensor::new(vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]).unwrap();
+    /// 
+    /// // Global maximum
+    /// let max_all = a.max(None, false).unwrap();
+    /// assert_eq!(max_all.data()[0], 6.0);
+    ///
+    /// // Maximum along dimension 0
+    /// let (max_dim0, indices) = a.max(Some(0), true).unwrap();
+    /// assert_eq!(max_dim0.shape(), &[1, 3]);
+    /// ```
+    pub fn mat_max(&self, dim: Option<i32>, keepdim: bool) -> MlResult<(Tensor, Option<Tensor>)> {
+        match dim {
+            None => {
+                // Find global maximum
+                let max_val = self.data.iter()
+                    .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                Ok((Tensor::from_vec(vec![max_val], &[1])?, None))
+            }
+            Some(d) => {
+                let dim = if d < 0 { 
+                    (self.shape.len() as i32 + d) as usize 
+                } else { 
+                    d as usize 
+                };
+
+                if dim >= self.shape.len() {
+                    return Err(MlError::TensorError(TensorError::InvalidAxis {
+                        axis: dim,
+                        shape: self.shape.clone(),
+                    }));
+                }
+
+                let mut new_shape = self.shape.clone();
+                if !keepdim {
+                    new_shape.remove(dim);
+                } else {
+                    new_shape[dim] = 1;
+                }
+
+                let stride: usize = self.shape[dim + 1..].iter().product();
+                let outer_stride: usize = self.shape[dim..].iter().product();
+                let outer_dims: usize = self.shape[..dim].iter().product();
+                let dim_size = self.shape[dim];
+
+                let mut max_values = Vec::with_capacity(self.data.len() / dim_size);
+                let mut max_indices = Vec::with_capacity(self.data.len() / dim_size);
+
+                for i in 0..outer_dims {
+                    for j in 0..stride {
+                        let mut max_val = f32::NEG_INFINITY;
+                        let mut max_idx = 0;
+                        
+                        for k in 0..dim_size {
+                            let idx = i * outer_stride + k * stride + j;
+                            let val = self.data[idx];
+                            if val > max_val {
+                                max_val = val;
+                                max_idx = k;
+                            }
+                        }
+                        
+                        max_values.push(max_val);
+                        max_indices.push(max_idx as f32);
+                    }
+                }
+
+                Ok((
+                    Tensor::from_vec(max_values, &new_shape)?,
+                    Some(Tensor::from_vec(max_indices, &new_shape)?)
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -609,4 +717,30 @@ mod tests {
 
         Ok(())
     }
+   #[test]
+fn test_max() -> MlResult<()> {
+    // Test global maximum
+    let a = Tensor::new(vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]])?;
+    let (max_all, _) = a.mat_max(None, false)?;
+    assert_eq!(max_all.data(), &[6.0]);
+
+    // Test maximum along dimension 0
+    let (max_dim0, indices0) = a.mat_max(Some(0), true)?;
+    assert_eq!(max_dim0.shape(), &[1, 3]);
+    assert_eq!(max_dim0.data(), &[4.0, 5.0, 6.0]);
+    assert_eq!(indices0.unwrap().data(), &[1.0, 1.0, 1.0]);
+
+    // Test maximum along dimension 1
+    let (max_dim1, indices1) = a.mat_max(Some(1), true)?;
+    assert_eq!(max_dim1.shape(), &[2, 1]);
+    assert_eq!(max_dim1.data(), &[3.0, 6.0]);
+    assert_eq!(indices1.unwrap().data(), &[2.0, 2.0]);
+
+    // Test maximum with negative dimension
+    let (max_neg, indices_neg) = a.mat_max(Some(-1), true)?;
+    assert_eq!(max_neg.data(), &[3.0, 6.0]);
+    assert_eq!(indices_neg.unwrap().data(), &[2.0, 2.0]);
+
+    Ok(())
+}
 }
