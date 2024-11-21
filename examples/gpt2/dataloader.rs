@@ -17,6 +17,7 @@ impl DataLoader {
     pub fn new(data_path: &str, batch_size: usize, context_length: usize) -> MlResult<Self> {
         // if data_path is not a file, download the data
         if !Path::new(data_path).exists() {
+            std::fs::create_dir_all("data").unwrap();
             Self::download_shakespeare_data(data_path)?;
         }
 
