@@ -9,7 +9,7 @@ use cetana::{
     tensor::Tensor,
     MlResult,
 };
-use log::{debug, info};
+use log::{debug, info, trace};
 
 pub struct GPT {
     token_embedding: Embedding,
@@ -67,60 +67,51 @@ impl GPT {
         optimizer: &mut impl Optimizer,
         grad_clip: f32,
     ) -> MlResult<f32> {
-        // Zero out existing gradients
+        info!("Starting training step");
+        debug!("Input shape: {:?}, Target shape: {:?}", input_ids.shape(), targets.shape());
+        trace!("Input values: {:?}", input_ids);
+        trace!("Target values: {:?}", targets);
+
+        // Zero gradients
+        trace!("Zeroing out gradients");
         optimizer.zero_grad();
 
         // Forward pass
-        let (mut logits, loss_opt) = self.forward(input_ids, Some(targets))?;
-        let loss = loss_opt.ok_or("Expected loss during training")?;
+        info!("Starting forward pass for training");
+        let logits = self.forward(input_ids, Some(targets))?.0;
+        trace!("Forward pass complete, logits shape: {:?}", logits.shape());
 
-        // Backward pass to compute gradients
-        let _ = logits.backward(Some(targets))?;
+        // Reshape logits and targets for loss calculation
+        let batch_size = input_ids.shape()[0];
+        let seq_len = input_ids.shape()[1];
+        let vocab_size = self.config.vocab_size;
 
-        // Add parameters and their gradients to optimizer
-        // Token embedding
-        optimizer.add_param(
-            self.token_embedding.forward(input_ids)?,
-            self.token_embedding.weight().grad().map(|g| g.clone()),
-        );
+        let logits_2d = logits.reshape(&[(batch_size * seq_len) as isize, vocab_size as isize])?;
+        let targets_1d = targets.reshape(&[(batch_size * seq_len) as isize])?;
 
-        // Position embedding
-        let pos = Tensor::arange(Some(0.0), input_ids.shape()[1] as f32, Some(1.0))?;
-        optimizer.add_param(
-            self.position_embedding.forward(&pos)?,
-            self.position_embedding.weight().grad().map(|g| g.clone()),
-        );
+        trace!("Reshaped for loss - logits: {:?}, targets: {:?}", 
+               logits_2d.shape(), targets_1d.shape());
 
-        // Add parameters from transformer blocks
-        for block in self.blocks.iter() {
-            for (param, grad) in block.get_parameters() {
-                optimizer.add_param(param, grad);
-            }
-        }
+        // Calculate max logits for numerical stability
+        let max_logits = logits_2d.mat_max(Some(1), true)?.0;
+        let mut shifted_logits = logits_2d.sub(&max_logits.expand(&logits_2d.shape())?)?;
+        
+        // Calculate loss
+        let loss = calculate_cross_entropy_loss(&shifted_logits, &targets_1d)?;
+        debug!("Loss calculated: {:.4}", loss);
 
-        // Layer norm and linear layer parameters
-        if let Some(weight) = self.ln_f.weight() {
-            optimizer.add_param(weight.clone(), weight.grad().map(|g| g.clone()));
-        }
-        if let Some(bias) = self.ln_f.bias() {
-            optimizer.add_param(bias.clone(), bias.grad().map(|g| g.clone()));
-        }
+        // Backward pass
+        info!("Starting backward pass");
+        shifted_logits.requires_grad(true);
+        shifted_logits.backward(None)?;
 
-        // Language model head parameters
-        optimizer.add_param(
-            self.lm_head.forward(&logits)?,
-            self.lm_head.weight().grad().map(|g| g.clone()),
-        );
-        if let Some(bias) = self.lm_head.bias() {
-            optimizer.add_param(bias.clone(), bias.grad().map(|g| g.clone()));
-        }
-
-        // Apply gradient clipping if specified
+        // Clip gradients
         if grad_clip > 0.0 {
-            // TODO: Implement gradient clipping
+            debug!("Clipping gradients at {}", grad_clip);
+            // optimizer.clip_grad_norm(grad_clip)?;
         }
 
-        // Perform optimization step
+        // Update parameters
         optimizer.step()?;
 
         Ok(loss)
@@ -131,9 +122,11 @@ impl GPT {
         idx: &Tensor,
         targets: Option<&Tensor>,
     ) -> MlResult<(Tensor, Option<f32>)> {
+        info!("Starting forward pass");
         let shape = idx.shape();
         let (b, t) = (shape[0], shape[1]);
-        debug!("Forward pass - batch_size: {}, seq_len: {}", b, t);
+        debug!("Input shape - batch_size: {}, seq_len: {}", b, t);
+        trace!("Input tensor: {:?}", idx);
 
         // Check sequence length
         if t > self.config.block_size {
@@ -145,19 +138,23 @@ impl GPT {
         }
 
         // Token embeddings
-        let tok_emb = self.token_embedding.forward(idx)?; // shape (b, t, n_embd)
-        debug!("Token embeddings shape: {:?}", tok_emb.shape());
+        debug!("Computing token embeddings");
+        let tok_emb = self.token_embedding.forward(idx)?;
+        trace!("Token embeddings shape: {:?}", tok_emb.shape());
+        trace!("Token embeddings sample: {:?}", tok_emb.slice(&[&[0..1], &[0..1], &[0..5]])?);
 
         // Position embeddings
+        debug!("Computing position embeddings");
         let pos = Tensor::arange(Some(0.0), t as f32, Some(1.0))?;
-        let pos_emb = self.position_embedding.forward(&pos)?; // shape (t, n_embd)
-        debug!("Position embeddings shape: {:?}", pos_emb.shape());
+        trace!("Position indices: {:?}", pos);
+        let pos_emb = self.position_embedding.forward(&pos)?;
+        trace!("Position embeddings sample: {:?}", pos_emb.slice(&[&[0..1], &[0..5]])?);
 
         // Reshape position embeddings to [1, t, n_embd] and expand to [b, t, n_embd]
         let pos_emb = pos_emb
             .reshape(&[1, t as isize, self.config.n_embd as isize])?
             .expand(&[b, t, self.config.n_embd])?;
-        debug!(
+        trace!(
             "Position embeddings after reshape/expand: {:?}",
             pos_emb.shape()
         );
@@ -165,7 +162,7 @@ impl GPT {
         // Add embeddings and apply dropout
         let mut x = tok_emb.add(&pos_emb)?;
         x = self.drop.forward(&x)?;
-        debug!("After embeddings and dropout: {:?}", x.shape());
+        trace!("After embeddings and dropout: {:?}", x.shape());
 
         // Apply transformer blocks
         for (i, block) in self.blocks.iter_mut().enumerate() {
@@ -178,23 +175,46 @@ impl GPT {
         debug!("After final layer norm: {:?}", x.shape());
 
         // Get logits and calculate loss if targets provided
+        trace!("Getting logits and calculating loss");
         let (logits, loss) = if let Some(targets) = targets {
             // Training time: get logits for all positions
+            trace!("Training time: getting logits for all positions");
             let logits = self.lm_head.forward(&x)?;
+            trace!("Logits shape: {:?}", logits.shape());
+            
+            // First reshape logits to combine batch and sequence dimensions
             let logits_view = logits.reshape(&[-1, self.config.vocab_size as isize])?;
+            trace!("Logits view shape: {:?}", logits_view.shape());
+            
+            // Apply softmax to get probabilities
+            let probs = Softmax::new(Some(-1)).forward(&logits_view)?;
+            
+            // Reshape targets to match
             let targets_view = targets.reshape(&[-1])?;
-            let loss = calculate_cross_entropy_loss(&logits_view, &targets_view)?;
+            trace!("Targets view shape: {:?}", targets_view.shape());
+            
+            // Calculate loss using the probabilities
+            let loss = calculate_cross_entropy_loss(&probs, &targets_view)?;
+            trace!("Loss: {:.6}", loss);
             (logits, Some(loss))
         } else {
             // Inference time: only get logits for the last position
+            trace!("Inference time: getting logits for the last position");
             let last_hidden = x.slice(&[
                 &[0..b],
                 &[(t - 1)..t], // Using slice [t-1:t] to preserve time dimension
                 &[0..self.config.n_embd],
             ])?;
+            trace!("Last hidden shape: {:?}", last_hidden.shape());
             let logits = self.lm_head.forward(&last_hidden)?;
+            trace!("Logits shape: {:?}", logits.shape());
             (logits, None)
         };
+
+        trace!("Final logits shape: {:?}", logits.shape());
+        if let Some(loss) = loss {
+            debug!("Computed loss: {:.6}", loss);
+        }
 
         Ok((logits, loss))
     }
@@ -206,9 +226,14 @@ impl GPT {
         temperature: f32,
         top_k: Option<usize>,
     ) -> MlResult<Tensor> {
-        let mut current_idx = idx.clone();
+        info!("Starting token generation");
+        debug!("Parameters: max_tokens={}, temp={}, top_k={:?}", 
+            max_new_tokens, temperature, top_k);
 
-        for _ in 0..max_new_tokens {
+        let mut current_idx = idx.clone();
+        
+        for i in 0..max_new_tokens {
+            trace!("Generating token {}/{}", i + 1, max_new_tokens);
             // Get predictions
             let (logits, _) = self.forward(&current_idx, None)?;
 
@@ -226,7 +251,7 @@ impl GPT {
             };
 
             // Apply softmax
-            let probs = Softmax::new().forward(&logits)?;
+            let probs = Softmax::new(Some(-1)).forward(&logits)?;
 
             // Sample from the distribution
             let next_token = probs.multinomial(1, true)?;
@@ -235,6 +260,7 @@ impl GPT {
             current_idx = Tensor::cat(&[&current_idx, &next_token], 1)?;
         }
 
+        debug!("Generation complete");
         Ok(current_idx)
     }
 }
@@ -259,35 +285,41 @@ impl Block {
     }
 
     pub fn forward(&mut self, x: &Tensor) -> MlResult<Tensor> {
-        debug!("Block forward - input shape: {:?}", x.shape());
+        debug!("Starting block forward pass");
+        trace!("Block input shape: {:?}", x.shape());
+        trace!("Block input sample: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
 
-        // Attention block with residual connection
+        // Attention block
+        debug!("Processing attention block");
         let residual = x;
         let out = self.ln_1.forward(x)?;
-        debug!("After ln_1: {:?}", out.shape());
+        trace!("Layer norm 1 output sample: {:?}", out.slice(&[&[0..1], &[0..1], &[0..5]])?);
 
         let out = self.attn.forward(&out)?;
-        debug!("After attention: {:?}", out.shape());
+        trace!("Attention output sample: {:?}", out.slice(&[&[0..1], &[0..1], &[0..5]])?);
 
         let out = self.drop.forward(&out)?;
-        debug!("After dropout: {:?}", out.shape());
+        trace!("After dropout: {:?}", out.shape());
 
         let out = out.add(residual)?;
-        debug!("After residual connection: {:?}", out.shape());
+        trace!("After residual connection: {:?}", out.shape());
 
-        // MLP block with residual connection
+        // MLP block
         let residual = &out;
         let out = self.ln_2.forward(&out)?;
-        debug!("After ln_2: {:?}", out.shape());
+        trace!("After ln_2: {:?}", out.shape());
 
         let out = self.mlp.forward(&out)?;
-        debug!("After MLP: {:?}", out.shape());
+        trace!("After MLP: {:?}", out.shape());
 
         let out = self.drop.forward(&out)?;
-        debug!("After final dropout: {:?}", out.shape());
+        trace!("After final dropout: {:?}", out.shape());
 
         let final_out = out.add(residual)?;
-        debug!("Block output shape: {:?}", final_out.shape());
+        trace!("Block output shape: {:?}", final_out.shape());
+
+        debug!("Block forward pass complete");
+        trace!("Block output sample: {:?}", final_out.slice(&[&[0..1], &[0..1], &[0..5]])?);
 
         Ok(final_out)
     }
@@ -326,7 +358,7 @@ pub struct CausalSelfAttention {
     block_size: usize,
     attn_dropout: Dropout,
     resid_dropout: Dropout,
-    bias: Option<Tensor>, // Pre-computed causal mask
+    bias: Option<Tensor>,
 }
 
 impl CausalSelfAttention {
@@ -336,7 +368,7 @@ impl CausalSelfAttention {
         // Pre-compute the causal mask
         let bias = Tensor::ones(&[config.block_size, config.block_size])?
             .tril(0)?
-            .reshape(&[1, 1, config.block_size as isize, config.block_size as isize])?;
+            .view(&[1, 1, config.block_size as isize, config.block_size as isize])?;
 
         Ok(Self {
             c_attn: Linear::new(config.n_embd, 3 * config.n_embd, config.bias)?,
@@ -351,87 +383,79 @@ impl CausalSelfAttention {
     }
 
     pub fn forward(&mut self, x: &Tensor) -> MlResult<Tensor> {
+        info!("Starting causal self-attention computation");
         let shape = x.shape();
         let (b, t, c) = (shape[0], shape[1], shape[2]);
         let head_size = c / self.n_head;
-        debug!("Input shape: [B={}, T={}, C={}]", b, t, c);
+        debug!("Attention dimensions - Batch: {}, Seq_len: {}, Channels: {}, Head_size: {}", 
+            b, t, c, head_size);
+        trace!("Input tensor sample (first 5 values): {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
 
-        // Calculate query, key, values for all heads
-        debug!("Calculating query, key, values");
+        // QKV computation
+        debug!("Computing query, key, and value matrices");
         let qkv = self.c_attn.forward(x)?;
-        debug!("QKV shape after linear: {:?}", qkv.shape());
+        trace!("QKV combined shape: {:?}", qkv.shape());
+        trace!("QKV sample (first 5 values): {:?}", qkv.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        
+        // Split into q, k, v and reshape
+        let qkv_chunks = qkv.split(self.n_embd, 2)?;
+        trace!("Individual chunk shapes - Q: {:?}, K: {:?}, V: {:?}", 
+            qkv_chunks[0].shape(), qkv_chunks[1].shape(), qkv_chunks[2].shape());
+        trace!("Q chunk sample: {:?}", qkv_chunks[0].slice(&[&[0..1], &[0..1], &[0..5]])?);
 
-        // Split into q, k, v along the last dimension
-        let qkv_chunks = qkv.split(self.n_embd, 2)?; // Split into chunks of size n_embd
-        let (q, k, v) = (&qkv_chunks[0], &qkv_chunks[1], &qkv_chunks[2]);
-        debug!(
-            "After split - Q: {:?}, K: {:?}, V: {:?}",
-            q.shape(),
-            k.shape(),
-            v.shape()
-        );
+        let mut q = qkv_chunks[0].reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?;
+        let mut k = qkv_chunks[1].reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?;
+        let mut v = qkv_chunks[2].reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?;
+        trace!("After reshape - Q: {:?}, K: {:?}, V: {:?}", q.shape(), k.shape(), v.shape());
 
-        // Reshape and transpose: [B, T, C] -> [B, T, n_head, head_size] -> [B, n_head, T, head_size]
-        let q = q
-            .reshape(&[
-                b as isize,
-                t as isize,
-                self.n_head as isize,
-                head_size as isize,
-            ])?
-            .transpose(1, 2)?;
-        let k = k
-            .reshape(&[
-                b as isize,
-                t as isize,
-                self.n_head as isize,
-                head_size as isize,
-            ])?
-            .transpose(1, 2)?;
-        let v = v
-            .reshape(&[
-                b as isize,
-                t as isize,
-                self.n_head as isize,
-                head_size as isize,
-            ])?
-            .transpose(1, 2)?;
-        debug!(
-            "After reshape/transpose - Q: {:?}, K: {:?}, V: {:?}",
-            q.shape(),
-            k.shape(),
-            v.shape()
-        );
+        // Transpose to get [B, nh, T, hs]
+        q = q.transpose(1, 2)?;
+        k = k.transpose(1, 2)?;
+        v = v.transpose(1, 2)?;
+        trace!("After transpose - Q: {:?}, K: {:?}, V: {:?}", q.shape(), k.shape(), v.shape());
+        trace!("Q sample after transpose: {:?}", q.slice(&[&[0..1], &[0..1], &[0..1], &[0..5]])?);
 
-        // Compute attention scores: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        let att = q.matmul(&k.transpose(-2, -1)?)?;
+        // Compute attention scores
+        let k_t = k.transpose(-2, -1)?;
+        trace!("K transpose shape: {:?}", k_t.shape());
+        
+        let att = q.matmul(&k_t)?;
+        trace!("Raw attention scores shape: {:?}", att.shape());
+        trace!("Attention scores sample: {:?}", att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
+        
         let att = att.mul_scalar(1.0 / (head_size as f32).sqrt())?;
-        debug!("Attention scores shape: {:?}", att.shape());
+        trace!("Scaled attention scores sample: {:?}", att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
 
         // Apply causal mask
         if let Some(bias) = &self.bias {
-            debug!("Applying causal mask");
+            trace!("Applying causal mask");
             let mask = bias.slice(&[&[0..1], &[0..1], &[0..t], &[0..t]])?;
-            debug!("Mask shape: {:?}", mask.shape());
+            trace!("Mask shape: {:?}", mask.shape());
+            
             let att = att.masked_fill(&mask.eq_scalar(0.0)?, f32::NEG_INFINITY)?;
-            let att = Softmax::new().forward(&att)?;
+            trace!("Attention scores after masking sample: {:?}", 
+                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
+            
+            let att = Softmax::new(Some(-1)).forward(&att)?;
+            trace!("Softmax output sample: {:?}", att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
+            
             let att = self.attn_dropout.forward(&att)?;
+            trace!("Attention scores after dropout sample: {:?}", 
+                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
 
-            // Apply attention to values: (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+            // Apply attention to values
             let y = att.matmul(&v)?;
-            debug!("After attention application: {:?}", y.shape());
+            trace!("After attention application: {:?}", y.shape());
 
-            // Reshape back: [B, nh, T, hs] -> [B, T, C]
-            let y = y
-                .transpose(1, 2)?
-                .reshape(&[b as isize, t as isize, c as isize])?;
-            debug!("After reshape: {:?}", y.shape());
+            // Reshape back
+            let y = y.transpose(1, 2)?
+                    .reshape(&[b as isize, t as isize, c as isize])?;
 
             // Output projection
             let y = self.c_proj.forward(&y)?;
             let y = self.resid_dropout.forward(&y)?;
-            debug!("Final output shape: {:?}", y.shape());
 
+            info!("Causal self-attention computation complete");
             Ok(y)
         } else {
             Err("Causal mask not initialized".into())
@@ -462,9 +486,21 @@ impl MLP {
     }
 
     pub fn forward(&mut self, x: &Tensor) -> MlResult<Tensor> {
+        debug!("Starting MLP forward pass");
+        trace!("MLP input shape: {:?}", x.shape());
+        trace!("MLP input sample: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+
         let x = self.c_fc.forward(x)?;
+        trace!("After first linear layer: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+
         let x = self.swish.forward(&x)?;
-        self.c_proj.forward(&x)
+        trace!("After activation: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+
+        let result = self.c_proj.forward(&x)?;
+        trace!("MLP output sample: {:?}", result.slice(&[&[0..1], &[0..1], &[0..5]])?);
+
+        debug!("MLP forward pass complete");
+        Ok(result)
     }
 
     pub fn get_parameters(&self) -> Vec<(Tensor, Option<Tensor>)> {
