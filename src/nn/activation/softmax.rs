@@ -23,14 +23,18 @@ impl Softmax {
                 } else {
                     dim as usize
                 };
-                
+
                 if normalized_dim >= num_dims {
-                    Err(format!("Dimension {} out of range for tensor with {} dimensions", dim, num_dims).into())
+                    Err(format!(
+                        "Dimension {} out of range for tensor with {} dimensions",
+                        dim, num_dims
+                    )
+                    .into())
                 } else {
                     Ok(normalized_dim)
                 }
-            },
-            None => Ok(num_dims - 1) // Default to last dimension like PyTorch
+            }
+            None => Ok(num_dims - 1), // Default to last dimension like PyTorch
         }
     }
 }
@@ -40,7 +44,7 @@ impl Activation for Softmax {
         let shape = input.shape();
         let num_dims = shape.len();
         let dim = self.normalize_dim(num_dims)?;
-        
+
         // Calculate the size of each dimension
         let mut sizes = vec![1; num_dims];
         let mut stride = 1;
@@ -56,7 +60,7 @@ impl Activation for Softmax {
         // Process each slice along the specified dimension
         for i in 0..outer_size {
             let offset = i * inner_size;
-            
+
             // Find max for numerical stability
             let mut max_val = f32::NEG_INFINITY;
             for j in 0..inner_size {
@@ -84,7 +88,7 @@ impl Activation for Softmax {
         let shape = input.shape();
         let num_dims = shape.len();
         let dim = self.normalize_dim(num_dims)?;
-        
+
         let softmax_output = self.act_forward(input)?;
         let mut result = vec![0.0; input.data().len()];
         let outer_size = input.data().len() / shape[dim];
@@ -93,11 +97,11 @@ impl Activation for Softmax {
         // Process each slice along the specified dimension
         for i in 0..outer_size {
             let offset = i * inner_size;
-            
+
             for j in 0..inner_size {
                 let s_j = softmax_output.data()[offset + j];
                 let mut sum = 0.0;
-                
+
                 for k in 0..inner_size {
                     let s_k = softmax_output.data()[offset + k];
                     let g_k = grad_output.data()[offset + k];
@@ -107,7 +111,7 @@ impl Activation for Softmax {
                         sum -= g_k * s_k * s_j;
                     }
                 }
-                
+
                 result[offset + j] = sum;
             }
         }

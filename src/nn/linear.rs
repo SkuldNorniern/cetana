@@ -27,9 +27,11 @@ impl Linear {
     /// # Returns
     /// * `MlResult<Self>` - A new Linear layer instance
     pub fn new(in_features: usize, out_features: usize, bias: bool) -> MlResult<Self> {
-        debug!("Creating new Linear layer with in_features={}, out_features={}, bias={}", 
-            in_features, out_features, bias);
-        
+        debug!(
+            "Creating new Linear layer with in_features={}, out_features={}, bias={}",
+            in_features, out_features, bias
+        );
+
         // Get seed from system time
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -104,7 +106,11 @@ impl Linear {
 impl Layer for Linear {
     fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
         debug!("Linear forward pass started");
-        trace!("Input shape: {:?}, Weight shape: {:?}", input.shape(), self.weight.shape());
+        trace!(
+            "Input shape: {:?}, Weight shape: {:?}",
+            input.shape(),
+            self.weight.shape()
+        );
 
         let input_shape = input.shape();
         let batch_size = input_shape[0];
@@ -124,8 +130,13 @@ impl Layer for Linear {
             input.clone()
         };
 
-        trace!("Computed dimensions - batch_size: {}, seq_len: {}, in_features: {}, out_features: {}", 
-            batch_size, seq_len, in_features, out_features);
+        trace!(
+            "Computed dimensions - batch_size: {}, seq_len: {}, in_features: {}, out_features: {}",
+            batch_size,
+            seq_len,
+            in_features,
+            out_features
+        );
 
         // Compute xW^T
         trace!("Computing matrix multiplication xW^T");
@@ -162,8 +173,12 @@ impl Layer for Linear {
         learning_rate: f32,
     ) -> MlResult<Tensor> {
         debug!("Linear backward pass started");
-        trace!("Input shape: {:?}, grad_output shape: {:?}, learning_rate: {}", 
-            input.shape(), grad_output.shape(), learning_rate);
+        trace!(
+            "Input shape: {:?}, grad_output shape: {:?}, learning_rate: {}",
+            input.shape(),
+            grad_output.shape(),
+            learning_rate
+        );
 
         // Compute gradient with respect to input (for previous layer)
         let grad_input = grad_output.matmul(&self.weight)?;

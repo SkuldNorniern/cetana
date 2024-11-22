@@ -68,7 +68,11 @@ impl GPT {
         grad_clip: f32,
     ) -> MlResult<f32> {
         info!("Starting training step");
-        debug!("Input shape: {:?}, Target shape: {:?}", input_ids.shape(), targets.shape());
+        debug!(
+            "Input shape: {:?}, Target shape: {:?}",
+            input_ids.shape(),
+            targets.shape()
+        );
         trace!("Input values: {:?}", input_ids);
         trace!("Target values: {:?}", targets);
 
@@ -89,13 +93,16 @@ impl GPT {
         let logits_2d = logits.reshape(&[(batch_size * seq_len) as isize, vocab_size as isize])?;
         let targets_1d = targets.reshape(&[(batch_size * seq_len) as isize])?;
 
-        trace!("Reshaped for loss - logits: {:?}, targets: {:?}", 
-               logits_2d.shape(), targets_1d.shape());
+        trace!(
+            "Reshaped for loss - logits: {:?}, targets: {:?}",
+            logits_2d.shape(),
+            targets_1d.shape()
+        );
 
         // Calculate max logits for numerical stability
         let max_logits = logits_2d.mat_max(Some(1), true)?.0;
         let mut shifted_logits = logits_2d.sub(&max_logits.expand(&logits_2d.shape())?)?;
-        
+
         // Calculate loss
         let loss = calculate_cross_entropy_loss(&shifted_logits, &targets_1d)?;
         debug!("Loss calculated: {:.4}", loss);
@@ -141,14 +148,20 @@ impl GPT {
         debug!("Computing token embeddings");
         let tok_emb = self.token_embedding.forward(idx)?;
         trace!("Token embeddings shape: {:?}", tok_emb.shape());
-        trace!("Token embeddings sample: {:?}", tok_emb.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "Token embeddings sample: {:?}",
+            tok_emb.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         // Position embeddings
         debug!("Computing position embeddings");
         let pos = Tensor::arange(Some(0.0), t as f32, Some(1.0))?;
         trace!("Position indices: {:?}", pos);
         let pos_emb = self.position_embedding.forward(&pos)?;
-        trace!("Position embeddings sample: {:?}", pos_emb.slice(&[&[0..1], &[0..5]])?);
+        trace!(
+            "Position embeddings sample: {:?}",
+            pos_emb.slice(&[&[0..1], &[0..5]])?
+        );
 
         // Reshape position embeddings to [1, t, n_embd] and expand to [b, t, n_embd]
         let pos_emb = pos_emb
@@ -181,18 +194,18 @@ impl GPT {
             trace!("Training time: getting logits for all positions");
             let logits = self.lm_head.forward(&x)?;
             trace!("Logits shape: {:?}", logits.shape());
-            
+
             // First reshape logits to combine batch and sequence dimensions
             let logits_view = logits.reshape(&[-1, self.config.vocab_size as isize])?;
             trace!("Logits view shape: {:?}", logits_view.shape());
-            
+
             // Apply softmax to get probabilities
             let probs = Softmax::new(Some(-1)).forward(&logits_view)?;
-            
+
             // Reshape targets to match
             let targets_view = targets.reshape(&[-1])?;
             trace!("Targets view shape: {:?}", targets_view.shape());
-            
+
             // Calculate loss using the probabilities
             let loss = calculate_cross_entropy_loss(&probs, &targets_view)?;
             trace!("Loss: {:.6}", loss);
@@ -227,11 +240,13 @@ impl GPT {
         top_k: Option<usize>,
     ) -> MlResult<Tensor> {
         info!("Starting token generation");
-        debug!("Parameters: max_tokens={}, temp={}, top_k={:?}", 
-            max_new_tokens, temperature, top_k);
+        debug!(
+            "Parameters: max_tokens={}, temp={}, top_k={:?}",
+            max_new_tokens, temperature, top_k
+        );
 
         let mut current_idx = idx.clone();
-        
+
         for i in 0..max_new_tokens {
             trace!("Generating token {}/{}", i + 1, max_new_tokens);
             // Get predictions
@@ -287,16 +302,25 @@ impl Block {
     pub fn forward(&mut self, x: &Tensor) -> MlResult<Tensor> {
         debug!("Starting block forward pass");
         trace!("Block input shape: {:?}", x.shape());
-        trace!("Block input sample: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "Block input sample: {:?}",
+            x.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         // Attention block
         debug!("Processing attention block");
         let residual = x;
         let out = self.ln_1.forward(x)?;
-        trace!("Layer norm 1 output sample: {:?}", out.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "Layer norm 1 output sample: {:?}",
+            out.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         let out = self.attn.forward(&out)?;
-        trace!("Attention output sample: {:?}", out.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "Attention output sample: {:?}",
+            out.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         let out = self.drop.forward(&out)?;
         trace!("After dropout: {:?}", out.shape());
@@ -319,7 +343,10 @@ impl Block {
         trace!("Block output shape: {:?}", final_out.shape());
 
         debug!("Block forward pass complete");
-        trace!("Block output sample: {:?}", final_out.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "Block output sample: {:?}",
+            final_out.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         Ok(final_out)
     }
@@ -387,69 +414,126 @@ impl CausalSelfAttention {
         let shape = x.shape();
         let (b, t, c) = (shape[0], shape[1], shape[2]);
         let head_size = c / self.n_head;
-        debug!("Attention dimensions - Batch: {}, Seq_len: {}, Channels: {}, Head_size: {}", 
-            b, t, c, head_size);
-        trace!("Input tensor sample (first 5 values): {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        debug!(
+            "Attention dimensions - Batch: {}, Seq_len: {}, Channels: {}, Head_size: {}",
+            b, t, c, head_size
+        );
+        trace!(
+            "Input tensor sample (first 5 values): {:?}",
+            x.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         // QKV computation
         debug!("Computing query, key, and value matrices");
         let qkv = self.c_attn.forward(x)?;
         trace!("QKV combined shape: {:?}", qkv.shape());
-        trace!("QKV sample (first 5 values): {:?}", qkv.slice(&[&[0..1], &[0..1], &[0..5]])?);
-        
+        trace!(
+            "QKV sample (first 5 values): {:?}",
+            qkv.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
+
         // Split into q, k, v and reshape
         let qkv_chunks = qkv.split(self.n_embd, 2)?;
-        trace!("Individual chunk shapes - Q: {:?}, K: {:?}, V: {:?}", 
-            qkv_chunks[0].shape(), qkv_chunks[1].shape(), qkv_chunks[2].shape());
-        trace!("Q chunk sample: {:?}", qkv_chunks[0].slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "Individual chunk shapes - Q: {:?}, K: {:?}, V: {:?}",
+            qkv_chunks[0].shape(),
+            qkv_chunks[1].shape(),
+            qkv_chunks[2].shape()
+        );
+        trace!(
+            "Q chunk sample: {:?}",
+            qkv_chunks[0].slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
-        let mut q = qkv_chunks[0].reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?;
-        let mut k = qkv_chunks[1].reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?;
-        let mut v = qkv_chunks[2].reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?;
-        trace!("After reshape - Q: {:?}, K: {:?}, V: {:?}", q.shape(), k.shape(), v.shape());
+        let mut q = qkv_chunks[0].reshape(&[
+            b as isize,
+            t as isize,
+            self.n_head as isize,
+            head_size as isize,
+        ])?;
+        let mut k = qkv_chunks[1].reshape(&[
+            b as isize,
+            t as isize,
+            self.n_head as isize,
+            head_size as isize,
+        ])?;
+        let mut v = qkv_chunks[2].reshape(&[
+            b as isize,
+            t as isize,
+            self.n_head as isize,
+            head_size as isize,
+        ])?;
+        trace!(
+            "After reshape - Q: {:?}, K: {:?}, V: {:?}",
+            q.shape(),
+            k.shape(),
+            v.shape()
+        );
 
         // Transpose to get [B, nh, T, hs]
         q = q.transpose(1, 2)?;
         k = k.transpose(1, 2)?;
         v = v.transpose(1, 2)?;
-        trace!("After transpose - Q: {:?}, K: {:?}, V: {:?}", q.shape(), k.shape(), v.shape());
-        trace!("Q sample after transpose: {:?}", q.slice(&[&[0..1], &[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "After transpose - Q: {:?}, K: {:?}, V: {:?}",
+            q.shape(),
+            k.shape(),
+            v.shape()
+        );
+        trace!(
+            "Q sample after transpose: {:?}",
+            q.slice(&[&[0..1], &[0..1], &[0..1], &[0..5]])?
+        );
 
         // Compute attention scores
         let k_t = k.transpose(-2, -1)?;
         trace!("K transpose shape: {:?}", k_t.shape());
-        
+
         let att = q.matmul(&k_t)?;
         trace!("Raw attention scores shape: {:?}", att.shape());
-        trace!("Attention scores sample: {:?}", att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
-        
+        trace!(
+            "Attention scores sample: {:?}",
+            att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?
+        );
+
         let att = att.mul_scalar(1.0 / (head_size as f32).sqrt())?;
-        trace!("Scaled attention scores sample: {:?}", att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
+        trace!(
+            "Scaled attention scores sample: {:?}",
+            att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?
+        );
 
         // Apply causal mask
         if let Some(bias) = &self.bias {
             trace!("Applying causal mask");
             let mask = bias.slice(&[&[0..1], &[0..1], &[0..t], &[0..t]])?;
             trace!("Mask shape: {:?}", mask.shape());
-            
+
             let att = att.masked_fill(&mask.eq_scalar(0.0)?, f32::NEG_INFINITY)?;
-            trace!("Attention scores after masking sample: {:?}", 
-                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
-            
+            trace!(
+                "Attention scores after masking sample: {:?}",
+                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?
+            );
+
             let att = Softmax::new(Some(-1)).forward(&att)?;
-            trace!("Softmax output sample: {:?}", att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
-            
+            trace!(
+                "Softmax output sample: {:?}",
+                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?
+            );
+
             let att = self.attn_dropout.forward(&att)?;
-            trace!("Attention scores after dropout sample: {:?}", 
-                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?);
+            trace!(
+                "Attention scores after dropout sample: {:?}",
+                att.slice(&[&[0..1], &[0..1], &[0..5], &[0..5]])?
+            );
 
             // Apply attention to values
             let y = att.matmul(&v)?;
             trace!("After attention application: {:?}", y.shape());
 
             // Reshape back
-            let y = y.transpose(1, 2)?
-                    .reshape(&[b as isize, t as isize, c as isize])?;
+            let y = y
+                .transpose(1, 2)?
+                .reshape(&[b as isize, t as isize, c as isize])?;
 
             // Output projection
             let y = self.c_proj.forward(&y)?;
@@ -488,16 +572,28 @@ impl MLP {
     pub fn forward(&mut self, x: &Tensor) -> MlResult<Tensor> {
         debug!("Starting MLP forward pass");
         trace!("MLP input shape: {:?}", x.shape());
-        trace!("MLP input sample: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "MLP input sample: {:?}",
+            x.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         let x = self.c_fc.forward(x)?;
-        trace!("After first linear layer: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "After first linear layer: {:?}",
+            x.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         let x = self.swish.forward(&x)?;
-        trace!("After activation: {:?}", x.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "After activation: {:?}",
+            x.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         let result = self.c_proj.forward(&x)?;
-        trace!("MLP output sample: {:?}", result.slice(&[&[0..1], &[0..1], &[0..5]])?);
+        trace!(
+            "MLP output sample: {:?}",
+            result.slice(&[&[0..1], &[0..1], &[0..5]])?
+        );
 
         debug!("MLP forward pass complete");
         Ok(result)

@@ -36,8 +36,6 @@ impl MpsCompute {
 
         Ok(())
     }
-
-    
 }
 
 impl Drop for MpsCompute {

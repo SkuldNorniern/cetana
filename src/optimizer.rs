@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use crate::tensor::Tensor;
 use crate::MlResult;
 
-use log::{info, trace,debug};
+use log::{debug, info, trace};
 
 pub trait Optimizer {
     fn step(&mut self) -> MlResult<()>;
@@ -64,20 +64,23 @@ impl Optimizer for Adam {
     fn step(&mut self) -> MlResult<()> {
         info!("Starting Adam optimization step {}", self.step_count + 1);
         self.step_count += 1;
-        
+
         let bias_correction1 = 1.0 - self.betas.0.powi(self.step_count as i32);
         let bias_correction2 = 1.0 - self.betas.1.powi(self.step_count as i32);
-        debug!("Bias corrections: b1={:.6}, b2={:.6}", bias_correction1, bias_correction2);
+        debug!(
+            "Bias corrections: b1={:.6}, b2={:.6}",
+            bias_correction1, bias_correction2
+        );
 
         for (i, (param, grad)) in self.params.iter_mut().enumerate() {
             trace!("Processing parameter {}: shape={:?}", i, param.shape());
-            
+
             // Skip if no gradient
             let grad = match grad {
                 Some(grad) => {
                     trace!("Gradient found for param {}: shape={:?}", i, grad.shape());
                     grad
-                },
+                }
                 None => {
                     debug!("Skipping parameter {} - no gradient", i);
                     continue;
@@ -109,8 +112,12 @@ impl Optimizer for Adam {
                     i
                 )))?;
 
-            trace!("Retrieved momentum buffers for param {}: exp_avg={:?}, exp_avg_sq={:?}", 
-                i, exp_avg.shape(), exp_avg_sq.shape());
+            trace!(
+                "Retrieved momentum buffers for param {}: exp_avg={:?}, exp_avg_sq={:?}",
+                i,
+                exp_avg.shape(),
+                exp_avg_sq.shape()
+            );
 
             // Update momentum buffers
             debug!("Updating momentum buffers for parameter {}", i);
@@ -127,14 +134,21 @@ impl Optimizer for Adam {
             debug!("Computing bias-corrected moments for parameter {}", i);
             let exp_avg_corrected = exp_avg.mul_scalar(1.0 / bias_correction1)?;
             let exp_avg_sq_corrected = exp_avg_sq.mul_scalar(1.0 / bias_correction2)?;
-            trace!("Bias-corrected moments shapes: exp_avg={:?}, exp_avg_sq={:?}", 
-                exp_avg_corrected.shape(), exp_avg_sq_corrected.shape());
+            trace!(
+                "Bias-corrected moments shapes: exp_avg={:?}, exp_avg_sq={:?}",
+                exp_avg_corrected.shape(),
+                exp_avg_sq_corrected.shape()
+            );
 
             // Update parameters
             debug!("Computing parameter update");
             let denom = exp_avg_sq_corrected.sqrt()?.add_scalar(self.eps)?;
             let step = exp_avg_corrected.div(&denom)?.mul_scalar(self.lr)?;
-            trace!("Step tensor shape: {:?}, learning rate: {:.6}", step.shape(), self.lr);
+            trace!(
+                "Step tensor shape: {:?}, learning rate: {:.6}",
+                step.shape(),
+                self.lr
+            );
 
             // Apply weight decay if specified
             if self.weight_decay > 0.0 {
@@ -165,9 +179,17 @@ impl Optimizer for Adam {
 
     fn add_param(&mut self, param: Tensor, grad: Option<Tensor>) {
         let param_idx = self.params.len();
-        debug!("Adding parameter {} with shape {:?}", param_idx, param.shape());
+        debug!(
+            "Adding parameter {} with shape {:?}",
+            param_idx,
+            param.shape()
+        );
         if let Some(ref grad) = grad {
-            trace!("Parameter {} has gradient with shape {:?}", param_idx, grad.shape());
+            trace!(
+                "Parameter {} has gradient with shape {:?}",
+                param_idx,
+                grad.shape()
+            );
         } else {
             trace!("Parameter {} has no gradient", param_idx);
         }

@@ -13,7 +13,8 @@ impl MpsDevice {
     pub fn new() -> Result<Self, crate::backend::MpsError> {
         let device = Device::system_default().ok_or(crate::backend::MpsError::DeviceNotFound)?;
 
-        Ok(Self { device: Arc::new(device),
+        Ok(Self {
+            device: Arc::new(device),
         })
     }
 
@@ -29,7 +30,7 @@ impl MpsDevice {
         // Create two large tensors for benchmarking
         let size = 1024;
         let elements = size * size;
-        
+
         let a = Tensor::from_vec(vec![1.0; elements], &[size, size]).unwrap();
         let b = Tensor::from_vec(vec![2.0; elements], &[size, size]).unwrap();
 
@@ -44,7 +45,7 @@ impl MpsDevice {
         // Total operations = n * n * (2n - 1)
         let operations = size as u64 * size as u64 * (2 * size as u64 - 1);
         let flops = (operations as f64) / duration.as_secs_f64();
-        
+
         flops
     }
 }
@@ -56,7 +57,7 @@ mod tests {
     fn pretty_flops(flops: f64) -> String {
         if flops >= 1_000_000_000_000.0 {
             format!("{:.2} Tflops/s", flops / 1_000_000_000_000.0)
-        }else if flops >= 1_000_000_000.0 {
+        } else if flops >= 1_000_000_000.0 {
             format!("{:.2} Gflops/s", flops / 1_000_000_000.0)
         } else if flops >= 1_000_000.0 {
             format!("{:.2} Mflops/s", flops / 1_000_000.0)
@@ -94,5 +95,3 @@ mod tests {
         }
     }
 }
-
-
