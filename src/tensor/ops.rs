@@ -284,10 +284,16 @@ impl Tensor {
     /// # Returns
     /// A new tensor with the result of the matrix multiplication
     pub fn matmul(&self, other: &Tensor) -> MlResult<Tensor> {
-        debug!("Matmul - Left shape: {:?}, Right shape: {:?}", self.shape, other.shape);
-        
-        match (self.shape.len(), other.shape.len()) {
-            // Case 1: vector x vector (1D x 1D)
+        // Handle empty tensors
+        if self.data.is_empty() || other.data.is_empty() {
+            return Err(MlError::TensorError(TensorError::EmptyTensor));
+        }
+
+        let a = self.shape.len();
+        let b = other.shape.len();
+
+        match (a, b) {
+            // Case 1: 1D * 1D (dot product)
             (1, 1) => {
                 if self.shape[0] != other.shape[0] {
                     return Err(MlError::TensorError(TensorError::MatrixMultiplicationError {
@@ -295,50 +301,37 @@ impl Tensor {
                         right_shape: other.shape.clone(),
                     }));
                 }
-                let sum = self.data.iter()
+                let sum = self
+                    .data
+                    .iter()
                     .zip(other.data.iter())
                     .map(|(&a, &b)| a * b)
                     .sum::<f32>();
                 Tensor::from_vec(vec![sum], &[])
             }
 
-            // Case 2: matrix x vector (2D x 1D) or batched matrix x vector
-            (a, 1) => {
-                let batch_size = if a > 2 { 
-                    self.shape[..a-2].iter().product() 
-                } else { 
-                    1 
-                };
-                let m = self.shape[a-2];
-                let k = self.shape[a-1];
-
-                if k != other.shape[0] {
+            // Case 2: 2D * 1D or 1D * 2D
+            (2, 1) => {
+                if self.shape[1] != other.shape[0] {
                     return Err(MlError::TensorError(TensorError::MatrixMultiplicationError {
                         left_shape: self.shape.clone(),
                         right_shape: other.shape.clone(),
                     }));
                 }
-
-                let mut result = Vec::with_capacity(batch_size * m);
-
-                for batch in 0..batch_size {
-                    let start = batch * m * k;
-                    let end = start + m * k;
-                    
-                    for i in 0..m {
-                        let sum = (0..k).map(|j| {
-                            self.data[start + i * k + j] * other.data[j]
-                        }).sum();
-                        result.push(sum);
+                let m = self.shape[0];
+                let k = self.shape[1];
+                let mut result = vec![0.0; m];
+                
+                for i in 0..m {
+                    let mut sum = 0.0;
+                    for j in 0..k {
+                        sum += self.data[i * k + j] * other.data[j];
                     }
+                    result[i] = sum;
                 }
-
-                let mut out_shape = self.shape[..a-2].to_vec();
-                out_shape.push(m);
-                Tensor::from_vec(result, &out_shape)
+                Tensor::from_vec(result, &[m])
             }
 
-            // Case 3: vector x matrix (1D x 2D)
             (1, 2) => {
                 if self.shape[0] != other.shape[0] {
                     return Err(MlError::TensorError(TensorError::MatrixMultiplicationError {
@@ -348,69 +341,91 @@ impl Tensor {
                 }
                 let k = self.shape[0];
                 let n = other.shape[1];
+                let mut result = vec![0.0; n];
                 
-                let result: Vec<f32> = (0..n)
-                    .map(|j| {
-                        (0..k)
-                            .map(|i| self.data[i] * other.data[i * n + j])
-                            .sum()
-                    })
-                    .collect();
-                
+                for j in 0..n {
+                    let mut sum = 0.0;
+                    for i in 0..k {
+                        sum += self.data[i] * other.data[i * n + j];
+                    }
+                    result[j] = sum;
+                }
                 Tensor::from_vec(result, &[n])
             }
 
-            // Case 4: matrix x matrix (2D x 2D) or batched matrix multiplication
+            // Case 3: Higher dimensional tensor multiplication
             (a, b) => {
-                let batch_size = if a > 2 { 
-                    self.shape[..a-2].iter().product() 
-                } else { 
-                    1 
+                // Get batch dimensions
+                let batch_size = if a > 2 {
+                    self.shape[..a - 2].iter().product()
+                } else {
+                    1
                 };
-                let m = self.shape[a-2];
-                let k = self.shape[a-1];
-                let n = other.shape[b-1];
+                let m = self.shape[a - 2];
+                let k = self.shape[a - 1];
+                let n = other.shape[b - 1];
 
-                if k != other.shape[b-2] {
+                if k != other.shape[b - 2] {
                     return Err(MlError::TensorError(TensorError::MatrixMultiplicationError {
                         left_shape: self.shape.clone(),
                         right_shape: other.shape.clone(),
                     }));
                 }
 
-                debug!("Batch matmul - batch_size: {}, m: {}, k: {}, n: {}", batch_size, m, k, n);
-                let mut result = Vec::with_capacity(batch_size * m * n);
+                // Handle broadcasting for batch dimensions
+                let other_batch_size = if b > 2 {
+                    other.shape[..b - 2].iter().product()
+                } else {
+                    1
+                };
 
-                for batch in 0..batch_size {
-                    let start1 = batch * m * k;
-                    let end1 = start1 + m * k;
+                let output_batch_size = if batch_size == 1 {
+                    other_batch_size
+                } else if other_batch_size == 1 {
+                    batch_size
+                } else if batch_size == other_batch_size {
+                    batch_size
+                } else {
+                    return Err(MlError::TensorError(TensorError::MatrixMultiplicationError {
+                        left_shape: self.shape.clone(),
+                        right_shape: other.shape.clone(),
+                    }));
+                };
+
+                let mut result = vec![0.0; output_batch_size * m * n];
+                
+                for batch in 0..output_batch_size {
+                    let batch1 = if batch_size == 1 { 0 } else { batch };
+                    let batch2 = if other_batch_size == 1 { 0 } else { batch };
                     
-                    // If right tensor is not batched, use the whole tensor for each batch
-                    let (start2, end2) = if b > 2 {
-                        let s = batch * k * n;
-                        (s, s + k * n)
-                    } else {
-                        (0, k * n)
-                    };
+                    let start1 = batch1 * m * k;
+                    let start2 = batch2 * k * n;
+                    let result_start = batch * m * n;
 
-                    let batch_result = self.backend.matmul(
-                        &self.data[start1..end1],
-                        &other.data[start2..end2],
-                        m, k, n
-                    );
-                    result.extend(batch_result);
+                    for i in 0..m {
+                        for j in 0..n {
+                            let mut sum = 0.0;
+                            for l in 0..k {
+                                sum += self.data[start1 + i * k + l] * other.data[start2 + l * n + j];
+                            }
+                            result[result_start + i * n + j] = sum;
+                        }
+                    }
                 }
 
-                let mut out_shape = if a > 2 {
-                    self.shape[..a-2].to_vec()
-                } else {
-                    vec![]
-                };
-                out_shape.push(m);
-                out_shape.push(n);
+                // Construct output shape
+                let mut output_shape = Vec::new();
+                if a > 2 || b > 2 {
+                    if batch_size > 1 {
+                        output_shape.extend_from_slice(&self.shape[..a - 2]);
+                    } else {
+                        output_shape.extend_from_slice(&other.shape[..b - 2]);
+                    }
+                }
+                output_shape.push(m);
+                output_shape.push(n);
 
-                debug!("Final matmul result shape: {:?}", out_shape);
-                Tensor::from_vec(result, &out_shape)
+                Tensor::from_vec(result, &output_shape)
             }
         }
     }
@@ -423,7 +438,11 @@ impl Tensor {
     /// # Returns
     /// A new tensor with each element being 1.0 if tensor_element == scalar, otherwise 0.0
     pub fn eq_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| (x == scalar) as i32 as f32).collect();
+        let data: Vec<f32> = self
+            .data
+            .iter()
+            .map(|&x| (x == scalar) as i32 as f32)
+            .collect();
         Tensor::from_vec(data, &self.shape)
     }
 
@@ -540,28 +559,27 @@ impl Tensor {
     /// use cetana::tensor::Tensor;
     ///
     /// let a = Tensor::new(vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]).unwrap();
-    /// 
+    ///
     /// // Global maximum
-    /// let max_all = a.max(None, false).unwrap();
-    /// assert_eq!(max_all.data()[0], 6.0);
+    /// let max_all = a.mat_max(None, false).unwrap();
+    /// assert_eq!(max_all.0.data(), &[6.0]);
     ///
     /// // Maximum along dimension 0
-    /// let (max_dim0, indices) = a.max(Some(0), true).unwrap();
+    /// let (max_dim0, indices) = a.mat_max(Some(0), true).unwrap();
     /// assert_eq!(max_dim0.shape(), &[1, 3]);
     /// ```
     pub fn mat_max(&self, dim: Option<i32>, keepdim: bool) -> MlResult<(Tensor, Option<Tensor>)> {
         match dim {
             None => {
                 // Find global maximum
-                let max_val = self.data.iter()
-                    .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let max_val = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
                 Ok((Tensor::from_vec(vec![max_val], &[1])?, None))
             }
             Some(d) => {
-                let dim = if d < 0 { 
-                    (self.shape.len() as i32 + d) as usize 
-                } else { 
-                    d as usize 
+                let dim = if d < 0 {
+                    (self.shape.len() as i32 + d) as usize
+                } else {
+                    d as usize
                 };
 
                 if dim >= self.shape.len() {
@@ -590,7 +608,7 @@ impl Tensor {
                     for j in 0..stride {
                         let mut max_val = f32::NEG_INFINITY;
                         let mut max_idx = 0;
-                        
+
                         for k in 0..dim_size {
                             let idx = i * outer_stride + k * stride + j;
                             let val = self.data[idx];
@@ -599,7 +617,7 @@ impl Tensor {
                                 max_idx = k;
                             }
                         }
-                        
+
                         max_values.push(max_val);
                         max_indices.push(max_idx as f32);
                     }
@@ -607,7 +625,7 @@ impl Tensor {
 
                 Ok((
                     Tensor::from_vec(max_values, &new_shape)?,
-                    Some(Tensor::from_vec(max_indices, &new_shape)?)
+                    Some(Tensor::from_vec(max_indices, &new_shape)?),
                 ))
             }
         }
@@ -617,79 +635,6 @@ impl Tensor {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_matmul_vector_vector() -> MlResult<()> {
-        // Basic vector dot product
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
-        let b = Tensor::from_vec(vec![4.0, 5.0, 6.0], &[3])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[]);  // scalar output
-        assert_eq!(c.data(), &[32.0]);  // 1*4 + 2*5 + 3*6 = 32
-
-        // Test different vector sizes (should error)
-        let a = Tensor::from_vec(vec![1.0, 2.0], &[2])?;
-        let b = Tensor::from_vec(vec![3.0, 4.0, 5.0], &[3])?;
-        assert!(a.matmul(&b).is_err());
-
-        // Test empty vectors (should error)
-        let a = Tensor::from_vec(vec![], &[0])?;
-        let b = Tensor::from_vec(vec![], &[0])?;
-        eprintln!("Empty vectors: {:?}", a.matmul(&b));
-        assert!(a.matmul(&b).is_err());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_matmul_matrix_vector() -> MlResult<()> {
-        // Basic matrix-vector multiplication
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-        let b = Tensor::from_vec(vec![5.0, 6.0], &[2])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[2]);
-        assert_eq!(c.data(), &[17.0, 39.0]);  // [1*5 + 2*6, 3*5 + 4*6]
-
-        // Larger matrix
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
-        let b = Tensor::from_vec(vec![7.0, 8.0, 9.0], &[3])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[2]);
-        assert_eq!(c.data(), &[50.0, 122.0]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_matmul_vector_matrix() -> MlResult<()> {
-        // Basic vector-matrix multiplication
-        let a = Tensor::from_vec(vec![1.0, 2.0], &[2])?;
-        let b = Tensor::from_vec(vec![3.0, 4.0, 5.0, 6.0], &[2, 2])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[2]);
-        assert_eq!(c.data(), &[13.0, 16.0]);
-
-        // Larger matrix
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
-        let b = Tensor::from_vec(vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0], &[3, 2])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[2]);
-        assert_eq!(c.data(), &[40.0, 46.0]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_matmul_matrix_matrix() -> MlResult<()> {
-        // 2x2 matrix multiplication
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-        let b = Tensor::from_vec(vec![5.0, 6.0, 7.0, 8.0], &[2, 2])?;
-        let c = a.matmul(&b)?;
-        assert_eq!(c.shape(), &[2, 2]);
-        assert_eq!(c.data(), &[19.0, 22.0, 43.0, 50.0]);
-
-        Ok(())
-    }
 
     #[test]
     fn test_topk() -> MlResult<()> {
@@ -717,30 +662,217 @@ mod tests {
 
         Ok(())
     }
-   #[test]
-fn test_max() -> MlResult<()> {
-    // Test global maximum
-    let a = Tensor::new(vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]])?;
-    let (max_all, _) = a.mat_max(None, false)?;
-    assert_eq!(max_all.data(), &[6.0]);
+    #[test]
+    fn test_max() -> MlResult<()> {
+        // Test global maximum
+        let a = Tensor::new(vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]])?;
+        let (max_all, _) = a.mat_max(None, false)?;
+        assert_eq!(max_all.data(), &[6.0]);
 
-    // Test maximum along dimension 0
-    let (max_dim0, indices0) = a.mat_max(Some(0), true)?;
-    assert_eq!(max_dim0.shape(), &[1, 3]);
-    assert_eq!(max_dim0.data(), &[4.0, 5.0, 6.0]);
-    assert_eq!(indices0.unwrap().data(), &[1.0, 1.0, 1.0]);
+        // Test maximum along dimension 0
+        let (max_dim0, indices0) = a.mat_max(Some(0), true)?;
+        assert_eq!(max_dim0.shape(), &[1, 3]);
+        assert_eq!(max_dim0.data(), &[4.0, 5.0, 6.0]);
+        assert_eq!(indices0.unwrap().data(), &[1.0, 1.0, 1.0]);
 
-    // Test maximum along dimension 1
-    let (max_dim1, indices1) = a.mat_max(Some(1), true)?;
-    assert_eq!(max_dim1.shape(), &[2, 1]);
-    assert_eq!(max_dim1.data(), &[3.0, 6.0]);
-    assert_eq!(indices1.unwrap().data(), &[2.0, 2.0]);
+        // Test maximum along dimension 1
+        let (max_dim1, indices1) = a.mat_max(Some(1), true)?;
+        assert_eq!(max_dim1.shape(), &[2, 1]);
+        assert_eq!(max_dim1.data(), &[3.0, 6.0]);
+        assert_eq!(indices1.unwrap().data(), &[2.0, 2.0]);
 
-    // Test maximum with negative dimension
-    let (max_neg, indices_neg) = a.mat_max(Some(-1), true)?;
-    assert_eq!(max_neg.data(), &[3.0, 6.0]);
-    assert_eq!(indices_neg.unwrap().data(), &[2.0, 2.0]);
+        // Test maximum with negative dimension
+        let (max_neg, indices_neg) = a.mat_max(Some(-1), true)?;
+        assert_eq!(max_neg.data(), &[3.0, 6.0]);
+        assert_eq!(indices_neg.unwrap().data(), &[2.0, 2.0]);
 
-    Ok(())
-}
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_2d_2d() -> MlResult<()> {
+        // Case 1: 2D * 2D Matrix Multiplication
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[2, 3]
+        )?;
+        let b = Tensor::from_vec(
+            vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[3, 2]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[2, 2]);
+        assert_eq!(c.data(), &[58.0, 64.0, 139.0, 154.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_1d_2d() -> MlResult<()> {
+        // Case 2: 1D * 2D (Vector-Matrix Multiplication)
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0],
+            &[3]
+        )?;
+        let b = Tensor::from_vec(
+            vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            &[3, 2]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[2]);
+        assert_eq!(c.data(), &[40.0, 46.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_2d_1d() -> MlResult<()> {
+        // Case 3: 2D * 1D (Matrix-Vector Multiplication)
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[2, 3]
+        )?;
+        let b = Tensor::from_vec(
+            vec![7.0, 8.0, 9.0],
+            &[3]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[2]);
+        assert_eq!(c.data(), &[50.0, 122.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_3d_3d() -> MlResult<()> {
+        // Case 4: 3D * 3D (Batch Matrix Multiplication)
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            &[2, 2, 2]
+        )?;
+        let b = Tensor::from_vec(
+            vec![9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0],
+            &[2, 2, 2]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[2, 2, 2]);
+        assert_eq!(c.data(), &[31.0, 34.0, 71.0, 78.0, 155.0, 166.0, 211.0, 226.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_invalid_shapes() -> MlResult<()> {
+        // Test incompatible shapes
+        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let b = Tensor::from_vec(vec![4.0, 5.0], &[2])?;
+        
+        // This should return an error since the shapes are incompatible
+        assert!(a.matmul(&b).is_err());
+        
+        // Test incompatible batch dimensions
+        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
+        let b = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2])?;
+        
+        // This should return an error since the batch dimensions don't match
+        assert!(a.matmul(&b).is_err());
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_1x1() -> MlResult<()> {
+        // Case 5: 1x1 Matrix Multiplication
+        let a = Tensor::from_vec(vec![2.0], &[1, 1])?;
+        let b = Tensor::from_vec(vec![3.0], &[1, 1])?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[1, 1]);
+        assert_eq!(c.data(), &[6.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_1d_1d() -> MlResult<()> {
+        // Case 6: 1D * 1D (Dot Product)
+        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let b = Tensor::from_vec(vec![4.0, 5.0, 6.0], &[3])?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[]); // scalar output
+        assert_eq!(c.data(), &[32.0]); // 1*4 + 2*5 + 3*6 = 32
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_3d_2d_broadcasting() -> MlResult<()> {
+        // Case 7: 3D * 2D Broadcasting
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            &[2, 2, 2]
+        )?;
+        let b = Tensor::from_vec(
+            vec![9.0, 10.0, 11.0, 12.0],
+            &[2, 2]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[2, 2, 2]);
+        assert_eq!(c.data(), &[31.0, 34.0, 71.0, 78.0, 111.0, 122.0, 151.0, 166.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_4d_4d() -> MlResult<()> {
+        // Case 8: 4D * 4D Batch Matrix Multiplication
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0,
+                 1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0],
+            &[2, 2, 2, 2]
+        )?;
+        let b = Tensor::from_vec(
+            vec![5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0,
+                 5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0],
+            &[2, 2, 2, 2]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[2, 2, 2, 2]);
+        let expected = vec![19.0, 22.0, 43.0, 50.0, 19.0, 22.0, 43.0, 50.0,
+                          19.0, 22.0, 43.0, 50.0, 19.0, 22.0, 43.0, 50.0];
+        assert_eq!(c.data(), &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_empty() -> MlResult<()> {
+        // Case 9: Empty Matrix Multiplication
+        let a = Tensor::from_vec(vec![], &[0, 2])?;
+        let b = Tensor::from_vec(vec![], &[2, 0])?;
+        
+        // This should return an error for empty tensors
+        assert!(a.matmul(&b).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_broadcast_batch_dims() -> MlResult<()> {
+        // Case 10: Broadcasting with Different Batch Dimensions
+        let a = Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0],
+            &[1, 2, 2]
+        )?;
+        let b = Tensor::from_vec(
+            vec![5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0],
+            &[3, 1, 2, 2]
+        )?;
+        let c = a.matmul(&b)?;
+        
+        assert_eq!(c.shape(), &[3, 1, 2, 2]);
+        let expected = vec![19.0, 22.0, 43.0, 50.0,
+                          19.0, 22.0, 43.0, 50.0,
+                          19.0, 22.0, 43.0, 50.0];
+        assert_eq!(c.data(), &expected);
+        Ok(())
+    }
 }

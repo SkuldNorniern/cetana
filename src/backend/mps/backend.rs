@@ -30,12 +30,13 @@ impl Default for MpsBackend {
 }
 
 impl Backend for MpsBackend {
-    fn execute_compute(&self, dimensions: [u32; 3]) -> MlResult<()> {
-        todo!()
-    }
 
     fn device(&self) -> DeviceType {
         self.device.device_type()
+    }
+
+    fn calc_device_flops(&self) -> f64 {
+        self.device.calc_device_flops()
     }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {

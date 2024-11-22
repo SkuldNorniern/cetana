@@ -28,10 +28,10 @@ use crate::backend::CpuBackend;
 use crate::backend::CudaBackend;
 #[cfg(any(feature = "vulkan", feature = "cuda", feature = "mps", feature = "cpu"))]
 use crate::backend::DeviceManager;
-#[cfg(feature = "vulkan")]
-use crate::backend::VulkanBackend;
 #[cfg(feature = "mps")]
 use crate::backend::MpsBackend;
+#[cfg(feature = "vulkan")]
+use crate::backend::VulkanBackend;
 
 use aporia::{backend::XorShift, RandomBackend, Rng};
 
@@ -57,6 +57,7 @@ pub enum TensorError {
         left_shape: Vec<usize>,
         right_shape: Vec<usize>,
     },
+    EmptyTensor,
     InvalidBackend {
         backend: DeviceType,
     },
@@ -87,6 +88,9 @@ impl Display for TensorError {
             }
             TensorError::InvalidBackend { backend } => {
                 write!(f, "Invalid backend: {}", backend)
+            }
+            TensorError::EmptyTensor => {
+                write!(f, "Empty tensor")
             }
         }
     }
@@ -294,8 +298,6 @@ mod tests {
         assert_eq!(tensor.data(), &[1.0, 2.0, 3.0, 4.0]);
         Ok(())
     }
-
-    
 
     #[test]
     fn test_transpose() -> MlResult<()> {
@@ -947,12 +949,12 @@ mod tests {
     fn test_backward_basic() -> MlResult<()> {
         let mut a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
         a.requires_grad(true);
-        
+
         // Test backward with default gradient
         a.backward(None)?;
         let grad = a.grad().unwrap();
         assert_eq!(grad.data(), &[1.0, 1.0, 1.0, 1.0]);
-        
+
         Ok(())
     }
 
@@ -960,13 +962,13 @@ mod tests {
     fn test_backward_with_gradient() -> MlResult<()> {
         let mut a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
         a.requires_grad(true);
-        
+
         let gradient = Tensor::new(vec![vec![2.0, 3.0], vec![4.0, 5.0]])?;
         a.backward(Some(&gradient))?;
-        
+
         let grad = a.grad().unwrap();
         assert_eq!(grad.data(), &[2.0, 3.0, 4.0, 5.0]);
-        
+
         Ok(())
     }
 
@@ -974,16 +976,16 @@ mod tests {
     fn test_backward_accumulation() -> MlResult<()> {
         let mut a = Tensor::new(vec![vec![1.0, 2.0]])?;
         a.requires_grad(true);
-        
+
         // First backward pass
         a.backward(None)?;
-        
+
         // Second backward pass should accumulate
         a.backward(None)?;
-        
+
         let grad = a.grad().unwrap();
         assert_eq!(grad.data(), &[2.0, 2.0]);
-        
+
         Ok(())
     }
 }

@@ -1,15 +1,18 @@
+use super::parallel::ParallelExecutor;
 use crate::MlResult;
 
+const PARALLEL_THRESHOLD: usize = 1024;
+
 #[derive(Debug)]
-pub struct CpuCompute;
+pub struct CpuCompute {
+    parallel: ParallelExecutor,
+}
 
 impl CpuCompute {
     pub fn new() -> Self {
-        CpuCompute
-    }
-
-    pub fn execute(&self, _dimensions: [u32; 3]) -> MlResult<()> {
-        Ok(())
+        CpuCompute {
+            parallel: ParallelExecutor::new(),
+        }
     }
 
     // Optimized vector operations with bounds checking
@@ -23,11 +26,20 @@ impl CpuCompute {
     // Optimized binary operations using chunks
     pub fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         if let Some(len) = self.check_dimensions(a, b) {
-            let mut result = Vec::with_capacity(len);
-            for (x, y) in a.chunks(4).zip(b.chunks(4)) {
-                result.extend(x.iter().zip(y.iter()).map(|(a, b)| a + b));
+            if len < PARALLEL_THRESHOLD {
+                // Use existing sequential implementation for small arrays
+                let mut result = Vec::with_capacity(len);
+                for (x, y) in a.chunks(4).zip(b.chunks(4)) {
+                    result.extend(x.iter().zip(y.iter()).map(|(a, b)| a + b));
+                }
+                result
+            } else {
+                // Use parallel implementation for large arrays
+                self.parallel
+                    .execute_binary(a, b, PARALLEL_THRESHOLD, |x, y| {
+                        x.iter().zip(y.iter()).map(|(a, b)| a + b).collect()
+                    })
             }
-            result
         } else {
             Vec::new()
         }
@@ -35,30 +47,38 @@ impl CpuCompute {
 
     pub fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         if let Some(len) = self.check_dimensions(a, b) {
-            let mut result = Vec::with_capacity(len);
-            let chunks = len / 8;
-            let remainder = len % 8;
+            if len < PARALLEL_THRESHOLD {
+                // Use existing sequential implementation
+                let mut result = Vec::with_capacity(len);
+                let chunks = len / 8;
+                let remainder = len % 8;
 
-            for i in 0..chunks {
-                let idx = i * 8;
-                result.extend_from_slice(&[
-                    a[idx] * b[idx],
-                    a[idx + 1] * b[idx + 1],
-                    a[idx + 2] * b[idx + 2],
-                    a[idx + 3] * b[idx + 3],
-                    a[idx + 4] * b[idx + 4],
-                    a[idx + 5] * b[idx + 5],
-                    a[idx + 6] * b[idx + 6],
-                    a[idx + 7] * b[idx + 7],
-                ]);
+                for i in 0..chunks {
+                    let idx = i * 8;
+                    result.extend_from_slice(&[
+                        a[idx] * b[idx],
+                        a[idx + 1] * b[idx + 1],
+                        a[idx + 2] * b[idx + 2],
+                        a[idx + 3] * b[idx + 3],
+                        a[idx + 4] * b[idx + 4],
+                        a[idx + 5] * b[idx + 5],
+                        a[idx + 6] * b[idx + 6],
+                        a[idx + 7] * b[idx + 7],
+                    ]);
+                }
+
+                let start = chunks * 8;
+                for i in 0..remainder {
+                    result.push(a[start + i] * b[start + i]);
+                }
+                result
+            } else {
+                // Use parallel implementation
+                self.parallel
+                    .execute_binary(a, b, PARALLEL_THRESHOLD, |x, y| {
+                        x.iter().zip(y.iter()).map(|(a, b)| a * b).collect()
+                    })
             }
-
-            let start = chunks * 8;
-            for i in 0..remainder {
-                result.push(a[start + i] * b[start + i]);
-            }
-
-            result
         } else {
             Vec::new()
         }

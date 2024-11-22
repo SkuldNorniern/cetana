@@ -128,7 +128,7 @@ impl Tensor {
             backend,
             grad: None,
             requires_grad: false,
-            grad_fn: None,  
+            grad_fn: None,
         })
     }
 
@@ -199,7 +199,7 @@ impl Tensor {
             backend,
             grad: None,
             requires_grad: false,
-            grad_fn: None,  
+            grad_fn: None,
         })
     }
 
@@ -289,7 +289,7 @@ impl Tensor {
             backend,
             grad: None,
             requires_grad: false,
-            grad_fn: None,  
+            grad_fn: None,
         })
     }
 }
