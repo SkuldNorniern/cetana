@@ -10,9 +10,7 @@ pub struct MpsCompute {
 
 impl MpsCompute {
     pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::backend::MpsError> {
-        let command_queue = device
-            .device()
-            .new_command_queue();
+        let command_queue = device.device().new_command_queue();
 
         Ok(Self {
             device,
@@ -38,6 +36,8 @@ impl MpsCompute {
 
         Ok(())
     }
+
+    
 }
 
 impl Drop for MpsCompute {
