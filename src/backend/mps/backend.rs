@@ -4,7 +4,6 @@ use crate::backend::{Backend, Device, DeviceType};
 use crate::MlResult;
 use std::fmt::Debug;
 use std::sync::Arc;
-use metal::objc::rc::autoreleasepool;
 
 #[derive(Debug)]
 pub struct MpsBackend {
@@ -28,7 +27,6 @@ impl Default for MpsBackend {
 }
 
 impl Backend for MpsBackend {
-
     fn device(&self) -> DeviceType {
         self.device.device_type()
     }
@@ -241,10 +239,9 @@ impl Backend for MpsBackend {
 impl Device for MpsBackend {
     fn new() -> MlResult<Self>
     where
-        Self: Sized
+        Self: Sized,
     {
-        let mps_backend = MpsBackend::new()
-            .expect("Failed to create MPS backend");
+        let mps_backend = MpsBackend::new().expect("Failed to create MPS backend");
 
         Ok(mps_backend)
     }

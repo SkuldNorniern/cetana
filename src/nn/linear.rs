@@ -4,7 +4,7 @@ use crate::serialize::{Deserialize, Model, Serialize};
 use crate::{nn::Layer, tensor::Tensor, MlResult};
 
 use aporia::{backend::Xoshiro256StarStar, Rng};
-use log::debug;
+use log::{debug, trace};
 
 /// A fully connected (linear/dense) neural network layer.
 ///
@@ -27,6 +27,11 @@ impl Linear {
     /// # Returns
     /// * `MlResult<Self>` - A new Linear layer instance
     pub fn new(in_features: usize, out_features: usize, bias: bool) -> MlResult<Self> {
+        debug!(
+            "Creating new Linear layer with in_features={}, out_features={}, bias={}",
+            in_features, out_features, bias
+        );
+
         // Get seed from system time
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -59,22 +64,27 @@ impl Linear {
             })
             .collect();
 
+        trace!("Initializing weights with Xavier/Glorot bounds k={}", k);
         let weight = Tensor::from_vec(weight_data, &[out_features, in_features])?;
 
-        // Bias initialization using same bounds as weights
+        // Bias initialization
         let bias = if bias {
+            trace!("Initializing bias vector");
             let bias_data: Vec<f32> = (0..out_features)
                 .map(|_| gen_range(&mut rng, -k, k))
                 .collect();
             Some(Tensor::from_vec(bias_data, &[out_features])?)
         } else {
+            trace!("Skipping bias initialization");
             None
         };
 
+        debug!("Linear layer created successfully");
         Ok(Self { weight, bias })
     }
 
     pub fn get_parameters(&self) -> Vec<(Tensor, Option<Tensor>)> {
+        trace!("Getting layer parameters");
         let mut params = Vec::new();
         params.push((self.weight.clone(), None));
         if let Some(bias) = &self.bias {
@@ -95,7 +105,12 @@ impl Linear {
 
 impl Layer for Linear {
     fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        debug!("Linear forward - Input shape: {:?}", input.shape());
+        debug!("Linear forward pass started");
+        trace!(
+            "Input shape: {:?}, Weight shape: {:?}",
+            input.shape(),
+            self.weight.shape()
+        );
 
         let input_shape = input.shape();
         let batch_size = input_shape[0];
@@ -108,41 +123,46 @@ impl Layer for Linear {
         let out_features = self.weight.shape()[0];
 
         // Reshape input to 2D if it's 3D: [batch_size * seq_len, in_features]
+        trace!("Reshaping input to 2D");
         let reshaped_input = if input_shape.len() > 2 {
             input.reshape(&[(batch_size * seq_len) as isize, in_features as isize])?
         } else {
             input.clone()
         };
 
-        // Compute xW^T
-        debug!("Linear forward - Computing xW^T");
-        let output = reshaped_input.matmul(&self.weight.transpose(0, 1)?)?;
-        debug!(
-            "Linear forward - Output shape after matmul: {:?}",
-            output.shape()
+        trace!(
+            "Computed dimensions - batch_size: {}, seq_len: {}, in_features: {}, out_features: {}",
+            batch_size,
+            seq_len,
+            in_features,
+            out_features
         );
+
+        // Compute xW^T
+        trace!("Computing matrix multiplication xW^T");
+        let output = reshaped_input.matmul(&self.weight.transpose(0, 1)?)?;
+        trace!("Output shape after matmul: {:?}", output.shape());
 
         // Add bias if present
         let output = if let Some(bias) = &self.bias {
-            debug!("Linear forward - Bias shape: {:?}", bias.shape());
+            trace!("Adding bias with shape: {:?}", bias.shape());
             let bias_view = bias.reshape(&[1, out_features as isize])?;
             let expanded_bias = bias_view.expand(&[batch_size * seq_len, out_features])?;
             output.add(&expanded_bias)?
         } else {
+            trace!("No bias to add");
             output
         };
 
         // Reshape back to 3D if input was 3D: [batch_size, seq_len, out_features]
+        trace!("Reshaping output back to 3D");
         let final_output = if input_shape.len() > 2 {
             output.reshape(&[batch_size as isize, seq_len as isize, out_features as isize])?
         } else {
             output
         };
 
-        debug!(
-            "Linear forward - Final output shape: {:?}",
-            final_output.shape()
-        );
+        debug!("Linear forward pass completed");
         Ok(final_output)
     }
 
@@ -152,6 +172,14 @@ impl Layer for Linear {
         grad_output: &Tensor,
         learning_rate: f32,
     ) -> MlResult<Tensor> {
+        debug!("Linear backward pass started");
+        trace!(
+            "Input shape: {:?}, grad_output shape: {:?}, learning_rate: {}",
+            input.shape(),
+            grad_output.shape(),
+            learning_rate
+        );
+
         // Compute gradient with respect to input (for previous layer)
         let grad_input = grad_output.matmul(&self.weight)?;
 
@@ -159,19 +187,24 @@ impl Layer for Linear {
         let grad_weights = grad_output.transpose(0, 1)?.matmul(input)?;
 
         // Update weights using gradient descent
+        trace!("Computing weight updates");
         let weight_update = grad_weights.mul_scalar(learning_rate)?;
+        trace!("Weight update shape: {:?}", weight_update.shape());
         self.weight = self.weight.sub(&weight_update)?;
 
         // Update bias if it exists
         if let Some(bias) = &mut self.bias {
+            trace!("Computing bias updates");
             // For bias, we need to sum across the batch dimension (dim 0)
             let grad_bias = grad_output.sum(&[0], true)?;
             // Apply learning rate
             let bias_update = grad_bias.mul_scalar(learning_rate)?;
             // The bias should be a 1D tensor of shape [out_features]
             *bias = bias.sub(&bias_update.reshape(&[bias.shape()[0] as isize])?)?;
+            trace!("Bias update shape: {:?}", bias_update.shape());
         }
 
+        debug!("Linear backward pass completed");
         Ok(grad_input)
     }
 }

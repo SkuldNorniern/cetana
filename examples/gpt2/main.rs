@@ -38,7 +38,7 @@ fn main() -> MlResult<()> {
     let decay_lr = true;
 
     // Initialize device and logging
-    cetana::log::init(log::LevelFilter::Trace).expect("Failed to initialize logger");
+    cetana::log::init(log::LevelFilter::Info).expect("Failed to initialize logger");
     let device_manager = DeviceManager::new();
     let device = device_manager.select_device(None)?;
     DeviceManager::set_default_device(device)?;
@@ -58,6 +58,7 @@ fn main() -> MlResult<()> {
     let mut best_val_loss = f32::MAX;
 
     while iter_num < max_iters {
+        println!("iter {}", iter_num);
         // Get batch
         let (input_ids, targets) = data_loader.get_batch(iter_num % data_loader.num_batches())?;
 

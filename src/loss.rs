@@ -2,6 +2,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::{tensor::Tensor, MlResult};
 
+use log::{debug, error, trace};
+
 #[derive(Debug, Clone)]
 pub enum LossError {
     InvalidShape {
@@ -42,23 +44,82 @@ pub fn calculate_mse_loss(predictions: &Tensor, labels: &Tensor) -> MlResult<f32
     Ok(squared / (predictions.data().len() as f32))
 }
 
-pub fn calculate_cross_entropy_loss(predictions: &Tensor, targets: &Tensor) -> MlResult<f32> {
-    let epsilon = 1e-15; // Small constant to prevent log(0)
+pub fn calculate_cross_entropy_loss(logits: &Tensor, targets: &Tensor) -> MlResult<f32> {
+    debug!("Calculating cross entropy loss");
+    trace!(
+        "Input logits shape: {:?}, targets shape: {:?}",
+        logits.shape(),
+        targets.shape()
+    );
 
-    // Clip predictions to prevent numerical instability
-    let clipped_preds = predictions.clamp_full(Some(epsilon), Some(1.0 - epsilon))?;
+    // Validate input shapes
+    if logits.shape().len() != 2 {
+        return Err(LossError::InvalidOperation {
+            op: "cross_entropy_loss",
+            reason: "Logits must be 2-dimensional [N, C]".to_string(),
+        }
+        .into());
+    }
 
-    // Calculate -y * log(p) - (1-y) * log(1-p)
-    let log_probs = clipped_preds.log()?;
-    let log_neg_probs = clipped_preds.neg()?.add_scalar(1.0)?.log()?;
+    let (batch_size, num_classes) = (logits.shape()[0], logits.shape()[1]);
+    trace!("Batch size: {}, num classes: {}", batch_size, num_classes);
 
-    let term1 = targets.mul(&log_probs)?;
-    let term2 = targets.neg()?.add_scalar(1.0)?.mul(&log_neg_probs)?;
+    // Handle sparse (class indices) targets
+    let is_sparse = targets.shape().len() == 1;
+    trace!(
+        "Target type: {}",
+        if is_sparse { "sparse" } else { "dense" }
+    );
 
-    let losses = term1.add(&term2)?;
-    let mean_loss = losses.neg()?.mean(&[0], false)?;
+    if is_sparse {
+        if targets.shape()[0] != batch_size {
+            return Err(LossError::InvalidShape {
+                expected: vec![batch_size],
+                got: targets.shape().to_vec(),
+            }
+            .into());
+        }
 
-    Ok(mean_loss.data()[0])
+        // Numerical stability: Subtract max logit from each row
+        let max_logits = logits.mat_max(Some(1), true)?.0;
+        let shifted_logits = logits.sub(&max_logits.expand(&logits.shape())?)?;
+
+        // Compute exp and sum
+        let exp_logits = shifted_logits.exp()?;
+        let sum_exp = exp_logits.sum(&[1], true)?;
+        let log_sum_exp = sum_exp.log()?;
+
+        // Gather logits corresponding to targets
+        let mut total_loss = 0.0;
+        let mut valid_samples = 0;
+
+        for i in 0..batch_size {
+            let target_idx = targets.data()[i] as usize;
+            if target_idx >= num_classes {
+                continue;
+            }
+            let logit = shifted_logits.data()[i * num_classes + target_idx];
+            total_loss += log_sum_exp.data()[i] - logit;
+            valid_samples += 1;
+        }
+
+        if valid_samples == 0 {
+            return Err(LossError::InvalidOperation {
+                op: "cross_entropy_loss",
+                reason: "No valid samples in batch".to_string(),
+            }
+            .into());
+        }
+
+        Ok(total_loss / valid_samples as f32)
+    } else {
+        // Handle dense targets (probability distribution)
+        return Err(LossError::InvalidOperation {
+            op: "cross_entropy_loss",
+            reason: "Dense targets not implemented yet".to_string(),
+        }
+        .into());
+    }
 }
 
 /// Computes the Binary Cross Entropy Loss between predictions and targets

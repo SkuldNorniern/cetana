@@ -1,77 +1,122 @@
 use crate::{nn::Activation, tensor::Tensor, MlResult};
 
-pub struct Softmax;
+pub struct Softmax {
+    dim: Option<i32>,
+}
 
 impl Default for Softmax {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 impl Softmax {
-    pub fn new() -> Self {
-        Self
+    pub fn new(dim: Option<i32>) -> Self {
+        Self { dim }
+    }
+
+    fn normalize_dim(&self, num_dims: usize) -> MlResult<usize> {
+        match self.dim {
+            Some(dim) => {
+                let normalized_dim = if dim < 0 {
+                    (dim + num_dims as i32) as usize
+                } else {
+                    dim as usize
+                };
+
+                if normalized_dim >= num_dims {
+                    Err(format!(
+                        "Dimension {} out of range for tensor with {} dimensions",
+                        dim, num_dims
+                    )
+                    .into())
+                } else {
+                    Ok(normalized_dim)
+                }
+            }
+            None => Ok(num_dims - 1), // Default to last dimension like PyTorch
+        }
     }
 }
 
 impl Activation for Softmax {
     fn act_forward(&self, input: &Tensor) -> MlResult<Tensor> {
-        let batch_size = input.shape()[0];
-        let num_classes = input.shape()[1];
-        let mut result = vec![0.0; input.data().len()];
+        let shape = input.shape();
+        let num_dims = shape.len();
+        let dim = self.normalize_dim(num_dims)?;
 
-        // Process each batch separately
-        for b in 0..batch_size {
+        // Calculate the size of each dimension
+        let mut sizes = vec![1; num_dims];
+        let mut stride = 1;
+        for i in (0..num_dims).rev() {
+            sizes[i] = stride;
+            stride *= shape[i];
+        }
+
+        let mut result = vec![0.0; input.data().len()];
+        let outer_size = input.data().len() / shape[dim];
+        let inner_size = shape[dim];
+
+        // Process each slice along the specified dimension
+        for i in 0..outer_size {
+            let offset = i * inner_size;
+
             // Find max for numerical stability
             let mut max_val = f32::NEG_INFINITY;
-            for j in 0..num_classes {
-                max_val = max_val.max(input.data()[b * num_classes + j]);
+            for j in 0..inner_size {
+                max_val = max_val.max(input.data()[offset + j]);
             }
 
             // Compute exp(x - max) and sum
             let mut sum = 0.0;
-            for j in 0..num_classes {
-                let exp_val = (input.data()[b * num_classes + j] - max_val).exp();
-                result[b * num_classes + j] = exp_val;
+            for j in 0..inner_size {
+                let exp_val = (input.data()[offset + j] - max_val).exp();
+                result[offset + j] = exp_val;
                 sum += exp_val;
             }
 
             // Normalize by sum
-            for j in 0..num_classes {
-                result[b * num_classes + j] /= sum;
+            for j in 0..inner_size {
+                result[offset + j] /= sum;
             }
         }
 
-        Tensor::from_vec(result, input.shape())
+        Tensor::from_vec(result, shape)
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
-        let softmax_output = self.act_forward(input)?;
-        let batch_size = input.shape()[0];
-        let num_classes = input.shape()[1];
-        let mut result = vec![0.0; input.data().len()];
+        let shape = input.shape();
+        let num_dims = shape.len();
+        let dim = self.normalize_dim(num_dims)?;
 
-        // Process each batch separately
-        for b in 0..batch_size {
-            for i in 0..num_classes {
-                let s_i = softmax_output.data()[b * num_classes + i];
+        let softmax_output = self.act_forward(input)?;
+        let mut result = vec![0.0; input.data().len()];
+        let outer_size = input.data().len() / shape[dim];
+        let inner_size = shape[dim];
+
+        // Process each slice along the specified dimension
+        for i in 0..outer_size {
+            let offset = i * inner_size;
+
+            for j in 0..inner_size {
+                let s_j = softmax_output.data()[offset + j];
                 let mut sum = 0.0;
 
-                for j in 0..num_classes {
-                    let s_j = softmax_output.data()[b * num_classes + j];
-                    let g_j = grad_output.data()[b * num_classes + j];
-                    if i == j {
-                        sum += g_j * s_j * (1.0 - s_j);
+                for k in 0..inner_size {
+                    let s_k = softmax_output.data()[offset + k];
+                    let g_k = grad_output.data()[offset + k];
+                    if j == k {
+                        sum += g_k * s_k * (1.0 - s_k);
                     } else {
-                        sum -= g_j * s_j * s_i;
+                        sum -= g_k * s_k * s_j;
                     }
                 }
 
-                result[b * num_classes + i] = sum;
+                result[offset + j] = sum;
             }
         }
 
-        Tensor::from_vec(result, input.shape())
+        Tensor::from_vec(result, shape)
     }
 }
 
@@ -81,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_softmax_forward() -> MlResult<()> {
-        let softmax = Softmax::new();
+        let softmax = Softmax::new(None);
         let input = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[1, 3])?;
         let output = softmax.act_forward(&input)?;
 
@@ -102,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_softmax_batch() -> MlResult<()> {
-        let softmax = Softmax::new();
+        let softmax = Softmax::new(None);
         let input = Tensor::new(vec![vec![1.0, 2.0], vec![0.5, 1.5]])?;
 
         let output = softmax.act_forward(&input)?;
@@ -125,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_softmax_backward() -> MlResult<()> {
-        let softmax = Softmax::new();
+        let softmax = Softmax::new(None);
         let input = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
         let grad_output = Tensor::from_vec(vec![1.0, -1.0], &[1, 2])?;
 
@@ -143,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_softmax_numerical_stability() -> MlResult<()> {
-        let softmax = Softmax::new();
+        let softmax = Softmax::new(None);
         // Test with large numbers that could cause overflow
         let input = Tensor::from_vec(vec![1000.0, 1000.1], &[1, 2])?;
         let output = softmax.act_forward(&input)?;
