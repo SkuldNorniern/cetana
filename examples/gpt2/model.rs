@@ -100,16 +100,10 @@ impl GPT {
 
         // Layer norm and linear layer parameters
         if let Some(weight) = self.ln_f.weight() {
-            optimizer.add_param(
-                weight.clone(),
-                weight.grad().map(|g| g.clone()),
-            );
+            optimizer.add_param(weight.clone(), weight.grad().map(|g| g.clone()));
         }
         if let Some(bias) = self.ln_f.bias() {
-            optimizer.add_param(
-                bias.clone(),
-                bias.grad().map(|g| g.clone()),
-            );
+            optimizer.add_param(bias.clone(), bias.grad().map(|g| g.clone()));
         }
 
         // Language model head parameters
@@ -118,10 +112,7 @@ impl GPT {
             self.lm_head.weight().grad().map(|g| g.clone()),
         );
         if let Some(bias) = self.lm_head.bias() {
-            optimizer.add_param(
-                bias.clone(),
-                bias.grad().map(|g| g.clone()),
-            );
+            optimizer.add_param(bias.clone(), bias.grad().map(|g| g.clone()));
         }
 
         // Apply gradient clipping if specified
@@ -146,8 +137,11 @@ impl GPT {
 
         // Check sequence length
         if t > self.config.block_size {
-            return Err(format!("Cannot forward sequence of length {}, block size is only {}", 
-                t, self.config.block_size).into());
+            return Err(format!(
+                "Cannot forward sequence of length {}, block size is only {}",
+                t, self.config.block_size
+            )
+            .into());
         }
 
         // Token embeddings
@@ -160,9 +154,13 @@ impl GPT {
         debug!("Position embeddings shape: {:?}", pos_emb.shape());
 
         // Reshape position embeddings to [1, t, n_embd] and expand to [b, t, n_embd]
-        let pos_emb = pos_emb.reshape(&[1, t as isize, self.config.n_embd as isize])?
+        let pos_emb = pos_emb
+            .reshape(&[1, t as isize, self.config.n_embd as isize])?
             .expand(&[b, t, self.config.n_embd])?;
-        debug!("Position embeddings after reshape/expand: {:?}", pos_emb.shape());
+        debug!(
+            "Position embeddings after reshape/expand: {:?}",
+            pos_emb.shape()
+        );
 
         // Add embeddings and apply dropout
         let mut x = tok_emb.add(&pos_emb)?;
@@ -191,7 +189,7 @@ impl GPT {
             // Inference time: only get logits for the last position
             let last_hidden = x.slice(&[
                 &[0..b],
-                &[(t-1)..t],  // Using slice [t-1:t] to preserve time dimension
+                &[(t - 1)..t], // Using slice [t-1:t] to preserve time dimension
                 &[0..self.config.n_embd],
             ])?;
             let logits = self.lm_head.forward(&last_hidden)?;
@@ -267,13 +265,13 @@ impl Block {
         let residual = x;
         let out = self.ln_1.forward(x)?;
         debug!("After ln_1: {:?}", out.shape());
-        
+
         let out = self.attn.forward(&out)?;
         debug!("After attention: {:?}", out.shape());
-        
+
         let out = self.drop.forward(&out)?;
         debug!("After dropout: {:?}", out.shape());
-        
+
         let out = out.add(residual)?;
         debug!("After residual connection: {:?}", out.shape());
 
@@ -281,16 +279,16 @@ impl Block {
         let residual = &out;
         let out = self.ln_2.forward(&out)?;
         debug!("After ln_2: {:?}", out.shape());
-        
+
         let out = self.mlp.forward(&out)?;
         debug!("After MLP: {:?}", out.shape());
-        
+
         let out = self.drop.forward(&out)?;
         debug!("After final dropout: {:?}", out.shape());
-        
+
         let final_out = out.add(residual)?;
         debug!("Block output shape: {:?}", final_out.shape());
-        
+
         Ok(final_out)
     }
 
@@ -334,7 +332,7 @@ pub struct CausalSelfAttention {
 impl CausalSelfAttention {
     pub fn new(config: &GPTConfig) -> MlResult<Self> {
         assert!(config.n_embd % config.n_head == 0);
-        
+
         // Pre-compute the causal mask
         let bias = Tensor::ones(&[config.block_size, config.block_size])?
             .tril(0)?
@@ -366,16 +364,44 @@ impl CausalSelfAttention {
         // Split into q, k, v along the last dimension
         let qkv_chunks = qkv.split(self.n_embd, 2)?; // Split into chunks of size n_embd
         let (q, k, v) = (&qkv_chunks[0], &qkv_chunks[1], &qkv_chunks[2]);
-        debug!("After split - Q: {:?}, K: {:?}, V: {:?}", q.shape(), k.shape(), v.shape());
+        debug!(
+            "After split - Q: {:?}, K: {:?}, V: {:?}",
+            q.shape(),
+            k.shape(),
+            v.shape()
+        );
 
         // Reshape and transpose: [B, T, C] -> [B, T, n_head, head_size] -> [B, n_head, T, head_size]
-        let q = q.reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?
+        let q = q
+            .reshape(&[
+                b as isize,
+                t as isize,
+                self.n_head as isize,
+                head_size as isize,
+            ])?
             .transpose(1, 2)?;
-        let k = k.reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?
+        let k = k
+            .reshape(&[
+                b as isize,
+                t as isize,
+                self.n_head as isize,
+                head_size as isize,
+            ])?
             .transpose(1, 2)?;
-        let v = v.reshape(&[b as isize, t as isize, self.n_head as isize, head_size as isize])?
+        let v = v
+            .reshape(&[
+                b as isize,
+                t as isize,
+                self.n_head as isize,
+                head_size as isize,
+            ])?
             .transpose(1, 2)?;
-        debug!("After reshape/transpose - Q: {:?}, K: {:?}, V: {:?}", q.shape(), k.shape(), v.shape());
+        debug!(
+            "After reshape/transpose - Q: {:?}, K: {:?}, V: {:?}",
+            q.shape(),
+            k.shape(),
+            v.shape()
+        );
 
         // Compute attention scores: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         let att = q.matmul(&k.transpose(-2, -1)?)?;
@@ -390,21 +416,22 @@ impl CausalSelfAttention {
             let att = att.masked_fill(&mask.eq_scalar(0.0)?, f32::NEG_INFINITY)?;
             let att = Softmax::new().forward(&att)?;
             let att = self.attn_dropout.forward(&att)?;
-            
+
             // Apply attention to values: (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
             let y = att.matmul(&v)?;
             debug!("After attention application: {:?}", y.shape());
-            
+
             // Reshape back: [B, nh, T, hs] -> [B, T, C]
-            let y = y.transpose(1, 2)?
+            let y = y
+                .transpose(1, 2)?
                 .reshape(&[b as isize, t as isize, c as isize])?;
             debug!("After reshape: {:?}", y.shape());
-            
+
             // Output projection
             let y = self.c_proj.forward(&y)?;
             let y = self.resid_dropout.forward(&y)?;
             debug!("Final output shape: {:?}", y.shape());
-            
+
             Ok(y)
         } else {
             Err("Causal mask not initialized".into())

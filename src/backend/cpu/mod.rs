@@ -6,6 +6,7 @@ use crate::MlResult;
 
 mod compute;
 mod core;
+mod parallel;
 
 pub use compute::CpuCompute;
 pub use core::CpuCore;
@@ -61,8 +62,8 @@ impl Backend for CpuBackend {
         self.core.device_type()
     }
 
-    fn execute_compute(&self, dimensions: [u32; 3]) -> MlResult<()> {
-        self.compute.execute(dimensions)
+    fn calc_device_flops(&self) -> f64 {
+        self.core.calc_device_flops()
     }
 
     // Delegate all operations to compute module

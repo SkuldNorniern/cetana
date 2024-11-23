@@ -78,7 +78,9 @@ impl GenderClassifier {
 
         // Backward pass
         let output_grad = predictions.sub(y)?;
-        let hidden_grad = self.layer2.backward(&hidden_activated, &output_grad, learning_rate)?;
+        let hidden_grad = self
+            .layer2
+            .backward(&hidden_activated, &output_grad, learning_rate)?;
         self.layer1.backward(x, &hidden_grad, learning_rate)?;
 
         Ok(loss)
@@ -143,9 +145,11 @@ impl Layer for GenderClassifier {
     ) -> MlResult<Tensor> {
         let hidden = self.layer1.forward(x)?;
         let activated = self.activation1.forward(&hidden)?;
-        
+
         let output_grad = self.output_act.act_backward(x, grad_output)?;
-        let hidden_grad = self.layer2.backward(&activated, &output_grad, learning_rate)?;
+        let hidden_grad = self
+            .layer2
+            .backward(&activated, &output_grad, learning_rate)?;
         self.layer1.backward(x, &hidden_grad, learning_rate)
     }
 }

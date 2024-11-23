@@ -1,12 +1,7 @@
 #[cfg(feature = "cuda")]
 use std::fs;
 #[cfg(any(feature = "vulkan", feature = "mps", feature = "cuda"))]
-use std::{
-    env,
-    path::PathBuf,
-    process::Command,
-};
-
+use std::{env, path::PathBuf, process::Command};
 
 #[cfg(feature = "cuda")]
 fn find_cuda_path() -> String {
@@ -134,7 +129,12 @@ fn compile_metal_shaders() -> std::io::Result<()> {
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(&out_dir)?;
 
-    let shader_files = ["binary_ops.metal", "operations.metal", "reduction.metal", "matrix_ops.metal"];
+    let shader_files = [
+        "binary_ops.metal",
+        "operations.metal",
+        "reduction.metal",
+        "matrix_ops.metal",
+    ];
 
     for shader in shader_files.iter() {
         let shader_path = shader_dir.join(shader);

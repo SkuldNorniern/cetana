@@ -96,10 +96,14 @@ impl Linear {
 impl Layer for Linear {
     fn forward(&self, input: &Tensor) -> MlResult<Tensor> {
         debug!("Linear forward - Input shape: {:?}", input.shape());
-        
+
         let input_shape = input.shape();
         let batch_size = input_shape[0];
-        let seq_len = if input_shape.len() > 2 { input_shape[1] } else { 1 };
+        let seq_len = if input_shape.len() > 2 {
+            input_shape[1]
+        } else {
+            1
+        };
         let in_features = *input_shape.last().unwrap();
         let out_features = self.weight.shape()[0];
 
@@ -113,7 +117,10 @@ impl Layer for Linear {
         // Compute xW^T
         debug!("Linear forward - Computing xW^T");
         let output = reshaped_input.matmul(&self.weight.transpose(0, 1)?)?;
-        debug!("Linear forward - Output shape after matmul: {:?}", output.shape());
+        debug!(
+            "Linear forward - Output shape after matmul: {:?}",
+            output.shape()
+        );
 
         // Add bias if present
         let output = if let Some(bias) = &self.bias {
@@ -131,8 +138,11 @@ impl Layer for Linear {
         } else {
             output
         };
-        
-        debug!("Linear forward - Final output shape: {:?}", final_output.shape());
+
+        debug!(
+            "Linear forward - Final output shape: {:?}",
+            final_output.shape()
+        );
         Ok(final_output)
     }
 
@@ -235,7 +245,7 @@ mod tests {
     #[test]
     fn test_default() -> MlResult<()> {
         let mut linear = Linear::new(3, 2, true)?;
-        
+
         // Set weights and bias manually for deterministic testing
         let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
         let bias_data = vec![0.1, 0.2];
@@ -247,7 +257,7 @@ mod tests {
 
         let output = linear.forward(&input)?;
         let expected = vec![1.5000001, 3.4, 3.3, 7.8999996];
-        
+
         assert_eq!(output.shape(), &[2, 2]);
         assert_close(output.data(), &expected, 1e-6);
         Ok(())
@@ -258,10 +268,10 @@ mod tests {
         let batch_size = 2;
         let seq_len = 8;
         let hidden_size = 64;
-        let out_features = 3 * hidden_size;  // 192 for Q,K,V
+        let out_features = 3 * hidden_size; // 192 for Q,K,V
 
         let linear = Linear::new(hidden_size, out_features, true)?;
-        
+
         // Use constant input for deterministic testing
         let input_data: Vec<f32> = vec![0.1; batch_size * seq_len * hidden_size];
         let input = Tensor::from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
@@ -279,10 +289,10 @@ mod tests {
         let batch_size = 2;
         let seq_len = 8;
         let hidden_size = 64;
-        let out_features = 4 * hidden_size;  // 256 for MLP expansion
+        let out_features = 4 * hidden_size; // 256 for MLP expansion
 
         let linear = Linear::new(hidden_size, out_features, true)?;
-        
+
         let input_data: Vec<f32> = vec![0.1; batch_size * seq_len * hidden_size];
         let input = Tensor::from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
 
@@ -302,7 +312,7 @@ mod tests {
         let vocab_size = 512;
 
         let linear = Linear::new(hidden_size, vocab_size, true)?;
-        
+
         let input_data: Vec<f32> = vec![0.1; batch_size * seq_len * hidden_size];
         let input = Tensor::from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
 
@@ -317,7 +327,7 @@ mod tests {
     #[test]
     fn test_tiny() -> MlResult<()> {
         let mut linear = Linear::new(2, 3, true)?;
-        
+
         // Set weights and bias manually
         let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
         let bias_data = vec![0.1, 0.2, 0.3];
@@ -329,7 +339,7 @@ mod tests {
 
         let output = linear.forward(&input)?;
         let expected = vec![0.6, 1.3, 2.0, 1.2, 2.7, 4.2];
-        
+
         assert_eq!(output.shape(), &[2, 3]);
         assert_close(output.data(), &expected, 1e-6);
         Ok(())
@@ -338,7 +348,7 @@ mod tests {
     #[test]
     fn test_batch_1d() -> MlResult<()> {
         let mut linear = Linear::new(1, 2, true)?;
-        
+
         // Set weights and bias manually
         let weight_data = vec![0.5, 1.0];
         let bias_data = vec![0.1, 0.2];
@@ -350,7 +360,7 @@ mod tests {
 
         let output = linear.forward(&input)?;
         let expected = vec![0.6, 1.2, 1.1, 2.2, 1.6, 3.2];
-        
+
         assert_eq!(output.shape(), &[3, 2]);
         assert_close(output.data(), &expected, 1e-6);
         Ok(())
@@ -359,7 +369,7 @@ mod tests {
     #[test]
     fn test_single_feature() -> MlResult<()> {
         let mut linear = Linear::new(1, 3, true)?;
-        
+
         // Set weights and bias manually
         let weight_data = vec![0.5, 1.0, 1.5];
         let bias_data = vec![0.1, 0.2, 0.3];
@@ -371,7 +381,7 @@ mod tests {
 
         let output = linear.forward(&input)?;
         let expected = vec![0.6, 1.2, 1.8, 1.1, 2.2, 3.3];
-        
+
         assert_eq!(output.shape(), &[2, 3]);
         assert_close(output.data(), &expected, 1e-6);
         Ok(())

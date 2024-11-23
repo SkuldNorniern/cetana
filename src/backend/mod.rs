@@ -11,6 +11,8 @@ mod cpu;
 mod cuda;
 #[cfg(feature = "mps")]
 mod mps;
+#[cfg(feature = "opencl")]
+mod opencl;
 #[cfg(feature = "vulkan")]
 mod vulkan;
 
@@ -25,10 +27,9 @@ pub use vulkan::{VulkanBackend, VulkanError};
 
 use crate::MlResult;
 
-pub trait Backend: Debug {
-    fn execute_compute(&self, dimensions: [u32; 3]) -> MlResult<()>;
-
+pub trait Backend: Debug + Send + Sync {
     fn device(&self) -> DeviceType;
+    fn calc_device_flops(&self) -> f64;
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
     fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
     fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32>;
