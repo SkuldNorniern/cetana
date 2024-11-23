@@ -1,3 +1,5 @@
+use metal::objc::rc::autoreleasepool;
+
 use super::{MpsCompute, MpsDevice};
 use crate::backend::feature::DeviceFeatures;
 use crate::backend::{Backend, Device, DeviceType};
