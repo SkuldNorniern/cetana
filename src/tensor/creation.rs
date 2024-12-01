@@ -16,7 +16,7 @@ impl Tensor {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => Arc::new(CpuBackend::new()?),
             #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(CpuBackend::new()?),
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
             #[cfg(feature = "vulkan")]
             DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
         };
@@ -58,7 +58,7 @@ impl Tensor {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => Arc::new(CpuBackend::new()?),
             #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(CpuBackend::new()?),
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
             #[cfg(feature = "vulkan")]
             DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
         };
@@ -117,7 +117,7 @@ impl Tensor {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => Arc::new(CpuBackend::new()?),
             #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(CpuBackend::new()?),
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
             #[cfg(feature = "vulkan")]
             DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
         };
@@ -277,7 +277,7 @@ impl Tensor {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => Arc::new(CpuBackend::new()?),
             #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(CpuBackend::new()?),
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
             #[cfg(feature = "vulkan")]
             DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
         };
