@@ -239,13 +239,10 @@ impl Tensor {
         // If no gradient is provided, use a tensor of ones with the same shape
         let grad = match gradient {
             Some(g) => {
-                if g.shape != self.shape {
-                    return Err(MlError::TensorError(TensorError::InvalidShape {
-                        expected: self.shape.clone(),
-                        got: g.shape.clone(),
-                    }));
+                match g.can_op(&self) {
+                    Err(e) => return Err(e),
+                    _ => g.clone()
                 }
-                g.clone()
             }
             None => Tensor::ones(&self.shape)?,
         };
