@@ -9,6 +9,16 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with the result of the element-wise addition
+    pub fn can_op(&self, other: &Tensor) ->  MlResult<()> {
+        if self.shape != other.shape {
+            return Err(MlError::TensorError(TensorError::InvalidShape {
+                expected: self.shape.clone(),
+                got: other.shape.clone(),
+            }));
+        }
+        Ok(())
+    }
+
     pub fn add(&self, other: &Tensor) -> MlResult<Tensor> {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
             let (_batch_size, features) = (self.shape[0], self.shape[1]);
@@ -22,15 +32,10 @@ impl Tensor {
             return Tensor::from_vec(result, &self.shape);
         }
 
-        if self.shape != other.shape {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: self.shape.clone(),
-                got: other.shape.clone(),
-            }));
+        match self.can_op(other) {
+            Err(e) => Err(e),
+            _ => Tensor::from_vec(self.backend.add(&self.data, &other.data), &self.shape)
         }
-
-        let result = self.backend.add(&self.data, &other.data);
-        Tensor::from_vec(result, &self.shape)
     }
 
     /// Adds a scalar to each element in the tensor
@@ -42,7 +47,6 @@ impl Tensor {
     /// A new tensor with each element being tensor_element + scalar
     pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x + scalar).collect();
-
         Tensor::from_vec(data, &self.shape)
     }
 
@@ -66,15 +70,10 @@ impl Tensor {
             return Tensor::from_vec(result, &self.shape);
         }
 
-        if self.shape != other.shape {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: self.shape.clone(),
-                got: other.shape.clone(),
-            }));
+        match self.can_op(other) {
+            Err(e) => Err(e),
+            _ => Tensor::from_vec(self.backend.sub(&self.data, &other.data), &self.shape)
         }
-
-        let result = self.backend.sub(&self.data, &other.data);
-        Tensor::from_vec(result, &self.shape)
     }
 
     /// Subtracts a scalar from each element in the tensor
@@ -109,15 +108,10 @@ impl Tensor {
     /// # Returns
     /// A new tensor with the result of the element-wise multiplication
     pub fn mul(&self, other: &Tensor) -> MlResult<Tensor> {
-        if self.shape != other.shape {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: self.shape.clone(),
-                got: other.shape.clone(),
-            }));
+        match self.can_op(other) {
+            Err(e) => Err(e),
+            _ => Tensor::from_vec(self.backend.multiply(&self.data, &other.data), &self.shape)
         }
-
-        let result = self.backend.multiply(&self.data, &other.data);
-        Tensor::from_vec(result, &self.shape)
     }
 
     /// Multiplies a scalar by each element in the tensor
@@ -140,21 +134,10 @@ impl Tensor {
     /// # Returns
     /// A new tensor with the result of the element-wise division
     pub fn div(&self, other: &Tensor) -> MlResult<Tensor> {
-        if self.shape != other.shape {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: self.shape.clone(),
-                got: other.shape.clone(),
-            }));
+        match self.can_op(other) {
+            Err(e) => Err(e),
+            _ => Tensor::from_vec(self.backend.sub(&self.data, &other.data), &self.shape)
         }
-
-        let result: Vec<f32> = self
-            .data
-            .iter()
-            .zip(other.data.iter())
-            .map(|(&a, &b)| a / b)
-            .collect();
-
-        Tensor::from_vec(result, &self.shape)
     }
 
     /// Divides each element in the tensor by a scalar
@@ -295,21 +278,13 @@ impl Tensor {
         match (a, b) {
             // Case 1: 1D * 1D (dot product)
             (1, 1) => {
-                if self.shape[0] != other.shape[0] {
-                    return Err(MlError::TensorError(
-                        TensorError::MatrixMultiplicationError {
-                            left_shape: self.shape.clone(),
-                            right_shape: other.shape.clone(),
-                        },
-                    ));
+                match self.can_op(other) {
+                    Err(e) => Err(e),
+                    _ => Tensor::from_vec(
+                        vec![self.data.iter().zip(other.data.iter()).map(|(&a, &b)| a * b).sum::<f32>()],
+                        &[]
+                    )
                 }
-                let sum = self
-                    .data
-                    .iter()
-                    .zip(other.data.iter())
-                    .map(|(&a, &b)| a * b)
-                    .sum::<f32>();
-                Tensor::from_vec(vec![sum], &[])
             }
 
             // Case 2: 2D * 1D or 1D * 2D
