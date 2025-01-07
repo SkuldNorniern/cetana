@@ -1,3 +1,4 @@
+use std::ops::{Add, Mul, Sub};
 use super::*;
 use log::debug;
 
@@ -840,5 +841,175 @@ mod tests {
         ];
         assert_eq!(c.data(), &expected);
         Ok(())
+    }
+}
+
+/// Add trait implementation for owned tensors
+///
+/// # Arguments
+/// * `_other` - The tensor to add to self
+///
+/// # Returns
+/// A new tensor containing the element-wise sum
+///
+/// # Broadcasting
+/// * Supports broadcasting when adding a 1D tensor to each row of a 2D tensor
+/// * Example: `[batch_size, features] + [features]` -> `[batch_size, features]`
+///
+/// # Panics
+/// if tensor shapes don't match and cannot be broadcast
+impl Add for Tensor {
+    type Output = Tensor;
+
+    fn add(self, _other: Self) -> Self::Output {
+        Tensor::add(&self, &_other).unwrap()
+    }
+}
+
+/// Subtract trait implementation for owned tensors
+///
+/// # Arguments
+/// * `_other` - The tensor to subtract from self
+///
+/// # Returns
+/// A new tensor containing the element-wise difference
+///
+/// # Broadcasting
+/// * Supports broadcasting when subtracting a 1D tensor from each row of a 2D tensor
+/// * Example: `[batch_size, features] - [features]` -> `[batch_size, features]`
+///
+/// # Panics
+/// if tensor shapes don't match and cannot be broadcast
+impl Sub for Tensor {
+    type Output = Tensor;
+
+    fn sub(self, _other: Self) -> Self::Output {
+        Tensor::sub(&self, &_other).unwrap()
+    }
+}
+
+/// Multiply trait implementation for owned tensors
+///
+/// # Arguments
+/// * `_other` - The tensor to multiply with self
+///
+/// # Returns
+/// A new tensor containing the element-wise product (Hadamard product)
+///
+/// # Note
+/// * This performs element-wise multiplication, not matrix multiplication
+/// * For matrix multiplication, use `matmul()` instead
+///
+/// # Panics
+/// if tensor shapes don't match
+impl Mul for Tensor {
+    type Output = Tensor;
+
+    fn mul(self, _other: Self) -> Self::Output {
+        Tensor::mul(&self, &_other).unwrap()
+    }
+}
+
+/// Divide trait implementation for owned tensors
+///
+/// # Arguments
+/// * `_other` - The tensor to divide self by
+///
+/// # Returns
+/// A new tensor containing the element-wise quotient
+///
+/// # Panics
+/// * Panics if tensor shapes don't match
+/// * Panics if any element in `_other` is zero
+impl Div for Tensor {
+    type Output = Tensor;
+
+    fn div(self, _other: Self) -> Self::Output {
+        Tensor::div(&self, &_other).unwrap()
+    }
+}
+
+/// Add trait implementation for tensor references
+///
+/// # Arguments
+/// * `_other` - Reference to the tensor to add to self
+///
+/// # Returns
+/// A new tensor containing the element-wise sum
+///
+/// # Broadcasting
+/// * Supports broadcasting when adding a 1D tensor to each row of a 2D tensor
+/// * Example: `&[batch_size, features] + &[features]` -> `[batch_size, features]`
+///
+/// # Panics
+/// if tensor shapes don't match and cannot be broadcast
+impl Add for &Tensor {
+    type Output = Tensor;
+
+    fn add(self, _other: &Tensor) -> Self::Output {
+        Tensor::add(self, _other).unwrap()
+    }
+}
+
+/// Subtract trait implementation for tensor references
+///
+/// # Arguments
+/// * `_other` - Reference to the tensor to subtract from self
+///
+/// # Returns
+/// A new tensor containing the element-wise difference
+///
+/// # Broadcasting
+/// * Supports broadcasting when subtracting a 1D tensor from each row of a 2D tensor
+/// * Example: `&[batch_size, features] - &[features]` -> `[batch_size, features]`
+///
+/// # Panics
+/// if tensor shapes don't match and cannot be broadcast
+impl Sub for &Tensor {
+    type Output = Tensor;
+
+    fn sub(self, _other: &Tensor) -> Self::Output {
+        Tensor::sub(self, _other).unwrap()
+    }
+}
+
+/// Multiply trait implementation for tensor references
+///
+/// # Arguments
+/// * `_other` - Reference to the tensor to multiply with self
+///
+/// # Returns
+/// A new tensor containing the element-wise product
+///
+/// # Note
+/// * This performs element-wise multiplication, not matrix multiplication
+/// * For matrix multiplication, use `matmul()` instead
+///
+/// # Panics
+/// if tensor shapes don't match
+impl Mul for &Tensor {
+    type Output = Tensor;
+
+    fn mul(self, _other: &Tensor) -> Self::Output {
+        Tensor::mul(self, _other).unwrap()
+    }
+}
+
+/// Divide trait implementation for tensor references
+///
+/// # Arguments
+/// * `_other` - Reference to the tensor to divide self by
+///
+/// # Returns
+/// A new tensor containing the element-wise quotient
+///
+/// # Panics
+/// * Panics if tensor shapes don't match
+/// * Panics if any element in `_other` is zero
+impl Div for &Tensor {
+    type Output = Tensor;
+
+    fn div(self, _other: &Tensor) -> Self::Output {
+        Tensor::div(self, _other).unwrap()
     }
 }
