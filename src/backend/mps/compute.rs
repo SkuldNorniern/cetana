@@ -4,23 +4,56 @@ use crate::backend::{
 };
 
 use super::{core::MpsDevice, MpsError};
-use metal::{Buffer, CommandQueue, MTLResourceOptions, MTLSize, NSUInteger};
-use std::sync::Arc;
+use metal::{
+    Buffer, CommandQueue, ComputePipelineState, Function, Library, MTLResourceOptions, MTLSize,
+    NSUInteger,
+};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 #[derive(Debug)]
 pub struct MpsCompute {
     device: Arc<MpsDevice>,
     command_queue: CommandQueue,
+    kernel_map: HashMap<Box<str>, Function>,
 }
 
 impl MpsCompute {
     pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::backend::MpsError> {
         let command_queue = device.device().new_command_queue();
+        let library = device
+            .device()
+            .new_library_with_file(Path::new("../../../shaders/metal/shaders.metallib"))
+            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let mut kernel_map = HashMap::new();
+
+        // Load all the functions from the library
+        for function_name in library.function_names() {
+            let function = library
+                .get_function(function_name.as_str(), None)
+                .map_err(|_| MpsError::ShaderCompilationError)?;
+            kernel_map.insert(function.name().into(), function.to_owned());
+        }
 
         Ok(Self {
             device,
             command_queue,
+            kernel_map,
         })
+    }
+
+    fn create_pipeline(&self, function_name: &str) -> Result<ComputePipelineState, MpsError> {
+        let kernel = self
+            .kernel_map
+            .get(function_name)
+            .ok_or(MpsError::MissingFunctionError)?;
+
+        let pipeline = self
+            .device
+            .device()
+            .new_compute_pipeline_state_with_function(kernel)
+            .map_err(|_| MpsError::ComputeError)?;
+
+        Ok(pipeline)
     }
 
     pub fn create_buffer<T: Copy>(&self, data: &[T]) -> Result<Buffer, MpsError> {
@@ -32,25 +65,6 @@ impl MpsCompute {
 
         Ok(buffer)
     }
-
-    // pub fn dispatch_compute(
-    //     &self,
-    //     pipeline: &ComputePipelineState,
-    //     grid_size: MTLSize,
-    //     thread_group_size: MTLSize,
-    // ) -> Result<(), crate::backend::MpsError> {
-    //     let command_buffer = self.command_queue.new_command_buffer();
-    //     let compute_encoder = command_buffer.new_compute_command_encoder();
-
-    //     compute_encoder.set_compute_pipeline_state(pipeline);
-    //     compute_encoder.dispatch_thread_groups(grid_size, thread_group_size);
-    //     compute_encoder.end_encoding();
-
-    //     command_buffer.commit();
-    //     command_buffer.wait_until_completed();
-
-    //     Ok(())
-    // }
 
     pub fn matmul(
         &self,
@@ -75,24 +89,7 @@ impl MpsCompute {
         let n_buffer = self.create_buffer(&[n as u32])?;
         let k_buffer = self.create_buffer(&[k as u32])?;
 
-        let library = self
-            .device
-            .device()
-            .new_library_with_source(
-                include_str!("../../../shaders/metal/matrix_ops.metal"),
-                &metal::CompileOptions::new(),
-            )
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let kernel = library
-            .get_function("matrix_multiply", None)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let pipeline = self
-            .device
-            .device()
-            .new_compute_pipeline_state_with_function(&kernel)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.create_pipeline("matrix_multiply")?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
@@ -134,25 +131,7 @@ impl MpsCompute {
             MTLResourceOptions::StorageModeShared,
         );
 
-        // Create and compile the addition kernel
-        let library = self
-            .device
-            .device()
-            .new_library_with_source(
-                include_str!("../../../shaders/metal/binary_ops.metal"),
-                &metal::CompileOptions::new(),
-            )
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let kernel = library
-            .get_function("vector_add", None)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let pipeline = self
-            .device
-            .device()
-            .new_compute_pipeline_state_with_function(&kernel)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.create_pipeline("vector_add")?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
@@ -191,25 +170,7 @@ impl MpsCompute {
             MTLResourceOptions::StorageModeShared,
         );
 
-        // Create and compile the addition kernel
-        let library = self
-            .device
-            .device()
-            .new_library_with_source(
-                include_str!("../../../shaders/metal/binary_ops.metal"),
-                &metal::CompileOptions::new(),
-            )
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let kernel = library
-            .get_function("vector_sub", None)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let pipeline = self
-            .device
-            .device()
-            .new_compute_pipeline_state_with_function(&kernel)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.create_pipeline("vector_sub")?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
@@ -248,24 +209,7 @@ impl MpsCompute {
             MTLResourceOptions::StorageModeShared,
         );
 
-        let library = self
-            .device
-            .device()
-            .new_library_with_source(
-                include_str!("../../../shaders/metal/binary_ops.metal"),
-                &metal::CompileOptions::new(),
-            )
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let kernel = library
-            .get_function("vector_mul", None)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let pipeline = self
-            .device
-            .device()
-            .new_compute_pipeline_state_with_function(&kernel)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.create_pipeline("vector_mul")?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
@@ -304,25 +248,7 @@ impl MpsCompute {
             MTLResourceOptions::StorageModeShared,
         );
 
-        // Create and compile the addition kernel
-        let library = self
-            .device
-            .device()
-            .new_library_with_source(
-                include_str!("../../../shaders/metal/binary_ops.metal"),
-                &metal::CompileOptions::new(),
-            )
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let kernel = library
-            .get_function("vector_log", None)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let pipeline = self
-            .device
-            .device()
-            .new_compute_pipeline_state_with_function(&kernel)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.create_pipeline("vector_log")?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();
@@ -379,23 +305,7 @@ impl MpsCompute {
             MTLResourceOptions::StorageModeShared,
         );
 
-        let library = self
-            .device
-            .device()
-            .new_library_with_source(
-                include_str!("../../../shaders/metal/binary_ops.metal"),
-                &metal::CompileOptions::new(),
-            )
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-
-        let kernel = library
-            .get_function("vector_sum", None)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
-        let pipeline = self
-            .device
-            .device()
-            .new_compute_pipeline_state_with_function(&kernel)
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+        let pipeline = self.create_pipeline("vector_sum")?;
 
         let command_buffer = self.command_queue.new_command_buffer();
         let compute_encoder = command_buffer.new_compute_command_encoder();

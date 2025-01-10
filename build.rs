@@ -119,7 +119,8 @@ fn compile_vulkan_shaders() -> std::io::Result<()> {
 
 #[cfg(all(feature = "mps", target_os = "macos"))]
 fn compile_metal_shaders() -> std::io::Result<()> {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    // let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_dir = PathBuf::from("shaders/metal");
     let shader_dir = PathBuf::from("shaders/metal");
 
     if !shader_dir.exists() {
@@ -129,20 +130,27 @@ fn compile_metal_shaders() -> std::io::Result<()> {
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(&out_dir)?;
 
-    let shader_files = [
-        "binary_ops.metal",
-        "operations.metal",
-        "reduction.metal",
-        "matrix_ops.metal",
-    ];
+    // Get .metal extension files in the shaders directory
+    let mut shader_files: Vec<Box<str>> = Vec::new();
 
+    shader_dir.read_dir().unwrap().for_each(|entry| {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext == "metal" {
+                    shader_files.push(path.file_name().unwrap().to_string_lossy().into());
+                }
+            }
+        }
+    });
+
+    // Build .air files
     for shader in shader_files.iter() {
-        let shader_path = shader_dir.join(shader);
+        let shader_path = shader_dir.join(shader.as_ref());
         if !shader_path.exists() {
             continue; // Skip if shader file doesn't exist
         }
-
-        println!("cargo:rerun-if-changed=shaders/metal/{}", shader);
 
         // Compile .metal to .air
         let status = Command::new("xcrun")
@@ -191,14 +199,19 @@ fn compile_metal_shaders() -> std::io::Result<()> {
         .args(&air_files)
         .status()?;
 
-    if !status.success() {
-        return Err(std::io::Error::new(
+    if status.success() {
+        // Delete .air files
+        for air_file in air_files.iter() {
+            std::fs::remove_file(air_file)?;
+        }
+
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
             std::io::ErrorKind::Other,
             "Failed to create metallib",
-        ));
+        ))
     }
-
-    Ok(())
 }
 
 fn main() {
@@ -214,13 +227,13 @@ fn main() {
         if !clangd_path.exists() {
             let clangd_content = format!(
                 r#"CompileFlags:
-                Remove: 
+                Remove:
                 - "-forward-unknown-to-host-compiler"
                 - "-rdc=*"
                 - "-Xcompiler*"
                 - "--options-file"
                 - "--generate-code*"
-                Add: 
+                Add:
                 - "-xcuda"
                 - "-std=c++14"
                 - "-I{}/include"

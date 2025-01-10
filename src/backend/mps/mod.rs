@@ -16,6 +16,7 @@ pub enum MpsError {
     BufferCreationError,
     ComputeError,
     InvalidDimensions,
+    MissingFunctionError,
     Other(String),
 }
 
@@ -28,6 +29,7 @@ impl fmt::Display for MpsError {
             MpsError::BufferCreationError => write!(f, "Buffer creation error"),
             MpsError::ComputeError => write!(f, "Compute error"),
             MpsError::InvalidDimensions => write!(f, "Invalid dimensions"),
+            MpsError::MissingFunctionError => write!(f, "Missing function error"),
             MpsError::Other(msg) => write!(f, "{}", msg),
         }
     }
