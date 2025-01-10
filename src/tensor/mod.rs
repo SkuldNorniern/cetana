@@ -389,6 +389,12 @@ impl DefaultLayer for Tensor {
 mod tests {
     use super::*;
 
+    pub fn assert_tensor_eq(tensor: Tensor, expected_tensor: Tensor, ) -> MlResult<()> {
+        assert_eq!(tensor.data(), expected_tensor.data());
+        assert_eq!(tensor.shape(), expected_tensor.shape());
+        Ok(())
+    }
+
     #[test]
     fn test_tensor_creation() -> MlResult<()> {
         let tensor = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?;
@@ -417,6 +423,35 @@ mod tests {
         assert_eq!(e.data(), &[1.0, 3.0, 2.0, 4.0, 5.0, 7.0, 6.0, 8.0]);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_add_symbol() -> MlResult<()> {
+        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
+        let t2 = Tensor::new(vec![vec![3.0, 4.0]])?;
+        let et = Tensor::new(vec![vec![4.0, 6.0]])?;
+        assert_tensor_eq(t1 + t2, et)
+    }
+    #[test]
+    fn test_sub_symbol() -> MlResult<()> {
+        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
+        let t2 = Tensor::new(vec![vec![3.0, 4.0]])?;
+        let et = Tensor::new(vec![vec![-2.0, -2.0]])?;
+        assert_tensor_eq(t1 - t2, et)
+    }
+    #[test]
+    fn test_mul_symbol() -> MlResult<()> {
+        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
+        let t2 = Tensor::new(vec![vec![3.0, 4.0]])?;
+        let et = Tensor::new(vec![vec![3.0, 8.0]])?;
+        assert_tensor_eq(t1 * t2, et)
+    }
+    #[test]
+    fn test_div_symbol() -> MlResult<()> {
+        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
+        let t2 = Tensor::new(vec![vec![2.0, 4.0]])?;
+        let et = Tensor::new(vec![vec![0.5, 0.5]])?;
+        assert_tensor_eq(t1 / t2, et)
     }
 
     #[test]
