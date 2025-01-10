@@ -1,4 +1,5 @@
 use crate::{nn::Activation, nn::Layer, tensor::Tensor, MlResult};
+use crate::tensor::{DefaultLayer, OpsLayer};
 
 /// Hyperbolic tangent activation function module.
 ///

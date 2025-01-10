@@ -1,4 +1,4 @@
-use crate::tensor::Tensor;
+use crate::tensor::{DefaultLayer, OpsLayer, Tensor};
 use crate::MlResult;
 use aporia::{backend::Xoshiro256StarStar, Rng};
 

@@ -25,8 +25,6 @@ pub use mps::{MpsBackend, MpsError};
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
 
-use crate::MlResult;
-
 pub trait Backend: Debug + Send + Sync {
     fn device(&self) -> DeviceType;
     fn calc_device_flops(&self) -> f64;

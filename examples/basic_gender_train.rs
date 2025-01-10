@@ -11,7 +11,11 @@ use cetana::{
         Activation, Layer, Linear,
     },
     serialize::{Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents},
-    tensor::Tensor,
+    tensor::{
+        Tensor,
+        OpsLayer,
+        DefaultLayer
+    },
     MlError, MlResult,
 };
 use csv::ReaderBuilder;

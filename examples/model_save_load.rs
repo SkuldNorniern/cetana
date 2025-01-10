@@ -2,7 +2,7 @@ use cetana::nn::{Layer, Linear};
 use cetana::serialize::{
     Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents,
 };
-use cetana::tensor::Tensor;
+use cetana::tensor::{DefaultLayer, Tensor};
 use cetana::{MlError, MlResult};
 
 // Define a simple neural network

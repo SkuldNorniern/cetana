@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::tensor::Tensor;
+use crate::tensor::{DefaultLayer, Tensor};
 
 // Implement fmt Display
 impl Display for Tensor {

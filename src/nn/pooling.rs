@@ -1,4 +1,5 @@
 use crate::{nn::Layer, tensor::Tensor, MlResult};
+use crate::tensor::DefaultLayer;
 
 /// Represents different types of pooling operations
 #[derive(Clone, Copy)]

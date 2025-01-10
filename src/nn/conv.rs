@@ -1,4 +1,5 @@
 use crate::{nn::Layer, tensor::Tensor, MlResult};
+use crate::{tensor::DefaultLayer, tensor::OpsLayer};
 
 /// Represents different padding modes for the convolutional layer
 #[derive(Clone, Copy)]

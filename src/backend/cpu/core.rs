@@ -1,6 +1,5 @@
 use crate::backend::{DeviceFeatures, DeviceType};
-use crate::tensor::Tensor;
-use crate::MlResult;
+use crate::tensor::{DefaultLayer, OpsLayer, Tensor};
 
 #[derive(Debug)]
 pub struct CpuCore;
