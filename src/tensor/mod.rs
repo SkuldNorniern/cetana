@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::ops::{Div, Range};
+use std::ops::Range;
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,7 +33,7 @@ use crate::backend::MpsBackend;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
 
-use aporia::{backend::XorShift, RandomBackend, Rng};
+use aporia::{backend::XorShift, RandomBackend};
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -61,6 +61,58 @@ pub enum TensorError {
     InvalidBackend {
         backend: DeviceType,
     },
+}
+
+pub trait DefaultLayer {
+    fn new(data: Vec<Vec<f32>>)                         -> MlResult<Self> where Self: Sized;
+    fn from_vec(data: Vec<f32>, shape: &[usize])        -> MlResult<Self> where Self: Sized;
+    fn shape(&self)                                     -> &[usize];
+    fn data(&self)                                      -> &[f32];
+    fn get(&self, indices: &[usize])                    -> Option<&f32>;
+    fn index(&self, indices: &[usize])                  -> Option<usize>;
+    fn backend(&self)                                   -> &Arc<dyn Backend>;
+    fn backward(&mut self, gradient: Option<&Tensor>)   -> MlResult<()>;
+    fn set_grad_fn<F>(&mut self, grad_fn: F)
+    where
+        F: Fn(&Tensor)                                  -> MlResult<()> + 'static;
+    fn grad(&self)                                      -> Option<&Tensor>;
+    fn requires_grad(&mut self, requires_grad: bool);
+}
+
+pub trait OpsLayer<T: DefaultLayer>{
+    type Output;
+
+    fn can_op(&self, other: &T) -> MlResult<()>;
+
+    // 사칙연산
+    fn add(&self, other: &T)                -> Self::Output;
+    fn sub(&self, other: &T)                -> Self::Output;
+    fn mul(&self, other: &T)                -> Self::Output;
+    fn div(&self, other: &T)                -> Self::Output;
+
+    // 텐서 & 스칼라 연산
+    fn add_scalar(&self, scalar: f32)       -> Self::Output;
+    fn sub_scalar(&self, scalar: f32)       -> Self::Output;
+    fn mul_scalar(&self, scalar: f32)       -> Self::Output;
+    fn div_scalar(&self, scalar: f32)       -> Self::Output;
+
+    // 스칼라 & 텐서 연산
+    fn scalar_sub(&self, scalar: f32)       -> Self::Output;
+    fn scalar_div(&self, scalar: f32)       -> Self::Output;
+
+    fn neg(&self)                           -> Self::Output;
+    fn exp(&self)                           -> Self::Output;
+    fn pow(&self, power: f32)               -> Self::Output;
+    fn pow_scalar(&self, exponent: f32)     -> Self::Output;
+    fn scalar_pow(&self, scalar: f32)       -> Self::Output;
+    fn sqrt(&self)                          -> Self::Output;
+    fn square(&self)                        -> Self::Output;
+    fn log(&self)                           -> Self::Output;
+    fn matmul(&self, other: &T)             -> Self::Output;
+    fn eq_scalar(&self, scalar: f32)        -> Self::Output;
+    fn abs(&self)                           -> Self::Output;
+    fn topk(&self, k: usize, sorted: bool)              -> MlResult<(T, T)>;
+    fn matmax(&self, dim: Option<i32>, keepdim: bool)   -> MlResult<(Tensor, Option<Tensor>)>;
 }
 
 impl std::error::Error for TensorError {}
@@ -143,8 +195,8 @@ impl Ord for Tensor {
     }
 }
 
-impl Tensor {
-    pub fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
+impl DefaultLayer for Tensor {
+    fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
         let shape = vec![data.len(), data[0].len()];
         let flat_data: Vec<f32> = data.into_iter().flatten().collect();
 
@@ -213,12 +265,61 @@ impl Tensor {
         })
     }
 
-    pub fn shape(&self) -> &[usize] {
+    fn from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
+        let expected_len: usize = shape.iter().product();
+        if data.len() != expected_len {
+            return Err(MlError::TensorError(TensorError::InvalidDataLength {
+                expected: expected_len,
+                got: data.len(),
+            }));
+        }
+
+        let device_type = DeviceManager::get_default_device();
+        let backend: Arc<dyn Backend> = match device_type {
+            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "cuda")]
+            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "mps")]
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
+            #[cfg(feature = "vulkan")]
+            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
+        };
+
+        Ok(Self {
+            data,
+            shape: shape.to_vec(),
+            backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
+        })
+    }
+
+    fn shape(&self) -> &[usize] {
         &self.shape
     }
 
-    pub fn data(&self) -> &[f32] {
+    fn data(&self) -> &[f32] {
         &self.data
+    }
+
+    fn get(&self, indices: &[usize]) -> Option<&f32> {
+        self.data.get(self.index(indices)?)
+    }
+    fn index(&self, indices: &[usize]) -> Option<usize> {
+        if indices.len() != self.shape.len() {
+            return None;
+        }
+        Some(
+            indices
+                .iter()
+                .zip(&self.shape)
+                .fold(0, |acc, (&i, &dim)| acc * dim + i),
+        )
+    }
+
+    fn backend(&self) -> &Arc<dyn Backend> {
+        &self.backend
     }
 
     /// Computes the gradients of current tensor w.r.t. graph leaves.
@@ -228,7 +329,7 @@ impl Tensor {
     ///
     /// # Returns
     /// Result indicating success or containing an error
-    pub fn backward(&mut self, gradient: Option<&Tensor>) -> MlResult<()> {
+    fn backward(&mut self, gradient: Option<&Tensor>) -> MlResult<()> {
         if !self.requires_grad {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "backward",
@@ -265,13 +366,8 @@ impl Tensor {
         Ok(())
     }
 
-    /// Enables gradient computation for the tensor
-    pub fn requires_grad(&mut self, requires_grad: bool) {
-        self.requires_grad = requires_grad;
-    }
-
     /// Sets the gradient function for the tensor
-    pub fn set_grad_fn<F>(&mut self, grad_fn: F)
+    fn set_grad_fn<F>(&mut self, grad_fn: F)
     where
         F: Fn(&Tensor) -> MlResult<()> + 'static,
     {
@@ -279,8 +375,13 @@ impl Tensor {
     }
 
     /// Returns the gradient of the tensor
-    pub fn grad(&self) -> Option<&Tensor> {
+    fn grad(&self) -> Option<&Tensor> {
         self.grad.as_ref().map(|g| g.as_ref())
+    }
+
+    /// Enables gradient computation for the tensor
+    fn requires_grad(&mut self, requires_grad: bool) {
+        self.requires_grad = requires_grad;
     }
 }
 
@@ -521,7 +622,7 @@ mod tests {
         let std_dev = (t.data().iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 10000.0).sqrt();
 
         // Check if mean is close to 0 and std_dev is close to 1
-        assert!((mean.abs() < 0.1), "Mean should be close to 0");
+        assert!(mean.abs() < 0.1, "Mean should be close to 0");
         assert!((std_dev - 1.0).abs() < 0.1, "Std dev should be close to 1");
 
         Ok(())

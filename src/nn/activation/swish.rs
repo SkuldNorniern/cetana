@@ -1,5 +1,6 @@
 use super::Sigmoid;
 use crate::{nn::Activation, nn::Layer, tensor::Tensor, MlResult};
+use crate::tensor::{DefaultLayer, OpsLayer};
 
 /// Swish activation function module.
 ///
