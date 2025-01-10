@@ -854,10 +854,6 @@ mod tests {
 ///
 /// # Broadcasting
 /// * Supports broadcasting when adding a 1D tensor to each row of a 2D tensor
-/// * Example: `[batch_size, features] + [features]` -> `[batch_size, features]`
-///
-/// # Panics
-/// if tensor shapes don't match and cannot be broadcast
 impl Add for Tensor {
     type Output = Tensor;
 
@@ -876,10 +872,6 @@ impl Add for Tensor {
 ///
 /// # Broadcasting
 /// * Supports broadcasting when subtracting a 1D tensor from each row of a 2D tensor
-/// * Example: `[batch_size, features] - [features]` -> `[batch_size, features]`
-///
-/// # Panics
-/// if tensor shapes don't match and cannot be broadcast
 impl Sub for Tensor {
     type Output = Tensor;
 
@@ -899,9 +891,6 @@ impl Sub for Tensor {
 /// # Note
 /// * This performs element-wise multiplication, not matrix multiplication
 /// * For matrix multiplication, use `matmul()` instead
-///
-/// # Panics
-/// if tensor shapes don't match
 impl Mul for Tensor {
     type Output = Tensor;
 
@@ -917,10 +906,6 @@ impl Mul for Tensor {
 ///
 /// # Returns
 /// A new tensor containing the element-wise quotient
-///
-/// # Panics
-/// * Panics if tensor shapes don't match
-/// * Panics if any element in `_other` is zero
 impl Div for Tensor {
     type Output = Tensor;
 
@@ -939,10 +924,6 @@ impl Div for Tensor {
 ///
 /// # Broadcasting
 /// * Supports broadcasting when adding a 1D tensor to each row of a 2D tensor
-/// * Example: `&[batch_size, features] + &[features]` -> `[batch_size, features]`
-///
-/// # Panics
-/// if tensor shapes don't match and cannot be broadcast
 impl Add for &Tensor {
     type Output = Tensor;
 
@@ -961,10 +942,6 @@ impl Add for &Tensor {
 ///
 /// # Broadcasting
 /// * Supports broadcasting when subtracting a 1D tensor from each row of a 2D tensor
-/// * Example: `&[batch_size, features] - &[features]` -> `[batch_size, features]`
-///
-/// # Panics
-/// if tensor shapes don't match and cannot be broadcast
 impl Sub for &Tensor {
     type Output = Tensor;
 
@@ -984,9 +961,6 @@ impl Sub for &Tensor {
 /// # Note
 /// * This performs element-wise multiplication, not matrix multiplication
 /// * For matrix multiplication, use `matmul()` instead
-///
-/// # Panics
-/// if tensor shapes don't match
 impl Mul for &Tensor {
     type Output = Tensor;
 
@@ -1002,10 +976,6 @@ impl Mul for &Tensor {
 ///
 /// # Returns
 /// A new tensor containing the element-wise quotient
-///
-/// # Panics
-/// * Panics if tensor shapes don't match
-/// * Panics if any element in `_other` is zero
 impl Div for &Tensor {
     type Output = Tensor;
 
