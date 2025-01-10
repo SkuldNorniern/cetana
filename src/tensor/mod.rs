@@ -323,7 +323,10 @@ mod tests {
         let a = Tensor::new(vec![vec![1.0, 2.0]])?;
         let b = Tensor::new(vec![vec![3.0, 4.0]])?;
         let c = a.add(&b)?;
+        let d = a + b;
         assert_eq!(c.data(), &[4.0, 6.0]);
+
+        assert_eq!(d.data(), &[4.0, 6.0]);
         Ok(())
     }
 
@@ -332,8 +335,12 @@ mod tests {
         let a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?; // shape: [2, 2]
         let b = Tensor::from_vec(vec![10.0, 20.0], &[2])?; // shape: [2]
         let c = a.add(&b)?;
+        let d = a + b;
         assert_eq!(c.shape(), &[2, 2]);
         assert_eq!(c.data(), &[11.0, 22.0, 13.0, 24.0]);
+
+        assert_eq!(d.shape(), &[2, 2]);
+        assert_eq!(d.data(), &[11.0, 22.0, 13.0, 24.0]);
         Ok(())
     }
 
