@@ -4,7 +4,11 @@ use cetana::{
     nn::embedding::Embedding,
     nn::{activation::Softmax, Dropout, Layer, LayerNorm, Linear, Swish},
     optimizer::Optimizer,
-    tensor::Tensor,
+    tensor::{
+        Tensor,
+        DefaultLayer,
+        OpsLayer
+    },
     MlResult,
 };
 use log::{debug, info, trace};
@@ -98,7 +102,7 @@ impl GPT {
         );
 
         // Calculate max logits for numerical stability
-        let max_logits = logits_2d.mat_max(Some(1), true)?.0;
+        let max_logits = logits_2d.matmax(Some(1), true)?.0;
         let mut shifted_logits = logits_2d.sub(&max_logits.expand(&logits_2d.shape())?)?;
 
         // Calculate loss

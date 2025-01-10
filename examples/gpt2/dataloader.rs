@@ -4,6 +4,7 @@ use rand::thread_rng;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+use cetana::tensor::DefaultLayer;
 
 pub struct DataLoader {
     data: Vec<Vec<usize>>,
