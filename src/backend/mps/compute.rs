@@ -22,7 +22,7 @@ impl MpsCompute {
         let command_queue = device.device().new_command_queue();
         let library = device
             .device()
-            .new_library_with_file(Path::new("../../../shaders/metal/shaders.metal"))
+            .new_library_with_file(Path::new("../../../shaders/metal/shaders.metallib"))
             .map_err(|_| MpsError::ShaderCompilationError)?;
         let mut kernel_map = HashMap::new();
 
