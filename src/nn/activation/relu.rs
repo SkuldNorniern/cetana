@@ -1,4 +1,5 @@
 use crate::{nn::Activation, tensor::Tensor, MlResult};
+use crate::{tensor::DefaultLayer, tensor::OpsLayer};
 
 /// Rectified Linear Unit (ReLU) activation function module.
 ///

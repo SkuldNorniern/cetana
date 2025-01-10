@@ -1,5 +1,4 @@
 use super::parallel::ParallelExecutor;
-use crate::MlResult;
 
 const PARALLEL_THRESHOLD: usize = 1024;
 

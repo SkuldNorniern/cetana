@@ -135,7 +135,7 @@ pub trait Model: Layer + Serialize + Deserialize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tensor::Tensor;
+    use crate::tensor::{DefaultLayer, Tensor};
 
     #[test]
     fn test_tensor_serialization() {

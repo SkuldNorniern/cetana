@@ -1,4 +1,5 @@
 use crate::{nn::Activation, tensor::Tensor, MlResult};
+use crate::tensor::DefaultLayer;
 
 pub struct Softmax {
     dim: Option<i32>,
