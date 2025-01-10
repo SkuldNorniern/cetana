@@ -1,5 +1,3 @@
-use std::os::unix::fs::OpenOptionsExt;
-
 use super::config::GPTConfig;
 use cetana::{
     loss::calculate_cross_entropy_loss,
