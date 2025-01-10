@@ -4,7 +4,11 @@ use cetana::{
         activation::{ReLU, Sigmoid},
         Layer, Linear,
     },
-    tensor::Tensor,
+    tensor::{
+        Tensor,
+        OpsLayer,
+        DefaultLayer
+    },
     MlResult,
 };
 use std::time::Instant;
