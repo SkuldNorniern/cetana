@@ -1,5 +1,4 @@
 use crate::{nn::Activation, nn::Sigmoid, tensor::Tensor, MlResult};
-use crate::tensor::{DefaultLayer, OpsLayer};
 
 /// Sigmoid Linear Unit(Silu) activation function module.
 ///

@@ -1,5 +1,5 @@
 use crate::nn::Layer;
-use crate::tensor::{DefaultLayer, Tensor};
+use crate::tensor::Tensor;
 use crate::MlError;
 use crate::MlResult;
 use crate::TensorError;

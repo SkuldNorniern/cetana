@@ -5,7 +5,6 @@ use crate::{nn::Layer, tensor::Tensor, MlResult};
 
 use aporia::{backend::Xoshiro256StarStar, Rng};
 use log::{debug, trace};
-use crate::tensor::{DefaultLayer, OpsLayer};
 
 /// A fully connected (linear/dense) neural network layer.
 ///

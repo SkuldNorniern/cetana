@@ -1,7 +1,6 @@
 use crate::{tensor::Tensor, MlError, MlResult, TensorError};
 use aporia::{backend::Xoshiro256StarStar, Rng};
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::tensor::DefaultLayer;
 
 impl Tensor {
     /// Draws samples from a multinomial probability distribution.

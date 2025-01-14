@@ -8,7 +8,6 @@ use config::GPTConfig;
 use dataloader::DataLoader;
 use model::GPT;
 use std::time::Instant;
-use cetana::tensor::DefaultLayer;
 
 fn create_position_ids(seq_length: usize) -> MlResult<Tensor> {
     let positions: Vec<f32> = (0..seq_length).map(|x| x as f32).collect();

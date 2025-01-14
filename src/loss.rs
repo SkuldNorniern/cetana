@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 use crate::{tensor::Tensor, MlResult};
 
 use log::{debug, trace};
-use crate::tensor::{DefaultLayer, OpsLayer};
 
 #[derive(Debug, Clone)]
 pub enum LossError {
@@ -82,7 +81,7 @@ pub fn calculate_cross_entropy_loss(logits: &Tensor, targets: &Tensor) -> MlResu
         }
 
         // Numerical stability: Subtract max logit from each row
-        let max_logits = logits.matmax(Some(1), true)?.0;
+        let max_logits = logits.mat_max(Some(1), true)?.0;
         let shifted_logits = logits.sub(&max_logits.expand(&logits.shape())?)?;
 
         // Compute exp and sum
