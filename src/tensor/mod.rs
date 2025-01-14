@@ -33,7 +33,7 @@ use crate::backend::MpsBackend;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
 
-use aporia::{backend::XorShift, RandomBackend};
+use aporia::{backend::XorShift, RandomBackend, Rng};
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -61,58 +61,6 @@ pub enum TensorError {
     InvalidBackend {
         backend: DeviceType,
     },
-}
-
-pub trait DefaultLayer {
-    fn new(data: Vec<Vec<f32>>)                         -> MlResult<Self> where Self: Sized;
-    fn from_vec(data: Vec<f32>, shape: &[usize])        -> MlResult<Self> where Self: Sized;
-    fn shape(&self)                                     -> &[usize];
-    fn data(&self)                                      -> &[f32];
-    fn get(&self, indices: &[usize])                    -> Option<&f32>;
-    fn index(&self, indices: &[usize])                  -> Option<usize>;
-    fn backend(&self)                                   -> &Arc<dyn Backend>;
-    fn backward(&mut self, gradient: Option<&Tensor>)   -> MlResult<()>;
-    fn set_grad_fn<F>(&mut self, grad_fn: F)
-    where
-        F: Fn(&Tensor)                                  -> MlResult<()> + 'static;
-    fn grad(&self)                                      -> Option<&Tensor>;
-    fn requires_grad(&mut self, requires_grad: bool);
-}
-
-pub trait OpsLayer<T: DefaultLayer>{
-    type Output;
-
-    fn can_op(&self, other: &T) -> MlResult<()>;
-
-    // 사칙연산
-    fn add(&self, other: &T)                -> Self::Output;
-    fn sub(&self, other: &T)                -> Self::Output;
-    fn mul(&self, other: &T)                -> Self::Output;
-    fn div(&self, other: &T)                -> Self::Output;
-
-    // 텐서 & 스칼라 연산
-    fn add_scalar(&self, scalar: f32)       -> Self::Output;
-    fn sub_scalar(&self, scalar: f32)       -> Self::Output;
-    fn mul_scalar(&self, scalar: f32)       -> Self::Output;
-    fn div_scalar(&self, scalar: f32)       -> Self::Output;
-
-    // 스칼라 & 텐서 연산
-    fn scalar_sub(&self, scalar: f32)       -> Self::Output;
-    fn scalar_div(&self, scalar: f32)       -> Self::Output;
-
-    fn neg(&self)                           -> Self::Output;
-    fn exp(&self)                           -> Self::Output;
-    fn pow(&self, power: f32)               -> Self::Output;
-    fn pow_scalar(&self, exponent: f32)     -> Self::Output;
-    fn scalar_pow(&self, scalar: f32)       -> Self::Output;
-    fn sqrt(&self)                          -> Self::Output;
-    fn square(&self)                        -> Self::Output;
-    fn log(&self)                           -> Self::Output;
-    fn matmul(&self, other: &T)             -> Self::Output;
-    fn eq_scalar(&self, scalar: f32)        -> Self::Output;
-    fn abs(&self)                           -> Self::Output;
-    fn topk(&self, k: usize, sorted: bool)              -> MlResult<(T, T)>;
-    fn matmax(&self, dim: Option<i32>, keepdim: bool)   -> MlResult<(Tensor, Option<Tensor>)>;
 }
 
 impl std::error::Error for TensorError {}
@@ -195,8 +143,8 @@ impl Ord for Tensor {
     }
 }
 
-impl DefaultLayer for Tensor {
-    fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
+impl Tensor {
+    pub fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
         let shape = vec![data.len(), data[0].len()];
         let flat_data: Vec<f32> = data.into_iter().flatten().collect();
 
@@ -265,7 +213,7 @@ impl DefaultLayer for Tensor {
         })
     }
 
-    fn from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
+    pub fn from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
             return Err(MlError::TensorError(TensorError::InvalidDataLength {
@@ -295,31 +243,12 @@ impl DefaultLayer for Tensor {
         })
     }
 
-    fn shape(&self) -> &[usize] {
+    pub fn shape(&self) -> &[usize] {
         &self.shape
     }
 
-    fn data(&self) -> &[f32] {
+    pub fn data(&self) -> &[f32] {
         &self.data
-    }
-
-    fn get(&self, indices: &[usize]) -> Option<&f32> {
-        self.data.get(self.index(indices)?)
-    }
-    fn index(&self, indices: &[usize]) -> Option<usize> {
-        if indices.len() != self.shape.len() {
-            return None;
-        }
-        Some(
-            indices
-                .iter()
-                .zip(&self.shape)
-                .fold(0, |acc, (&i, &dim)| acc * dim + i),
-        )
-    }
-
-    fn backend(&self) -> &Arc<dyn Backend> {
-        &self.backend
     }
 
     /// Computes the gradients of current tensor w.r.t. graph leaves.
@@ -329,7 +258,7 @@ impl DefaultLayer for Tensor {
     ///
     /// # Returns
     /// Result indicating success or containing an error
-    fn backward(&mut self, gradient: Option<&Tensor>) -> MlResult<()> {
+    pub fn backward(&mut self, gradient: Option<&Tensor>) -> MlResult<()> {
         if !self.requires_grad {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "backward",
@@ -366,8 +295,13 @@ impl DefaultLayer for Tensor {
         Ok(())
     }
 
+    /// Enables gradient computation for the tensor
+    pub fn requires_grad(&mut self, requires_grad: bool) {
+        self.requires_grad = requires_grad;
+    }
+
     /// Sets the gradient function for the tensor
-    fn set_grad_fn<F>(&mut self, grad_fn: F)
+    pub fn set_grad_fn<F>(&mut self, grad_fn: F)
     where
         F: Fn(&Tensor) -> MlResult<()> + 'static,
     {
@@ -375,25 +309,14 @@ impl DefaultLayer for Tensor {
     }
 
     /// Returns the gradient of the tensor
-    fn grad(&self) -> Option<&Tensor> {
+    pub fn grad(&self) -> Option<&Tensor> {
         self.grad.as_ref().map(|g| g.as_ref())
-    }
-
-    /// Enables gradient computation for the tensor
-    fn requires_grad(&mut self, requires_grad: bool) {
-        self.requires_grad = requires_grad;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    pub fn assert_tensor_eq(tensor: Tensor, expected_tensor: Tensor, ) -> MlResult<()> {
-        assert_eq!(tensor.data(), expected_tensor.data());
-        assert_eq!(tensor.shape(), expected_tensor.shape());
-        Ok(())
-    }
 
     #[test]
     fn test_tensor_creation() -> MlResult<()> {
@@ -423,35 +346,6 @@ mod tests {
         assert_eq!(e.data(), &[1.0, 3.0, 2.0, 4.0, 5.0, 7.0, 6.0, 8.0]);
 
         Ok(())
-    }
-
-    #[test]
-    fn test_add_symbol() -> MlResult<()> {
-        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
-        let t2 = Tensor::new(vec![vec![3.0, 4.0]])?;
-        let et = Tensor::new(vec![vec![4.0, 6.0]])?;
-        assert_tensor_eq(t1 + t2, et)
-    }
-    #[test]
-    fn test_sub_symbol() -> MlResult<()> {
-        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
-        let t2 = Tensor::new(vec![vec![3.0, 4.0]])?;
-        let et = Tensor::new(vec![vec![-2.0, -2.0]])?;
-        assert_tensor_eq(t1 - t2, et)
-    }
-    #[test]
-    fn test_mul_symbol() -> MlResult<()> {
-        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
-        let t2 = Tensor::new(vec![vec![3.0, 4.0]])?;
-        let et = Tensor::new(vec![vec![3.0, 8.0]])?;
-        assert_tensor_eq(t1 * t2, et)
-    }
-    #[test]
-    fn test_div_symbol() -> MlResult<()> {
-        let t1 = Tensor::new(vec![vec![1.0, 2.0]])?;
-        let t2 = Tensor::new(vec![vec![2.0, 4.0]])?;
-        let et = Tensor::new(vec![vec![0.5, 0.5]])?;
-        assert_tensor_eq(t1 / t2, et)
     }
 
     #[test]
@@ -650,7 +544,7 @@ mod tests {
         let std_dev = (t.data().iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 10000.0).sqrt();
 
         // Check if mean is close to 0 and std_dev is close to 1
-        assert!(mean.abs() < 0.1, "Mean should be close to 0");
+        assert!((mean.abs() < 0.1), "Mean should be close to 0");
         assert!((std_dev - 1.0).abs() < 0.1, "Std dev should be close to 1");
 
         Ok(())

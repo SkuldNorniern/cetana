@@ -3,7 +3,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::serialize::{Deserialize, Model, Serialize};
 use crate::{nn::Layer, tensor::Tensor, MlResult};
 use aporia::{backend::Xoshiro256StarStar, Rng};
-use crate::tensor::{DefaultLayer, OpsLayer};
 
 /// A simple lookup table that stores embeddings of a fixed dictionary and size.
 ///

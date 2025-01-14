@@ -7,7 +7,6 @@ use cetana::{
     MlResult,
 };
 use pinax::{BorderStyle, Grid};
-use cetana::tensor::DefaultLayer;
 
 fn main() -> MlResult<()> {
     println!("Convolution Layer Example\n");

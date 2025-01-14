@@ -40,7 +40,7 @@ mod tests {
     use super::*;
 
     use crate::nn::Layer;
-    use crate::tensor::{DefaultLayer, Tensor};
+    use crate::tensor::Tensor;
     use crate::MlResult;
 
     #[test]

@@ -7,7 +7,6 @@ use cetana::{
     MlResult,
 };
 use pinax::{BorderStyle, Grid};
-use cetana::tensor::DefaultLayer;
 
 fn main() -> MlResult<()> {
     cetana::log::init(log::LevelFilter::Trace).expect("Failed to initialize logger");

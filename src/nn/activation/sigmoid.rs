@@ -1,5 +1,4 @@
 use crate::{nn::Activation, tensor::Tensor, MlResult};
-use crate::tensor::{DefaultLayer, OpsLayer};
 
 /// Sigmoid activation function module.
 ///
