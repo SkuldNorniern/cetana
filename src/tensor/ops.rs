@@ -10,7 +10,7 @@ impl Tensor {
     /// # Returns
     /// * `Ok(())` if the shapes match
     /// * `Err(MlError::TensorError)` if shapes don't match
-    pub fn can_op(&self, other: &Tensor) ->  MlResult<()> {
+    pub fn chk_shape(&self, other: &Tensor) ->  MlResult<()> {
         if self.shape != other.shape {
             return Err(MlError::TensorError(TensorError::InvalidShape {
                 expected: self.shape.clone(),
@@ -40,7 +40,7 @@ impl Tensor {
             return Tensor::from_vec(result, &self.shape);
         }
 
-        match self.can_op(other) {
+        match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(self.backend.add(&self.data, &other.data), &self.shape)
         }
@@ -78,7 +78,7 @@ impl Tensor {
             return Tensor::from_vec(result, &self.shape);
         }
 
-        match self.can_op(other) {
+        match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(self.backend.sub(&self.data, &other.data), &self.shape)
         }
@@ -116,7 +116,7 @@ impl Tensor {
     /// # Returns
     /// A new tensor with the result of the element-wise multiplication
     pub fn mul(&self, other: &Tensor) -> MlResult<Tensor> {
-        match self.can_op(other) {
+        match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(self.backend.multiply(&self.data, &other.data), &self.shape)
         }
@@ -142,7 +142,7 @@ impl Tensor {
     /// # Returns
     /// A new tensor with the result of the element-wise division
     pub fn div(&self, other: &Tensor) -> MlResult<Tensor> {
-        match self.can_op(other) {
+        match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(self.backend.div(&self.data, &other.data), &self.shape)
         }
@@ -286,7 +286,7 @@ impl Tensor {
         match (a, b) {
             // Case 1: 1D * 1D (dot product)
             (1, 1) => {
-                match self.can_op(other) {
+                match self.chk_shape(other) {
                     Err(e) => Err(e),
                     _ => Tensor::from_vec(
                         vec![self.data.iter().zip(other.data.iter()).map(|(&a, &b)| a * b).sum::<f32>()],
