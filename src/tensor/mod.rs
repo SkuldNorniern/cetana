@@ -269,7 +269,7 @@ impl Tensor {
         // If no gradient is provided, use a tensor of ones with the same shape
         let grad = match gradient {
             Some(g) => {
-                match g.can_op(&self) {
+                match g.chk_shape(&self) {
                     Err(e) => return Err(e),
                     _ => g.clone()
                 }
