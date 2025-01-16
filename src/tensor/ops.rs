@@ -1,13 +1,15 @@
 use super::*;
 
 impl Tensor {
-    /// Adds two tensors element-wise
+    
+    /// Verifies if two tensors can perform element-wise operations
     ///
     /// # Arguments
-    /// * `other` - The tensor to add to the current tensor
+    /// * `other` - The tensor to compare shapes with
     ///
     /// # Returns
-    /// A new tensor with the result of the element-wise addition
+    /// * `Ok(())` if the shapes match
+    /// * `Err(MlError::TensorError)` if shapes don't match
     pub fn can_op(&self, other: &Tensor) ->  MlResult<()> {
         if self.shape != other.shape {
             return Err(MlError::TensorError(TensorError::InvalidShape {
@@ -18,6 +20,13 @@ impl Tensor {
         Ok(())
     }
 
+    /// Adds two tensors element-wise
+    ///
+    /// # Arguments
+    /// * `other` - The tensor to add to the current tensor
+    ///
+    /// # Returns
+    /// A new tensor with the result of the element-wise addition
     pub fn add(&self, other: &Tensor) -> MlResult<Tensor> {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
             let (_batch_size, features) = (self.shape[0], self.shape[1]);
