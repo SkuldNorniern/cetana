@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::ops::{Div, Range};
+use std::ops::Range;
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -213,6 +213,36 @@ impl Tensor {
         })
     }
 
+    pub fn from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
+        let expected_len: usize = shape.iter().product();
+        if data.len() != expected_len {
+            return Err(MlError::TensorError(TensorError::InvalidDataLength {
+                expected: expected_len,
+                got: data.len(),
+            }));
+        }
+
+        let device_type = DeviceManager::get_default_device();
+        let backend: Arc<dyn Backend> = match device_type {
+            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "cuda")]
+            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
+            #[cfg(feature = "mps")]
+            DeviceType::Mps => Arc::new(MpsBackend::new()?),
+            #[cfg(feature = "vulkan")]
+            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
+        };
+
+        Ok(Self {
+            data,
+            shape: shape.to_vec(),
+            backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
+        })
+    }
+
     pub fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -239,13 +269,10 @@ impl Tensor {
         // If no gradient is provided, use a tensor of ones with the same shape
         let grad = match gradient {
             Some(g) => {
-                if g.shape != self.shape {
-                    return Err(MlError::TensorError(TensorError::InvalidShape {
-                        expected: self.shape.clone(),
-                        got: g.shape.clone(),
-                    }));
+                match g.chk_shape(&self) {
+                    Err(e) => return Err(e),
+                    _ => g.clone()
                 }
-                g.clone()
             }
             None => Tensor::ones(&self.shape)?,
         };
