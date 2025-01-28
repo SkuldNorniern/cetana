@@ -119,37 +119,56 @@ fn compile_vulkan_shaders() -> std::io::Result<()> {
 
 #[cfg(all(feature = "mps", target_os = "macos"))]
 fn compile_metal_shaders() -> std::io::Result<()> {
-    // let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let out_dir = PathBuf::from("shaders/metal");
     let shader_dir = PathBuf::from("shaders/metal");
+    let out_dir = PathBuf::from("shaders/metal");
 
+    // Since files should exist in repo, make this a hard error
     if !shader_dir.exists() {
-        return Ok(()); // Skip if metal shaders directory doesn't exist
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Metal shaders directory 'shaders/metal' not found. Please ensure the repository was cloned correctly.",
+        ));
     }
 
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(&out_dir)?;
 
     // Get .metal extension files in the shaders directory
-    let mut shader_files: Vec<Box<str>> = Vec::new();
-
-    shader_dir.read_dir().unwrap().for_each(|entry| {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext == "metal" {
-                    shader_files.push(path.file_name().unwrap().to_string_lossy().into());
+    let shader_files: Vec<Box<str>> = shader_dir
+        .read_dir()
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to read shaders/metal directory: {}", e),
+            )
+        })?
+        .filter_map(|entry| {
+            entry.ok().and_then(|e| {
+                let path = e.path();
+                if path.is_file() && path.extension()? == "metal" {
+                    Some(path.file_name()?.to_string_lossy().into())
+                } else {
+                    None
                 }
-            }
-        }
-    });
+            })
+        })
+        .collect();
+
+    if shader_files.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No .metal shader files found in shaders/metal directory",
+        ));
+    }
 
     // Build .air files
     for shader in shader_files.iter() {
         let shader_path = shader_dir.join(shader.as_ref());
         if !shader_path.exists() {
-            continue; // Skip if shader file doesn't exist
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Shader file {} not found", shader_path.display()),
+            ));
         }
 
         // Compile .metal to .air
