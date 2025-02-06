@@ -1,10 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
 
-mod device;
-mod feature;
-pub use device::{Device, DeviceManager, DeviceType};
-pub use feature::DeviceFeatures;
-
 #[cfg(feature = "cpu")]
 mod cpu;
 #[cfg(feature = "cuda")]
@@ -15,6 +10,12 @@ mod mps;
 mod opencl;
 #[cfg(feature = "vulkan")]
 mod vulkan;
+
+mod device;
+mod feature;
+
+pub use device::{Device, DeviceManager, DeviceType};
+pub use feature::DeviceFeatures;
 
 #[cfg(feature = "cpu")]
 pub use cpu::CpuBackend;
