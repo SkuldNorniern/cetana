@@ -1,10 +1,15 @@
+/// A single device feature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeviceFeature {
-    pub name: String,
+    /// The name of the feature.
+    pub name: &'static str,
+    /// Whether this feature is detected/supported.
     pub supported: bool,
-    pub description: Option<String>,
+    /// An optional short description.
+    pub description: Option<&'static str>,
 }
 
+/// A collection of device features.
 #[derive(Debug, Clone, Default)]
 pub struct DeviceFeatures {
     features: Vec<DeviceFeature>,
@@ -17,12 +22,9 @@ impl DeviceFeatures {
         }
     }
 
-    pub fn add_feature(&mut self, name: &str, supported: bool, description: Option<String>) {
-        self.features.push(DeviceFeature {
-            name: name.to_string(),
-            supported,
-            description,
-        });
+    /// Adds a new feature.
+    pub fn add_feature(&mut self, name: &'static str, supported: bool, description: Option<&'static str>) {
+        self.features.push(DeviceFeature { name, supported, description });
     }
 
     pub fn is_supported(&self, feature_name: &str) -> bool {
