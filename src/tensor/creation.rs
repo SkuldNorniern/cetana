@@ -12,7 +12,6 @@ impl Tensor {
     /// Example:
     /// ```
     /// use cetana::tensor::Tensor;
-    /// use cetana::tensor::DefaultLayer;
     ///
     /// let zeros = Tensor::zeros(&[2, 3]).unwrap();
     /// assert_eq!(zeros.shape(), &[2, 3]);
@@ -52,7 +51,6 @@ impl Tensor {
     /// Example:
     /// ```
     /// use cetana::tensor::Tensor;
-    /// use cetana::tensor::DefaultLayer;
     ///
     /// let x = Tensor::randn(&[2, 3]).unwrap();
     /// let zeros = x.zeros_like().unwrap();
@@ -74,7 +72,6 @@ impl Tensor {
     /// Example:
     /// ```
     /// use cetana::tensor::Tensor;
-    /// use cetana::tensor::DefaultLayer;
     ///
     /// let ones = Tensor::ones(&[2, 3]).unwrap();
     /// assert_eq!(ones.shape(), &[2, 3]);
@@ -113,7 +110,6 @@ impl Tensor {
     /// Example:
     /// ```
     /// use cetana::tensor::Tensor;
-    /// use cetana::tensor::DefaultLayer;
     ///
     /// let x = Tensor::randn(&[2, 3]).unwrap();
     /// let ones = x.ones_like().unwrap();
