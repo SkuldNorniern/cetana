@@ -131,6 +131,10 @@ pub fn vector_multiply(
             fn vector_multiply_kernel(result: *mut f32, a: *const f32, b: *const f32, n: i32);
         }
 
+        // Calling the CUDA kernel. This is safe because:
+        // 1. The pointers in `a`, `b`, and `result` have been allocated by CudaBuffer::new,
+        // 2. Their sizes have been validated beforehand,
+        // 3. The kernel is invoked with the correct parameters.
         vector_multiply_kernel(result.ptr, a.ptr, b.ptr, a.size as i32);
         let sync_result = cudaDeviceSynchronize();
         if sync_result != CUDA_SUCCESS {
