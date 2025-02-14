@@ -6,11 +6,12 @@ mod cpu;
 mod cuda;
 #[cfg(feature = "mps")]
 mod mps;
-#[cfg(feature = "opencl")]
-mod opencl;
+// #[cfg(feature = "opencl")]
+// mod opencl;
 #[cfg(feature = "vulkan")]
 mod vulkan;
 
+mod buffer;
 mod device;
 mod feature;
 

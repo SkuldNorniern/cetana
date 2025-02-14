@@ -322,7 +322,7 @@ impl Tensor {
         }
 
         let dim_size = self.shape[dim];
-        let chunk_size = (dim_size + chunks - 1) / chunks; // ceiling division
+        let chunk_size = dim_size.div_ceil(chunks); // ceiling division
         let mut result = Vec::with_capacity(chunks);
 
         let mut start_idx = 0;
@@ -909,7 +909,7 @@ impl Tensor {
             result.push(tensors[tensor_idx].data()[src_idx]);
         }
 
-        Ok(Tensor::from_vec(result, &new_shape)?)
+        Tensor::from_vec(result, &new_shape)
     }
 
     /// Splits the tensor into chunks of specified size along a given dimension.
@@ -943,7 +943,7 @@ impl Tensor {
         }
 
         let dim_size = self.shape[dim];
-        let num_splits = (dim_size + split_size - 1) / split_size; // ceiling division
+        let num_splits = dim_size.div_ceil(split_size); // ceiling division
         let mut result = Vec::with_capacity(num_splits);
 
         let mut start_idx = 0;

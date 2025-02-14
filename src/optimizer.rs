@@ -88,11 +88,11 @@ impl Optimizer for Adam {
             };
 
             // Initialize momentum buffers if needed
-            if !self.exp_avg.contains_key(&i) {
+            if let std::collections::hash_map::Entry::Vacant(e) = self.exp_avg.entry(i) {
                 debug!("Initializing momentum buffers for parameter {}", i);
                 let zeros = Tensor::zeros(grad.shape())?;
                 trace!("Created zero tensor with shape {:?}", zeros.shape());
-                self.exp_avg.insert(i, zeros.clone());
+                e.insert(zeros.clone());
                 self.exp_avg_sq.insert(i, zeros);
             }
 

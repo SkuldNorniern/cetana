@@ -133,7 +133,7 @@ impl Embedding {
             weight: embeddings,
         };
 
-        if let Some(_) = padding_idx {
+        if padding_idx.is_some() {
             embedding.reset_padding_idx()?;
         }
 
@@ -266,7 +266,7 @@ impl Layer for Embedding {
         self.weight = self.weight.sub(&weight_update)?;
 
         // Return empty gradient for input since it's just indices
-        Ok(Tensor::zeros(input.shape())?)
+        Tensor::zeros(input.shape())
     }
 }
 

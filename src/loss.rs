@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::{tensor::Tensor, MlResult};
 
-use log::{debug, error, info, trace};
+use log::{debug, trace};
 
 #[derive(Debug, Clone)]
 pub enum LossError {
@@ -82,7 +82,7 @@ pub fn calculate_cross_entropy_loss(logits: &Tensor, targets: &Tensor) -> MlResu
 
         // Numerical stability: Subtract max logit from each row
         let max_logits = logits.mat_max(Some(1), true)?.0;
-        let shifted_logits = logits.sub(&max_logits.expand(&logits.shape())?)?;
+        let shifted_logits = logits.sub(&max_logits.expand(logits.shape())?)?;
 
         // Compute exp and sum
         let exp_logits = shifted_logits.exp()?;
@@ -114,11 +114,11 @@ pub fn calculate_cross_entropy_loss(logits: &Tensor, targets: &Tensor) -> MlResu
         Ok(total_loss / valid_samples as f32)
     } else {
         // Handle dense targets (probability distribution)
-        return Err(LossError::InvalidOperation {
+        Err(LossError::InvalidOperation {
             op: "cross_entropy_loss",
             reason: "Dense targets not implemented yet".to_string(),
         }
-        .into());
+        .into())
     }
 }
 

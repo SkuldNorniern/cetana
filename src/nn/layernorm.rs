@@ -116,7 +116,7 @@ impl Layer for LayerNorm {
             });
         }
 
-        Ok(Tensor::from_vec(normalized, input_shape)?)
+        Tensor::from_vec(normalized, input_shape)
     }
 
     fn backward(

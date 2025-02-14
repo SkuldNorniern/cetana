@@ -108,6 +108,6 @@ impl Tensor {
             vec![batch_size, num_samples]
         };
 
-        Ok(Tensor::from_vec(result, &output_shape)?)
+        Tensor::from_vec(result, &output_shape)
     }
 }

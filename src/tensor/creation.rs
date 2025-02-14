@@ -140,7 +140,7 @@ impl Tensor {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let mut rng = XorShift::new(sys_time as u64);
+        let mut rng = XorShift::new(sys_time);
         let mut data = Vec::with_capacity(size);
 
         // Box-Muller transform to generate normal distribution

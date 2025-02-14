@@ -76,7 +76,7 @@ impl Conv2d {
         match self.padding {
             PaddingMode::Valid => 0,
             PaddingMode::Same => {
-                let output_size = (input_size + self.stride - 1) / self.stride;
+                let output_size = input_size.div_ceil(self.stride);
                 let total_padding = (output_size - 1) * self.stride + self.kernel_size - input_size;
                 total_padding / 2
             }

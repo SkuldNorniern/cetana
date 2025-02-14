@@ -81,12 +81,10 @@ impl Tensor {
                     target_idx += coords[d] * current_stride;
                     current_stride *= if keepdim {
                         self.shape[d]
+                    } else if count < new_shape.len() {
+                        new_shape[count]
                     } else {
-                        if count < new_shape.len() {
-                            new_shape[count]
-                        } else {
-                            1
-                        }
+                        1
                     };
                     count += 1;
                 }
@@ -170,12 +168,10 @@ impl Tensor {
                     target_idx += coords[d] * current_stride;
                     current_stride *= if keepdim {
                         self.shape[d]
+                    } else if count < new_shape.len() {
+                        new_shape[count]
                     } else {
-                        if count < new_shape.len() {
-                            new_shape[count]
-                        } else {
-                            1
-                        }
+                        1
                     };
                     count += 1;
                 }

@@ -42,11 +42,20 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
-            let buffer_b = self.compute.create_buffer(b).expect("Failed to create buffer B");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
+            let buffer_b = self
+                .compute
+                .create_buffer(b)
+                .expect("Failed to create buffer B");
 
             // Perform addition on Apple MPS
-            let result_buffer = self.compute.add(&buffer_a, &buffer_b, a.len()).expect("Failed to add buffers");
+            let result_buffer = self
+                .compute
+                .add(&buffer_a, &buffer_b, a.len())
+                .expect("Failed to add buffers");
 
             // Read result buffer
             let result = result_buffer.contents();
@@ -64,11 +73,20 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
-            let buffer_b = self.compute.create_buffer(b).expect("Failed to create buffer B");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
+            let buffer_b = self
+                .compute
+                .create_buffer(b)
+                .expect("Failed to create buffer B");
 
             // Perform multiplication on Apple MPS
-            let result_buffer = self.compute.multiply(&buffer_a, &buffer_b, a.len()).expect("Failed to multiply buffers");
+            let result_buffer = self
+                .compute
+                .multiply(&buffer_a, &buffer_b, a.len())
+                .expect("Failed to multiply buffers");
 
             // Read result buffer
             let result = result_buffer.contents();
@@ -86,17 +104,24 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
-            let buffer_b = self.compute.create_buffer(b).expect("Failed to create buffer B");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
+            let buffer_b = self
+                .compute
+                .create_buffer(b)
+                .expect("Failed to create buffer B");
 
             // Perform matrix multiplication on Apple MPS
-            let result_buffer = self.compute.matmul(&buffer_a, &buffer_b, m, n, k).expect("Failed to multiply matrices");
+            let result_buffer = self
+                .compute
+                .matmul(&buffer_a, &buffer_b, m, n, k)
+                .expect("Failed to multiply matrices");
 
             // Read result buffer
             let result = result_buffer.contents();
-            let result_slice = unsafe {
-                std::slice::from_raw_parts(result as *const f32, m * k)
-            };
+            let result_slice = unsafe { std::slice::from_raw_parts(result as *const f32, m * k) };
 
             // Copy result to a Vec
             result_vec = result_slice.to_vec();
@@ -110,11 +135,20 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
-            let buffer_b = self.compute.create_buffer(b).expect("Failed to create buffer B");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
+            let buffer_b = self
+                .compute
+                .create_buffer(b)
+                .expect("Failed to create buffer B");
 
             // Perform division on Apple MPS
-            let result_buffer = self.compute.add(&buffer_a, &buffer_b, a.len()).expect("Failed to divide buffers");
+            let result_buffer = self
+                .compute
+                .add(&buffer_a, &buffer_b, a.len())
+                .expect("Failed to divide buffers");
 
             // Read result buffer
             let result = result_buffer.contents();
@@ -132,11 +166,20 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
-            let buffer_b = self.compute.create_buffer(b).expect("Failed to create buffer B");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
+            let buffer_b = self
+                .compute
+                .create_buffer(b)
+                .expect("Failed to create buffer B");
 
             // Perform subtraction on Apple MPS
-            let result_buffer = self.compute.sub(&buffer_a, &buffer_b, a.len()).expect("Failed to subtract buffers");
+            let result_buffer = self
+                .compute
+                .sub(&buffer_a, &buffer_b, a.len())
+                .expect("Failed to subtract buffers");
 
             // Read result buffer
             let result = result_buffer.contents();
@@ -170,10 +213,16 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
 
             // Perform log on Apple MPS
-            let result_buffer = self.compute.log(&buffer_a, a.len()).expect("Failed to log buffer");
+            let result_buffer = self
+                .compute
+                .log(&buffer_a, a.len())
+                .expect("Failed to log buffer");
 
             // Read result buffer
             let result = result_buffer.contents();
@@ -214,10 +263,16 @@ impl Backend for MpsBackend {
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
-            let buffer_a = self.compute.create_buffer(a).expect("Failed to create buffer A");
+            let buffer_a = self
+                .compute
+                .create_buffer(a)
+                .expect("Failed to create buffer A");
 
             // Perform sum on Apple MPS
-            let result_buffer = self.compute.sum_backend(&buffer_a, a.len()).expect("Failed to sum buffer");
+            let result_buffer = self
+                .compute
+                .sum_backend(&buffer_a, a.len())
+                .expect("Failed to sum buffer");
 
             // Read result buffer
             let result = result_buffer.contents();
