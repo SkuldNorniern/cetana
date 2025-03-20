@@ -1,5 +1,7 @@
-use super::{initialize_cuda, vector_add, vector_multiply, CudaBuffer, CudaDevice};
-use crate::backend::cuda::compute::*;
+use super::{
+    initialize_cuda, CudaBuffer, CudaDevice, CudaError, stream::CudaStream,
+    compute::*
+};
 use crate::backend::feature::{
     DeviceFeatures, GPU_FEATURE_FP16, GPU_FEATURE_FP64, GPU_FEATURE_TENSOR_CORES,
 };
@@ -9,6 +11,7 @@ use crate::MlResult;
 #[derive(Debug)]
 pub struct CudaBackend {
     device: CudaDevice,
+    stream: CudaStream,
 }
 
 impl Device for CudaBackend {
@@ -16,8 +19,10 @@ impl Device for CudaBackend {
         initialize_cuda().map_err(|e| format!("CUDA initialization failed: {}", e))?;
         let device =
             CudaDevice::new(0).map_err(|e| format!("Failed to create CUDA device: {}", e))?;
+        let stream = CudaStream::new()
+            .map_err(|e| format!("Failed to create CUDA stream: {}", e))?;
 
-        Ok(CudaBackend { device })
+        Ok(CudaBackend { device, stream })
     }
 
     fn device_type(&self) -> DeviceType {
@@ -27,23 +32,22 @@ impl Device for CudaBackend {
     fn get_features(&self) -> DeviceFeatures {
         let mut features = DeviceFeatures::new();
 
-        // Basic CUDA features - you might want to actually query these from the device
-        features.add_feature(
+        features.add(
             GPU_FEATURE_FP16,
             true,
-            Some("Half-precision floating point support".to_string()),
+            Some("Half-precision floating point support"),
         );
 
-        features.add_feature(
+        features.add(
             GPU_FEATURE_FP64,
             true,
-            Some("Double-precision floating point support".to_string()),
+            Some("Double-precision floating point support"),
         );
 
-        features.add_feature(
+        features.add(
             GPU_FEATURE_TENSOR_CORES,
             false, // This should be queried from the actual device
-            Some("Tensor Cores support".to_string()),
+            Some("Tensor Cores support"),
         );
 
         features
@@ -55,205 +59,133 @@ impl Backend for CudaBackend {
         DeviceType::Cuda
     }
 
-    fn execute_compute(&self, _dimensions: [u32; 3]) -> MlResult<()> {
-        self.device
-            .synchronize()
-            .map_err(|e| format!("CUDA compute synchronization failed: {}", e))?;
-        Ok(())
+    fn calc_device_flops(&self) -> f64 {
+        1000.0 * 1000.0 * 1000.0 // 1 GFLOPS
     }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let size = a.len();
-        let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut b_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || b_buf.copy_from_host(b).is_err()
-            || vector_add(&a_buf, &b_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
+        if size != b.len() {
             return vec![0.0; size];
         }
 
-        result
+        let mut result = vec![0.0; size];
+        
+        match self.execute_vector_binary_op(a, b, &mut result, |a_buf, b_buf, result_buf| {
+            vector_add(a_buf, b_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
+        }
     }
 
     fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let size = a.len();
-        let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut b_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || b_buf.copy_from_host(b).is_err()
-            || vector_multiply(&a_buf, &b_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
+        if size != b.len() {
             return vec![0.0; size];
         }
 
-        result
+        let mut result = vec![0.0; size];
+        
+        match self.execute_vector_binary_op(a, b, &mut result, |a_buf, b_buf, result_buf| {
+            vector_multiply(a_buf, b_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
+        }
     }
 
-    fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-        let size = m * n;
-        let mut result = vec![0.0; size];
+    fn matmul(
+        &self,
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Vec<f32> {
+        let result_size = m * k;
+        let mut result = vec![0.0; result_size];
 
-        let mut a_buf = match CudaBuffer::new(m * k) {
+        let mut a_buf = match CudaBuffer::new(m * n) {
             Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
+            Err(_) => return vec![0.0; result_size],
         };
-        let mut b_buf = match CudaBuffer::new(k * n) {
+        
+        let mut b_buf = match CudaBuffer::new(n * k) {
             Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
+            Err(_) => return vec![0.0; result_size],
         };
-        let mut result_buf = match CudaBuffer::new(size) {
+        
+        let mut result_buf = match CudaBuffer::new(result_size) {
             Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
+            Err(_) => return vec![0.0; result_size],
         };
 
         if a_buf.copy_from_host(a).is_err()
             || b_buf.copy_from_host(b).is_err()
-            || matrix_multiply(&a_buf, &b_buf, &mut result_buf, m, n, k).is_err()
+            || matrix_multiply(&a_buf, &b_buf, &mut result_buf, m, n, k, self.stream.as_ptr()).is_err()
             || result_buf.copy_to_host(&mut result).is_err()
         {
-            return vec![0.0; size];
+            return vec![0.0; result_size];
         }
 
         result
     }
 
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        if a.len() != b.len() {
-            return vec![0.0; a.len()];
-        }
-
         let size = a.len();
-        let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut b_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || b_buf.copy_from_host(b).is_err()
-            || vector_divide(&a_buf, &b_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
+        if size != b.len() {
             return vec![0.0; size];
         }
 
-        result
+        let mut result = vec![0.0; size];
+        
+        match self.execute_vector_binary_op(a, b, &mut result, |a_buf, b_buf, result_buf| {
+            vector_divide(a_buf, b_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
+        }
     }
 
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
-        if a.len() != b.len() {
-            return vec![0.0; a.len()];
-        }
-
         let size = a.len();
-        let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut b_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || b_buf.copy_from_host(b).is_err()
-            || vector_subtract(&a_buf, &b_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
+        if size != b.len() {
             return vec![0.0; size];
         }
 
-        result
+        let mut result = vec![0.0; size];
+        
+        match self.execute_vector_binary_op(a, b, &mut result, |a_buf, b_buf, result_buf| {
+            vector_subtract(a_buf, b_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
+        }
     }
 
     fn exp(&self, a: &[f32]) -> Vec<f32> {
         let size = a.len();
         let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || vector_exp(&a_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
-            return vec![0.0; size];
+        
+        match self.execute_vector_unary_op(a, &mut result, |a_buf, result_buf| {
+            vector_exp(a_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
         }
-
-        result
     }
 
     fn log(&self, a: &[f32]) -> Vec<f32> {
         let size = a.len();
         let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || vector_log(&a_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
-            return vec![0.0; size];
+        
+        match self.execute_vector_unary_op(a, &mut result, |a_buf, result_buf| {
+            vector_log(a_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
         }
-
-        result
     }
 
     fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
@@ -264,13 +196,14 @@ impl Backend for CudaBackend {
             Ok(buf) => buf,
             Err(_) => return vec![0.0; size],
         };
+        
         let mut result_buf = match CudaBuffer::new(size) {
             Ok(buf) => buf,
             Err(_) => return vec![0.0; size],
         };
 
         if a_buf.copy_from_host(a).is_err()
-            || vector_pow(&a_buf, power, &mut result_buf).is_err()
+            || vector_pow(&a_buf, power, &mut result_buf, self.stream.as_ptr()).is_err()
             || result_buf.copy_to_host(&mut result).is_err()
         {
             return vec![0.0; size];
@@ -282,41 +215,35 @@ impl Backend for CudaBackend {
     fn sqrt(&self, a: &[f32]) -> Vec<f32> {
         let size = a.len();
         let mut result = vec![0.0; size];
-
-        let mut a_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-        let mut result_buf = match CudaBuffer::new(size) {
-            Ok(buf) => buf,
-            Err(_) => return vec![0.0; size],
-        };
-
-        if a_buf.copy_from_host(a).is_err()
-            || vector_sqrt(&a_buf, &mut result_buf).is_err()
-            || result_buf.copy_to_host(&mut result).is_err()
-        {
-            return vec![0.0; size];
+        
+        match self.execute_vector_unary_op(a, &mut result, |a_buf, result_buf| {
+            vector_sqrt(a_buf, result_buf, self.stream.as_ptr())
+        }) {
+            Ok(_) => result,
+            Err(_) => vec![0.0; size]
         }
-
-        result
     }
 
     fn sum(&self, a: &[f32]) -> f32 {
         let size = a.len();
+        if size == 0 {
+            return 0.0;
+        }
+        
         let mut partial_sums = vec![0.0; 1];
 
         let mut a_buf = match CudaBuffer::new(size) {
             Ok(buf) => buf,
             Err(_) => return 0.0,
         };
+        
         let mut result_buf = match CudaBuffer::new(1) {
             Ok(buf) => buf,
             Err(_) => return 0.0,
         };
 
         if a_buf.copy_from_host(a).is_err()
-            || vector_reduce_sum(&a_buf, &mut result_buf).is_err()
+            || vector_reduce_sum(&a_buf, &mut result_buf, self.stream.as_ptr()).is_err()
             || result_buf.copy_to_host(&mut partial_sums).is_err()
         {
             return 0.0;
@@ -329,8 +256,71 @@ impl Backend for CudaBackend {
         if a.is_empty() {
             return 0.0;
         }
+        
         let sum = self.sum(a);
         sum / a.len() as f32
+    }
+}
+
+// Helper methods for CudaBackend
+impl CudaBackend {
+    /// Helper method to execute binary vector operations
+    fn execute_vector_binary_op<F>(
+        &self, 
+        a: &[f32], 
+        b: &[f32], 
+        result: &mut [f32], 
+        operation: F
+    ) -> Result<(), CudaError> 
+    where 
+        F: FnOnce(&CudaBuffer, &CudaBuffer, &mut CudaBuffer) -> Result<(), CudaError>
+    {
+        let size = a.len();
+        
+        // Allocate device buffers - no need to set _marker as it's handled in new()
+        let mut a_buf = CudaBuffer::new(size)?;
+        let mut b_buf = CudaBuffer::new(size)?;
+        let mut result_buf = CudaBuffer::new(size)?;
+        
+        // Copy data to device
+        a_buf.copy_from_host(a)?;
+        b_buf.copy_from_host(b)?;
+        
+        // Execute the operation
+        operation(&a_buf, &b_buf, &mut result_buf)?;
+        
+        // Copy result back to host
+        result_buf.copy_to_host(result)?;
+        
+        Ok(())
+    }
+    
+    /// Helper for unary operations
+    fn execute_vector_unary_op<F>(
+        &self, 
+        a: &[f32], 
+        result: &mut [f32], 
+        operation: F
+    ) -> Result<(), CudaError>
+    where 
+        F: FnOnce(&CudaBuffer, &mut CudaBuffer) -> Result<(), CudaError>
+    {
+        let size = a.len();
+        
+        // Allocate device buffers - no need to set _marker as it's handled in new()
+        let mut a_buf = CudaBuffer::new(size)?;
+        let mut result_buf = CudaBuffer::new(size)?;
+        
+        // Copy data to device
+        a_buf.copy_from_host(a)?;
+        
+        // Execute the operation
+        operation(&a_buf, &mut result_buf)?;
+        
+        // Copy result back to host
+        result_buf.copy_to_host(result)?;
+        
+        Ok(())
     }
 }
 
@@ -344,7 +334,7 @@ mod tests {
         let a = vec![1.0f32, 2.0, 3.0];
         let b = vec![4.0f32, 5.0, 6.0];
 
-        // Basic operations
+        // Basic operations (no ? operator)
         let sum = backend.add(&a, &b);
         assert_eq!(sum, vec![5.0, 7.0, 9.0]);
 

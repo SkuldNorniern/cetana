@@ -2,10 +2,14 @@ mod backend;
 mod compute;
 mod core;
 mod launch;
+mod stream;
 
 pub use backend::CudaBackend;
-pub use compute::{vector_add, vector_multiply, CudaBuffer};
+pub use compute::CudaBuffer;
 pub use core::{initialize_cuda, CudaDevice};
+pub use compute::{vector_add, vector_multiply, vector_subtract, vector_divide, 
+                 vector_exp, vector_log, vector_pow, vector_sqrt, vector_reduce_sum, 
+                 matrix_multiply};
 
 #[derive(Debug)]
 pub enum CudaError {
@@ -77,6 +81,13 @@ impl std::error::Error for CudaBackendError {}
 
 impl From<CudaError> for CudaBackendError {
     fn from(error: CudaError) -> Self {
-        CudaBackendError::CudaError(error)
+        match error {
+            CudaError::InvalidDevice(_id) => CudaBackendError::DeviceError(error),
+            CudaError::MemoryAllocationFailed(msg) => CudaBackendError::BufferAllocationFailed(msg),
+            CudaError::KernelLaunchFailed(msg) => CudaBackendError::KernelExecutionFailed(msg),
+            CudaError::InvalidValue => CudaBackendError::InvalidDimensions("Invalid value".to_string()),
+            CudaError::Synchronization(msg) => CudaBackendError::DeviceSynchronizationFailed(msg),
+            _ => CudaBackendError::CudaError(error),
+        }
     }
 }

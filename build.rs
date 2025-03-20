@@ -27,6 +27,23 @@ fn find_cuda_path() -> String {
     "/usr/local/cuda".to_string()
 }
 
+// Find the host compiler (g++)
+#[cfg(feature = "cuda")]
+fn find_host_compiler() -> String {
+    // Try to find the default g++ in the system
+    if let Ok(output) = Command::new("which").arg("g++").output() {
+        if let Ok(path) = String::from_utf8(output.stdout) {
+            let path = path.trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+    
+    // Default location if we can't find it
+    "/usr/bin/g++".to_string()
+}
+
 #[cfg(feature = "vulkan")]
 fn compile_vulkan_shaders() -> std::io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("Failed to get OUT_DIR"));
@@ -239,6 +256,7 @@ fn main() {
                 - "-I{}/include"
                 - "-I../../cuda-headers"
                 - "--cuda-gpu-arch=sm_75"
+                - "-allow-unsupported-compiler"
                 Compiler: clang
 
                 Index:
@@ -251,22 +269,95 @@ fn main() {
 
             fs::write(".clangd", clangd_content).expect("Failed to write .clangd file");
         }
-        let dst = cmake::Config::new(".")
+        
+        // Create a direct CMakeLists.txt file with CUDA host compiler flags
+        let cuda_dir = PathBuf::from("cuda");
+        
+        // Create stub header to avoid GCC 13 C23 float type issues
+        let stub_header = r#"// Simple stub header to prevent problematic GCC 13 headers
+#pragma once
+// Nothing needed here - this header will be included instead of the problematic ones
+"#;
+        
+        fs::write(cuda_dir.join("bits_floatn.h"), stub_header)
+            .expect("Failed to write bits_floatn.h file");
+        fs::write(cuda_dir.join("bits_floatn_common.h"), stub_header)
+            .expect("Failed to write bits_floatn_common.h file");
+
+        // Create the CMakeLists.txt with proper compiler flags
+        // Use traditional FindCUDA approach which is more reliable
+        let cmake_content = r#"cmake_minimum_required(VERSION 3.18)
+project(cetana_cuda LANGUAGES CXX)
+
+# Use traditional FindCUDA approach which is more reliable
+find_package(CUDA REQUIRED)
+
+# Set CUDA compiler flags
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-allow-unsupported-compiler")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-Xcompiler;-fPIC")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-std=c++14")
+
+# Add specific CUDA architectures
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-gencode=arch=compute_60,code=sm_60")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-gencode=arch=compute_70,code=sm_70")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-gencode=arch=compute_75,code=sm_75")
+
+# Enable separable compilation
+set(CUDA_SEPARABLE_COMPILATION ON)
+
+# Include directories - our directory first to find stub headers
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CUDA_INCLUDE_DIRS})
+
+# Use cuda_add_library which is more reliable than the modern approach
+cuda_add_library(cuda_kernels STATIC kernels.cu)
+
+# Add cudaInit implementation
+file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/cuda_init.cpp "
+#include <cuda_runtime.h>
+extern \"C\" {
+    int cudaInit(unsigned int flags) {
+        return cudaSetDevice(0);
+    }
+}
+")
+
+add_library(cuda_init STATIC cuda_init.cpp)
+target_include_directories(cuda_init PRIVATE ${CUDA_INCLUDE_DIRS})
+
+# Install
+install(TARGETS cuda_kernels cuda_init DESTINATION lib)
+"#;
+        
+        fs::write(cuda_dir.join("CMakeLists.txt"), cmake_content)
+            .expect("Failed to write cuda/CMakeLists.txt");
+            
+        // Run the build through CMake with improved environment variables
+        let dst = cmake::Config::new("cuda")
             .define("CMAKE_BUILD_TYPE", "Release")
-            .define("CUDA_PATH", cuda_path.clone())
+            // Set environment variables to control the build
+            .env("CUDA_PATH", cuda_path.clone())
+            .env("CUDAFLAGS", "-allow-unsupported-compiler")
+            // No need to set CPATH which might cause issues
+            // Set host compiler explicitly
+            .env("CUDAHOSTCXX", "/usr/bin/g++")
             .no_build_target(true)
             .build();
-
+            
         // Search paths - include both lib and lib64
-        println!("cargo:rustc-link-search={}/build/lib", dst.display());
         println!("cargo:rustc-link-search={}/build", dst.display());
+        println!("cargo:rustc-link-search={}/build/lib", dst.display());
         println!("cargo:rustc-link-search=native={}/lib", dst.display());
         println!("cargo:rustc-link-search=native={}/lib64", cuda_path.clone());
         println!("cargo:rustc-link-search=native={}/lib", cuda_path.clone());
 
-        // CUDA runtime linking - only essential libraries
+        // CUDA runtime linking - essential libraries
         println!("cargo:rustc-link-lib=cudart");
         println!("cargo:rustc-link-lib=cuda");
+        
+        // Link our static libraries
+        println!("cargo:rustc-link-lib=static=cuda_kernels");
+        println!("cargo:rustc-link-lib=static=cuda_init");
 
         // Static libraries - if they exist
         if PathBuf::from(format!("{}/build/lib/libnn_ops.a", dst.display())).exists() {

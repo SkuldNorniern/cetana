@@ -1,6 +1,7 @@
 use super::CudaError;
 use std::ffi::CStr;
 use std::sync::Once;
+use std::marker::PhantomData;
 
 static CUDA_INIT: Once = Once::new();
 
@@ -10,7 +11,11 @@ pub struct CudaDevice {
     device_name: String,
     compute_capability: (i32, i32),
     total_memory: usize,
+    _marker: PhantomData<*mut ()>,
 }
+
+unsafe impl Send for CudaDevice {}
+unsafe impl Sync for CudaDevice {}
 
 #[link(name = "cuda")]
 extern "C" {
@@ -110,6 +115,7 @@ impl CudaDevice {
             device_name,
             compute_capability: (major, minor),
             total_memory,
+            _marker: PhantomData,
         })
     }
 
