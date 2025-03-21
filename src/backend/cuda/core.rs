@@ -2,6 +2,7 @@ use super::CudaError;
 use std::ffi::CStr;
 use std::sync::Once;
 use std::marker::PhantomData;
+use log::{debug, trace, warn, info};
 
 static CUDA_INIT: Once = Once::new();
 
@@ -51,7 +52,9 @@ const CUDA_DEVICE_ATTR_COMPUTE_CAPABILITY_MINOR: i32 = 76;
 
 impl CudaDevice {
     pub fn new(device_id: i32) -> Result<Self, CudaError> {
+        debug!("Creating CUDA device with ID {}", device_id);
         if device_id < 0 {
+            warn!("Invalid device ID: {}", device_id);
             return Err(CudaError::InvalidDevice(device_id));
         }
 
@@ -110,6 +113,9 @@ impl CudaDevice {
                 .into_owned()
         };
 
+        info!("CUDA device initialized: {} (Compute {}.{}), Memory: {} bytes", 
+            device_name, major, minor, total_memory);
+        
         Ok(CudaDevice {
             device_id,
             device_name,
@@ -136,48 +142,62 @@ impl CudaDevice {
     }
 
     pub fn set_current(&self) -> Result<(), CudaError> {
+        trace!("Setting CUDA device {} as current", self.device_id);
         unsafe {
             let result = cudaSetDevice(self.device_id);
             if result != CUDA_SUCCESS {
+                warn!("Failed to set CUDA device {} as current", self.device_id);
                 return Err(CudaError::InvalidDevice(self.device_id));
             }
         }
+        trace!("Successfully set CUDA device {} as current", self.device_id);
         Ok(())
     }
 
     pub fn synchronize(&self) -> Result<(), CudaError> {
+        trace!("Synchronizing CUDA device {}", self.device_id);
         unsafe {
             let result = cudaDeviceSynchronize();
             if result != CUDA_SUCCESS {
+                warn!("Failed to synchronize CUDA device {}: error code {}", self.device_id, result);
                 return Err(CudaError::Synchronization(
                     "Device synchronization failed".into(),
                 ));
             }
         }
+        trace!("Successfully synchronized CUDA device {}", self.device_id);
         Ok(())
     }
 }
 
 pub fn initialize_cuda() -> Result<(), CudaError> {
+    debug!("Initializing CUDA runtime");
     let mut result = Ok(());
     CUDA_INIT.call_once(|| unsafe {
+        trace!("First-time CUDA initialization");
         let init_result = cudaInit(0);
         if init_result != CUDA_SUCCESS {
+            warn!("CUDA initialization failed with error code: {}", init_result);
             result = Err(CudaError::InitializationFailed(
                 "Failed to initialize CUDA".into(),
             ));
+        } else {
+            info!("CUDA runtime initialized successfully");
         }
     });
     result
 }
 
 pub fn get_device_count() -> Result<i32, CudaError> {
+    trace!("Getting CUDA device count");
     let mut count = 0;
     unsafe {
         let result = cudaGetDeviceCount(&mut count);
         if result != CUDA_SUCCESS {
+            warn!("Failed to get CUDA device count: error code {}", result);
             return Err(CudaError::Other("Failed to get device count".into()));
         }
     }
+    debug!("Found {} CUDA devices", count);
     Ok(count)
 }

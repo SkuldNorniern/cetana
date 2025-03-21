@@ -79,4 +79,20 @@ impl LaunchConfig {
         self.shared_mem_bytes = bytes;
         self
     }
+
+    // Add a specialized configuration for reduction operations
+    pub fn for_reduction(elements: u32, stream: cudaStream_t) -> Self {
+        // For reductions, we want a larger block size
+        const BLOCK_SIZE: u32 = 256;
+        // Calculate grid size to cover all elements
+        let grid_size = (elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        
+        Self {
+            grid_dim: Dim3::x(grid_size),
+            block_dim: Dim3::x(BLOCK_SIZE),
+            shared_mem_bytes: BLOCK_SIZE * std::mem::size_of::<f32>() as u32,
+            stream,
+            _marker: PhantomData,
+        }
+    }
 }
