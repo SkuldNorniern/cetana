@@ -27,7 +27,7 @@ impl ParallelExecutor {
 
         let data = Arc::new(data.to_vec());
         let total_elements = data.len();
-        let elements_per_thread = (total_elements + self.thread_count - 1) / self.thread_count;
+        let elements_per_thread = total_elements.div_ceil(self.thread_count);
         let mut handles = Vec::with_capacity(self.thread_count);
 
         for thread_idx in 0..self.thread_count {
@@ -61,7 +61,7 @@ impl ParallelExecutor {
         let a = Arc::new(a.to_vec());
         let b = Arc::new(b.to_vec());
         let total_elements = a.len();
-        let elements_per_thread = (total_elements + self.thread_count - 1) / self.thread_count;
+        let elements_per_thread = total_elements.div_ceil(self.thread_count);
         let mut handles = Vec::with_capacity(self.thread_count);
 
         for thread_idx in 0..self.thread_count {

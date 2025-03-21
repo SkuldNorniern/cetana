@@ -35,8 +35,7 @@ impl CpuCore {
         // Each element requires n multiplications and n-1 additions
         // Total operations = n * n * (2n - 1)
         let operations = size as u64 * size as u64 * (2 * size as u64 - 1);
-        let flops = (operations as f64) / duration.as_secs_f64();
 
-        flops
+        (operations as f64) / duration.as_secs_f64()
     }
 }

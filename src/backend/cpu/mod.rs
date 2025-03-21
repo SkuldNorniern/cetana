@@ -34,22 +34,22 @@ impl Device for CpuBackend {
 
         #[cfg(target_arch = "x86_64")]
         {
-            features.add_feature(
+            features.add(
                 CPU_FEATURE_AVX,
                 is_x86_feature_detected!("avx"),
-                Some("Advanced Vector Extensions".to_string()),
+                Some("Advanced Vector Extensions"),
             );
 
-            features.add_feature(
+            features.add(
                 CPU_FEATURE_AVX2,
                 is_x86_feature_detected!("avx2"),
-                Some("Advanced Vector Extensions 2".to_string()),
+                Some("Advanced Vector Extensions 2"),
             );
 
-            features.add_feature(
+            features.add(
                 CPU_FEATURE_AVX512F,
                 is_x86_feature_detected!("avx512f"),
-                Some("AVX-512 Foundation".to_string()),
+                Some("AVX-512 Foundation"),
             );
         }
 
