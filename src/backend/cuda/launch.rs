@@ -1,6 +1,8 @@
-// use super::CudaError;
-use super::stream::cudaStream_t;
 use std::marker::PhantomData;
+
+use super::stream::cudaStream_t;
+
+use log::trace;
 
 #[derive(Debug, Clone, Copy)]
 pub struct LaunchConfig {
@@ -82,10 +84,18 @@ impl LaunchConfig {
 
     // Add a specialized configuration for reduction operations
     pub fn for_reduction(elements: u32, stream: cudaStream_t) -> Self {
-        // For reductions, we want a larger block size
-        const BLOCK_SIZE: u32 = 256;
-        // Calculate grid size to cover all elements
-        let grid_size = (elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        // For reductions, we want to use larger block sizes
+        const BLOCK_SIZE: u32 = 1024; // Maximum block size for most GPUs
+        
+        // Calculate grid size to cover all elements, but with a reasonable limit
+        let mut grid_size = (elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        
+        // Limit grid size for large arrays - this is a hardware limitation
+        const MAX_GRID_SIZE: u32 = 65535; // Maximum grid dimension for most GPUs
+        if grid_size > MAX_GRID_SIZE {
+            grid_size = MAX_GRID_SIZE;
+            trace!("Grid size limited to {} for {} elements", grid_size, elements);
+        }
         
         Self {
             grid_dim: Dim3::x(grid_size),

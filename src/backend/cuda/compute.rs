@@ -82,7 +82,7 @@ impl CudaBuffer {
             }
         }
         
-        debug!("Successfully created CUDA buffer with {} elements", size);
+        trace!("Successfully created CUDA buffer with {} elements", size);
         Ok(CudaBuffer { 
             ptr, 
             size,
@@ -227,7 +227,7 @@ unsafe fn launch_binary_op<F>(
 where 
     F: FnOnce(*mut f32, *const f32, *const f32, i32, u32, u32, u32, u32, u32, u32, u32, cudaStream_t) -> i32
 {
-    debug!("Launching binary operation kernel on {} elements", a.size());
+    trace!("Launching binary operation kernel on {} elements", a.size());
     if a.size() != b.size() || a.size() != result.size() {
         warn!("Mismatched buffer sizes: A={}, B={}, Result={}", a.size(), b.size(), result.size());
         return Err(CudaError::InvalidValue);
@@ -610,23 +610,86 @@ pub fn vector_reduce_sum(
         return Ok(());
     }
     
+    // For extremely large arrays, we'll process in batches
+    const MAX_ELEMENTS_PER_BATCH: usize = 8_000_000; // 8M elements per batch
+    
+    if size > MAX_ELEMENTS_PER_BATCH {
+        trace!("Processing large reduction array of size {} in batches", size);
+        
+        // Create temporary buffer for batch results
+        let num_batches = (size + MAX_ELEMENTS_PER_BATCH - 1) / MAX_ELEMENTS_PER_BATCH;
+        let mut batch_results = vec![0.0f32; num_batches];
+        let mut batch_result_buf = CudaBuffer::new(1)?;
+        
+        // Process each batch
+        for batch in 0..num_batches {
+            let start = batch * MAX_ELEMENTS_PER_BATCH;
+            let end = std::cmp::min(start + MAX_ELEMENTS_PER_BATCH, size);
+            let batch_size = end - start;
+            
+            trace!("Processing reduction batch {}/{}: elements {}-{}", 
+                   batch+1, num_batches, start, end-1);
+            
+            // Create a slice view of the input buffer for this batch
+            let batch_input_ptr = unsafe { input.as_ptr().add(start) };
+            let batch_input_buf = unsafe {
+                // This is safe because we're creating a temporary view that won't outlive
+                // the original buffer and won't be used after this iteration
+                CudaBuffer {
+                    ptr: batch_input_ptr as *mut f32,
+                    size: batch_size,
+                    allocated_bytes: batch_size * std::mem::size_of::<f32>(),
+                    _marker: std::marker::PhantomData,
+                }
+            };
+            
+            // Process this batch with the specialized reduction config
+            let config = LaunchConfig::for_reduction(batch_size as u32, stream);
+            
+            unsafe {
+                let result_code = launch_vector_reduce_sum_kernel(
+                    batch_result_buf.as_mut_ptr(),
+                    batch_input_buf.as_ptr(),
+                    batch_size as i32,
+                    config.grid_dim.x, config.grid_dim.y, config.grid_dim.z,
+                    config.block_dim.x, config.block_dim.y, config.block_dim.z,
+                    config.shared_mem_bytes,
+                    config.stream
+                );
+                
+                if result_code != CUDA_SUCCESS {
+                    warn!("Batch reduction kernel launch failed with error code: {}", result_code);
+                    return Err(CudaError::KernelLaunchFailed(
+                        "Batch reduction kernel launch failed".into()
+                    ));
+                }
+                
+                // Copy batch result to host
+                let mut batch_result = [0.0f32; 1];
+                batch_result_buf.copy_to_host(&mut batch_result)?;
+                batch_results[batch] = batch_result[0];
+            }
+        }
+        
+        // Sum up all batch results on the CPU
+        let final_sum = batch_results.iter().sum();
+        
+        // Store final result
+        unsafe {
+            *result.as_mut_ptr() = final_sum;
+        }
+        
+        trace!("Completed multi-batch reduction. Final sum: {}", final_sum);
+        return Ok(());
+    }
+    
+    // For smaller arrays, use the standard approach
     unsafe {
-        // For reduction, use a larger block size
-        let block_size: u32 = 256;
-        let shared_mem_size = block_size * std::mem::size_of::<f32>() as u32;
-        
-        // Calculate grid size based on input size
-        let grid_size = (size as u32 + block_size - 1) / block_size;
-        
-        let config = LaunchConfig::new(
-            Dim3::new(grid_size, 1, 1),
-            Dim3::new(block_size, 1, 1),
-            shared_mem_size,
-            stream
-        );
+        // Use a specialized launch configuration for reduction
+        let config = LaunchConfig::for_reduction(size as u32, stream);
         
         trace!("Reduction launch config: grid={}, block={}, shared_mem={}",
-               grid_size, block_size, shared_mem_size);
+               config.grid_dim.x, config.block_dim.x, config.shared_mem_bytes);
         
         let result_code = launch_vector_reduce_sum_kernel(
             result.as_mut_ptr(),
@@ -645,7 +708,7 @@ pub fn vector_reduce_sum(
             ));
         }
         
-        // Only synchronize if using the null stream
+        // Synchronize to ensure completion
         if stream.is_null() {
             trace!("Using null stream, synchronizing device after reduction");
             let sync_result = cudaDeviceSynchronize();
@@ -663,7 +726,7 @@ pub fn vector_reduce_sum(
 
 // Add a function to validate that kernels are running on GPU
 pub fn validate_gpu_execution() -> Result<bool, CudaError> {
-    debug!("Validating GPU execution with test kernel");
+    trace!("Validating GPU execution with test kernel");
     
     // Create test buffers
     let size = 1024;
