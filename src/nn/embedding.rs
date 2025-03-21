@@ -83,7 +83,7 @@ impl Embedding {
             norm_type,
             scale_grad_by_freq,
             sparse,
-            weight: Tensor::from_vec(weight_data, &[num_embeddings, embedding_dim])?,
+            weight: Tensor::new_from_vec(weight_data, &[num_embeddings, embedding_dim])?,
         };
 
         // Initialize padding_idx to zeros if specified
@@ -102,7 +102,7 @@ impl Embedding {
                 weight_data[padding_idx * self.embedding_dim + i] = 0.0;
             }
             self.weight =
-                Tensor::from_vec(weight_data, &[self.num_embeddings, self.embedding_dim])?;
+                Tensor::from_vec(weight_data, &[self.num_embeddings, self.embedding_dim],self.weight.get_backend())?;
         }
         Ok(())
     }
@@ -176,7 +176,7 @@ impl Layer for Embedding {
         let mut output_shape = input.shape().to_vec();
         output_shape.push(self.embedding_dim);
 
-        let mut output = Tensor::from_vec(output_data.clone(), &output_shape)?;
+        let mut output = Tensor::from_vec(output_data.clone(), &output_shape,self.weight.get_backend())?;
 
         // Apply max_norm if specified
         if let Some(max_norm) = self.max_norm {
@@ -210,7 +210,7 @@ impl Layer for Embedding {
             }
 
             // Recreate tensor with normalized data
-            output = Tensor::from_vec(output_data, &output_shape)?;
+            output = Tensor::from_vec(output_data, &output_shape,self.weight.get_backend())?;
         }
 
         Ok(output)
@@ -262,7 +262,7 @@ impl Layer for Embedding {
 
         // Update weights
         let weight_update =
-            Tensor::from_vec(grad_weight, &[self.num_embeddings, self.embedding_dim])?;
+            Tensor::from_vec(grad_weight, &[self.num_embeddings, self.embedding_dim],self.weight.get_backend())?;
         self.weight = self.weight.sub(&weight_update)?;
 
         // Return empty gradient for input since it's just indices
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn test_embedding_forward() -> MlResult<()> {
         let embedding = Embedding::new(10, 3, None, None, 2.0, false, false)?;
-        let input = Tensor::from_vec(vec![1.0, 2.0, 4.0], &[3])?;
+        let input = Tensor::new_from_vec(vec![1.0, 2.0, 4.0], &[3])?;
         let output = embedding.forward(&input)?;
         assert_eq!(output.shape(), &[3, 3]);
         Ok(())
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_from_pretrained() -> MlResult<()> {
-        let pretrained = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
+        let pretrained = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
         let embedding =
             Embedding::from_pretrained(pretrained, true, None, None, 2.0, false, false)?;
         assert_eq!(embedding.weight().shape(), &[2, 3]);
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn test_max_norm() -> MlResult<()> {
         let embedding = Embedding::new(10, 3, None, Some(1.0), 2.0, false, false)?;
-        let input = Tensor::from_vec(vec![1.0], &[1])?;
+        let input = Tensor::new_from_vec(vec![1.0], &[1])?;
         let output = embedding.forward(&input)?;
 
         // Calculate L2 norm manually

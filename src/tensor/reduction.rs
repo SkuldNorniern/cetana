@@ -93,7 +93,7 @@ impl Tensor {
             result[target_idx] += val;
         }
 
-        Tensor::from_vec(result, &new_shape)
+        Tensor::from_vec(result, &new_shape, self.get_backend())
     }
 
     pub fn mean(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor> {
@@ -180,7 +180,7 @@ impl Tensor {
             result[target_idx] += val / elements_per_mean as f32;
         }
 
-        Tensor::from_vec(result, &new_shape)
+        Tensor::from_vec(result, &new_shape, self.get_backend())
     }
 
     /// Calculates the variance of the tensor across the specified dimensions
@@ -237,7 +237,7 @@ impl Tensor {
                         sum.powf(1.0 / p)
                     }
                 };
-                Tensor::from_vec(vec![result], &[1])
+                Tensor::from_vec(vec![result], &[1], self.get_backend())
             }
             Some(dims) => {
                 let rank = self.shape.len();
@@ -312,7 +312,7 @@ impl Tensor {
                     };
                 }
 
-                Tensor::from_vec(result, &new_shape)
+                Tensor::from_vec(result, &new_shape, self.get_backend())
             }
         }
     }

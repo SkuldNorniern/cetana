@@ -26,8 +26,8 @@ impl Activation for ReLU {
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
         // Create a tensor of ones and zeros based on input > 0
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
-        let zeros = Tensor::from_vec(vec![0.0; input.data().len()], input.shape())?;
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
+        let zeros = Tensor::from_vec(vec![0.0; input.data().len()], input.shape(),input.get_backend())?;
 
         // Use backend operations to create mask
         let mask = input.clamp_full(Some(0.0), Some(1.0))?;
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn test_relu_forward() -> MlResult<()> {
         let relu = ReLU::new();
-        let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
+        let input = Tensor::new_from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
         let output = relu.act_forward(&input)?;
 
         assert_eq!(output.data(), &[0.0, 0.0, 0.0, 1.0, 2.0]);
@@ -55,8 +55,8 @@ mod tests {
     #[test]
     fn test_relu_backward() -> MlResult<()> {
         let relu = ReLU::new();
-        let input = Tensor::from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
-        let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
+        let input = Tensor::new_from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
+        let grad_output = Tensor::new_from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
 
         let grad_input = relu.act_backward(&input, &grad_output)?;
         assert_eq!(grad_input.data(), &[0.0, 0.0, 1.0]);

@@ -31,7 +31,7 @@ impl Activation for Swish {
         let sigmoid_x = sigmoid.forward(input)?;
 
         // Use backend operations for the derivative calculation
-        let one = Tensor::from_vec(vec![1.0], &[1])?;
+        let one = Tensor::from_vec(vec![1.0], &[1],input.get_backend())?;
         let complement = one.sub(&sigmoid_x)?;
         let term1 = sigmoid_x.mul(&complement)?;
         let term2 = input.mul(&term1)?;

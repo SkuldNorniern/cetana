@@ -87,6 +87,7 @@ impl Layer for Pooling {
         Tensor::from_vec(
             output_data,
             &[batch_size, channels, output_height, output_width],
+            input.get_backend()
         )
     }
     /// Computes the gradient for backpropagation
@@ -156,7 +157,7 @@ impl Layer for Pooling {
             }
         }
 
-        Tensor::from_vec(grad_input, input_shape)
+        Tensor::from_vec(grad_input, input_shape,input.get_backend())
     }
 }
 
@@ -169,7 +170,7 @@ mod tests {
         let input_data = vec![
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
         ];
-        let input = Tensor::from_vec(input_data, &[1, 1, 4, 4])?;
+        let input = Tensor::new_from_vec(input_data, &[1, 1, 4, 4])?;
 
         let pool = Pooling::new(2, 2, PoolingType::Max);
         let output = pool.forward(&input)?;
@@ -184,7 +185,7 @@ mod tests {
         let input_data = vec![
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
         ];
-        let input = Tensor::from_vec(input_data, &[1, 1, 4, 4])?;
+        let input = Tensor::new_from_vec(input_data, &[1, 1, 4, 4])?;
 
         let pool = Pooling::new(2, 2, PoolingType::Average);
         let output = pool.forward(&input)?;
@@ -199,13 +200,13 @@ mod tests {
         let input_data = vec![
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
         ];
-        let input = Tensor::from_vec(input_data, &[1, 1, 4, 4])?;
+        let input = Tensor::new_from_vec(input_data, &[1, 1, 4, 4])?;
 
         let pool = Pooling::new(2, 2, PoolingType::Max);
         let _output = pool.forward(&input)?;
 
         let grad_output_data = vec![1.0, 1.0, 1.0, 1.0];
-        let grad_output = Tensor::from_vec(grad_output_data, &[1, 1, 2, 2])?;
+        let grad_output = Tensor::new_from_vec(grad_output_data, &[1, 1, 2, 2])?;
 
         let mut pool = Pooling::new(2, 2, PoolingType::Max);
         let grad_input = pool.backward(&input, &grad_output, 0.1)?;

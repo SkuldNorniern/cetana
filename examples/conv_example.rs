@@ -15,7 +15,7 @@ fn main() -> MlResult<()> {
     let input_data = vec![
         1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     ];
-    let input = Tensor::from_vec(input_data.clone(), &[1, 1, 4, 4])?;
+    let input = Tensor::new_from_vec(input_data.clone(), &[1, 1, 4, 4])?;
 
     // Create convolution layers with different padding modes
     let mut conv_valid = Conv2d::new(1, 1, 2, 1, PaddingMode::Valid, false)?;
@@ -44,7 +44,7 @@ fn main() -> MlResult<()> {
     println!("\nBackpropagation Example:");
 
     // Create gradient for backpropagation
-    let grad_output = Tensor::from_vec(
+    let grad_output = Tensor::new_from_vec(
         vec![1.0; output_valid.shape()[2] * output_valid.shape()[3]],
         &[1, 1, output_valid.shape()[2], output_valid.shape()[3]],
     )?;

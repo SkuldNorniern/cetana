@@ -22,16 +22,7 @@ impl Tensor {
         let size: usize = shape.iter().product();
         let data = vec![0.0; size];
 
-        let device_type = DeviceManager::get_default_device();
-        let backend: Arc<dyn Backend> = match device_type {
-            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "cuda")]
-            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(MpsBackend::new()?),
-            #[cfg(feature = "vulkan")]
-            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
-        };
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         Ok(Self {
             data,
@@ -81,16 +72,7 @@ impl Tensor {
         let size: usize = shape.iter().product();
         let data = vec![1.0; size];
 
-        let device_type = DeviceManager::get_default_device();
-        let backend: Arc<dyn Backend> = match device_type {
-            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "cuda")]
-            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(MpsBackend::new()?),
-            #[cfg(feature = "vulkan")]
-            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
-        };
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         Ok(Self {
             data,
@@ -158,10 +140,7 @@ impl Tensor {
         }
 
         // Fixed backend initialization with proper error handling
-        #[cfg(feature = "cpu")]
-        let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new()?);
-        #[cfg(not(feature = "cpu"))]
-        let backend = Arc::new(DeviceManager::get_default_device()?.create_backend()?);
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         Ok(Self {
             data,
@@ -196,7 +175,7 @@ impl Tensor {
         let total_size: usize = size.iter().product();
         let data = vec![fill_value; total_size];
 
-        Tensor::from_vec(data, size)
+        Tensor::new_from_vec(data, size)
     }
 
     /// Creates a 1-D tensor of size ⌈(end - start) / step⌉ with values from the interval [start, end)
@@ -241,16 +220,7 @@ impl Tensor {
         }
 
         // Create device/backend as in other tensor creation methods
-        let device_type = DeviceManager::get_default_device();
-        let backend: Arc<dyn Backend> = match device_type {
-            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "cuda")]
-            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(MpsBackend::new()?),
-            #[cfg(feature = "vulkan")]
-            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
-        };
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         let data_len = data.len();
         Ok(Self {

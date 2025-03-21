@@ -65,7 +65,7 @@ impl Tensor {
             result[target_idx] = self.data[i];
         }
 
-        Tensor::from_vec(result, &new_shape)
+        Tensor::from_vec(result, &new_shape,self.get_backend())
     }
 
     /// Reshapes the tensor to the specified shape
@@ -360,7 +360,7 @@ impl Tensor {
                 }
             }
 
-            result.push(Tensor::from_vec(chunk_data, &new_shape)?);
+            result.push(Tensor::from_vec(chunk_data, &new_shape,self.get_backend())?);
             start_idx = end_idx;
         }
 
@@ -496,7 +496,7 @@ impl Tensor {
             &mut new_data,
         );
 
-        Tensor::from_vec(new_data, &new_shape)
+        Tensor::from_vec(new_data, &new_shape,self.get_backend())
     }
 
     /// Clamps all elements in input into the range [min, max].
@@ -523,7 +523,7 @@ impl Tensor {
             })
             .collect();
 
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape,self.get_backend())
     }
 
     /// Clamps all elements in input to be larger than min.
@@ -618,7 +618,7 @@ impl Tensor {
             }
         }
 
-        Tensor::from_vec(data, &[size, size])
+        Tensor::new_from_vec(data, &[size, size])
     }
 
     /// Fills elements of self tensor with value where mask is True.
@@ -909,7 +909,7 @@ impl Tensor {
             result.push(tensors[tensor_idx].data()[src_idx]);
         }
 
-        Tensor::from_vec(result, &new_shape)
+        Tensor::from_vec(result, &new_shape,tensors[0].get_backend())
     }
 
     /// Splits the tensor into chunks of specified size along a given dimension.
@@ -981,7 +981,7 @@ impl Tensor {
                 }
             }
 
-            result.push(Tensor::from_vec(split_data, &new_shape)?);
+            result.push(Tensor::from_vec(split_data, &new_shape,self.get_backend())?);
             start_idx = end_idx;
         }
 
@@ -997,8 +997,8 @@ mod tests {
     fn test_scatter() -> MlResult<()> {
         // Test 2D scatter
         let mut x = Tensor::zeros(&[3, 5])?;
-        let src = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
-        let index = Tensor::from_vec(vec![0.0, 2.0, 4.0], &[3, 1])?;
+        let src = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
+        let index = Tensor::new_from_vec(vec![0.0, 2.0, 4.0], &[3, 1])?;
         x.scatter(&index, &src, 1)?;
 
         let expected = vec![
@@ -1008,8 +1008,8 @@ mod tests {
 
         // Test negative dimension
         let mut x = Tensor::zeros(&[3, 4])?;
-        let src = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
-        let index = Tensor::from_vec(vec![0.0, 1.0, 2.0], &[3, 1])?;
+        let src = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
+        let index = Tensor::new_from_vec(vec![0.0, 1.0, 2.0], &[3, 1])?;
         x.scatter(&index, &src, -1)?;
 
         let expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0];
@@ -1020,29 +1020,29 @@ mod tests {
     #[test]
     fn test_cat() -> MlResult<()> {
         // Test 1: Basic concatenation along dimension 0
-        let t1 = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
-        let t2 = Tensor::from_vec(vec![3.0, 4.0], &[1, 2])?;
+        let t1 = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let t2 = Tensor::new_from_vec(vec![3.0, 4.0], &[1, 2])?;
         let result = Tensor::cat(&[&t1, &t2], 0)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);
 
         // Test 2: Concatenation along dimension 1
-        let t1 = Tensor::from_vec(vec![1.0, 2.0], &[2, 1])?;
-        let t2 = Tensor::from_vec(vec![3.0, 4.0], &[2, 1])?;
+        let t1 = Tensor::new_from_vec(vec![1.0, 2.0], &[2, 1])?;
+        let t2 = Tensor::new_from_vec(vec![3.0, 4.0], &[2, 1])?;
         let result = Tensor::cat(&[&t1, &t2], 1)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 3.0, 2.0, 4.0]);
 
         // Test 3: 3D tensor concatenation
-        let t1 = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2])?;
-        let t2 = Tensor::from_vec(vec![5.0, 6.0, 7.0, 8.0], &[1, 2, 2])?;
+        let t1 = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2])?;
+        let t2 = Tensor::new_from_vec(vec![5.0, 6.0, 7.0, 8.0], &[1, 2, 2])?;
         let result = Tensor::cat(&[&t1, &t2], 0)?;
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         // Test 4: Negative dimension
-        let t1 = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
-        let t2 = Tensor::from_vec(vec![3.0, 4.0], &[1, 2])?;
+        let t1 = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let t2 = Tensor::new_from_vec(vec![3.0, 4.0], &[1, 2])?;
         let result = Tensor::cat(&[&t1, &t2], -2)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);

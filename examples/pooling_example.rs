@@ -16,7 +16,7 @@ fn main() -> MlResult<()> {
     let input_data = vec![
         1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     ];
-    let input = Tensor::from_vec(input_data.clone(), &[1, 1, 4, 4])?;
+    let input = Tensor::new_from_vec(input_data.clone(), &[1, 1, 4, 4])?;
 
     // Create pooling layers
     let mut max_pool = Pooling::new(2, 2, PoolingType::Max);
@@ -41,7 +41,7 @@ fn main() -> MlResult<()> {
     // Demonstrate backpropagation
     println!("\nBackpropagation Example:");
 
-    let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0, 1.0], &[1, 1, 2, 2])?;
+    let grad_output = Tensor::new_from_vec(vec![1.0, 1.0, 1.0, 1.0], &[1, 1, 2, 2])?;
 
     println!("Gradient Output:");
     print_matrix_grid(grad_output.data(), 2);

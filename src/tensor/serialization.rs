@@ -52,6 +52,6 @@ impl Deserialize for Tensor {
             cursor += 4;
         }
 
-        Tensor::from_vec(data, &shape)
+        Tensor::new_from_vec(data, &shape)
     }
 }

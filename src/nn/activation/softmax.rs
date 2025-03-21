@@ -81,7 +81,7 @@ impl Activation for Softmax {
             }
         }
 
-        Tensor::from_vec(result, shape)
+        Tensor::from_vec(result, shape,input.get_backend())
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
@@ -116,7 +116,7 @@ impl Activation for Softmax {
             }
         }
 
-        Tensor::from_vec(result, shape)
+        Tensor::from_vec(result, shape,input.get_backend())
     }
 }
 
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn test_softmax_forward() -> MlResult<()> {
         let softmax = Softmax::new(None);
-        let input = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[1, 3])?;
+        let input = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[1, 3])?;
         let output = softmax.act_forward(&input)?;
 
         // Check shape
@@ -171,8 +171,8 @@ mod tests {
     #[test]
     fn test_softmax_backward() -> MlResult<()> {
         let softmax = Softmax::new(None);
-        let input = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
-        let grad_output = Tensor::from_vec(vec![1.0, -1.0], &[1, 2])?;
+        let input = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let grad_output = Tensor::new_from_vec(vec![1.0, -1.0], &[1, 2])?;
 
         let grad_input = softmax.act_backward(&input, &grad_output)?;
 
@@ -190,7 +190,7 @@ mod tests {
     fn test_softmax_numerical_stability() -> MlResult<()> {
         let softmax = Softmax::new(None);
         // Test with large numbers that could cause overflow
-        let input = Tensor::from_vec(vec![1000.0, 1000.1], &[1, 2])?;
+        let input = Tensor::new_from_vec(vec![1000.0, 1000.1], &[1, 2])?;
         let output = softmax.act_forward(&input)?;
 
         // Check shape

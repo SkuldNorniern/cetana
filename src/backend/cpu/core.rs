@@ -22,8 +22,8 @@ impl CpuCore {
         let size = 1024;
         let elements = size * size;
 
-        let a = Tensor::from_vec(vec![1.0; elements], &[size, size]).unwrap();
-        let b = Tensor::from_vec(vec![2.0; elements], &[size, size]).unwrap();
+        let a = Tensor::new_from_vec(vec![1.0; elements], &[size, size]).unwrap();
+        let b = Tensor::new_from_vec(vec![2.0; elements], &[size, size]).unwrap();
 
         // Measure matrix multiplication time (more compute intensive than addition)
         let start = std::time::Instant::now();

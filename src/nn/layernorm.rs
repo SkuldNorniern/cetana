@@ -27,7 +27,7 @@ impl LayerNorm {
         // Initialize weights with ones
         let weight = if elementwise_affine {
             let ones = vec![1.0; normalized_shape.iter().product()];
-            Some(Tensor::from_vec(ones, &normalized_shape)?)
+            Some(Tensor::new_from_vec(ones, &normalized_shape)?)
         } else {
             None
         };
@@ -35,7 +35,7 @@ impl LayerNorm {
         // Initialize bias with zeros
         let bias = if elementwise_affine && use_bias {
             let zeros = vec![0.0; normalized_shape.iter().product()];
-            Some(Tensor::from_vec(zeros, &normalized_shape)?)
+            Some(Tensor::new_from_vec(zeros, &normalized_shape)?)
         } else {
             None
         };
@@ -116,7 +116,7 @@ impl Layer for LayerNorm {
             });
         }
 
-        Tensor::from_vec(normalized, input_shape)
+        Tensor::from_vec(normalized, input_shape,input.get_backend())
     }
 
     fn backward(
@@ -144,7 +144,7 @@ mod tests {
         let input_data = vec![
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
         ];
-        let input = Tensor::from_vec(input_data, &[3, 4])?;
+        let input = Tensor::new_from_vec(input_data, &[3, 4])?;
         eprintln!("input: {:?}", input);
         let output = ln.forward(&input)?;
         eprintln!("output: {:?}", output);
@@ -154,7 +154,7 @@ mod tests {
             -1.3416, -0.4472, 0.4472, 1.3416, -1.3416, -0.4472, 0.4472, 1.3416, -1.3416, -0.4472,
             0.4472, 1.3416,
         ];
-        let expected_output_tensor = Tensor::from_vec(expected_output.clone(), &[3, 4])?;
+        let expected_output_tensor = Tensor::new_from_vec(expected_output.clone(), &[3, 4])?;
         eprintln!("expected_output: {:?}", expected_output_tensor);
 
         // Compare output values with tolerance

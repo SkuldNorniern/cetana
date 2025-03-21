@@ -65,7 +65,7 @@ impl Linear {
             .collect();
 
         trace!("Initializing weights with Xavier/Glorot bounds k={}", k);
-        let weight = Tensor::from_vec(weight_data, &[out_features, in_features])?;
+        let weight = Tensor::new_from_vec(weight_data, &[out_features, in_features])?;
 
         // Bias initialization
         let bias = if bias {
@@ -73,7 +73,7 @@ impl Linear {
             let bias_data: Vec<f32> = (0..out_features)
                 .map(|_| gen_range(&mut rng, -k, k))
                 .collect();
-            Some(Tensor::from_vec(bias_data, &[out_features])?)
+            Some(Tensor::new_from_vec(bias_data, &[out_features])?)
         } else {
             trace!("Skipping bias initialization");
             None
@@ -282,11 +282,11 @@ mod tests {
         // Set weights and bias manually for deterministic testing
         let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
         let bias_data = vec![0.1, 0.2];
-        linear.weight = Tensor::from_vec(weight_data, &[2, 3])?;
-        linear.bias = Some(Tensor::from_vec(bias_data, &[2])?);
+        linear.weight = Tensor::new_from_vec(weight_data, &[2, 3])?;
+        linear.bias = Some(Tensor::new_from_vec(bias_data, &[2])?);
 
         let input_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let input = Tensor::from_vec(input_data, &[2, 3])?;
+        let input = Tensor::new_from_vec(input_data, &[2, 3])?;
 
         let output = linear.forward(&input)?;
         let expected = vec![1.5000001, 3.4, 3.3, 7.8999996];
@@ -307,7 +307,7 @@ mod tests {
 
         // Use constant input for deterministic testing
         let input_data: Vec<f32> = vec![0.1; batch_size * seq_len * hidden_size];
-        let input = Tensor::from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
+        let input = Tensor::new_from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
 
         let output = linear.forward(&input)?;
         assert_eq!(output.shape(), &[batch_size, seq_len, out_features]);
@@ -327,7 +327,7 @@ mod tests {
         let linear = Linear::new(hidden_size, out_features, true)?;
 
         let input_data: Vec<f32> = vec![0.1; batch_size * seq_len * hidden_size];
-        let input = Tensor::from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
+        let input = Tensor::new_from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
 
         let output = linear.forward(&input)?;
         assert_eq!(output.shape(), &[batch_size, seq_len, out_features]);
@@ -347,7 +347,7 @@ mod tests {
         let linear = Linear::new(hidden_size, vocab_size, true)?;
 
         let input_data: Vec<f32> = vec![0.1; batch_size * seq_len * hidden_size];
-        let input = Tensor::from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
+        let input = Tensor::new_from_vec(input_data, &[batch_size, seq_len, hidden_size])?;
 
         let output = linear.forward(&input)?;
         assert_eq!(output.shape(), &[batch_size, seq_len, vocab_size]);
@@ -364,11 +364,11 @@ mod tests {
         // Set weights and bias manually
         let weight_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
         let bias_data = vec![0.1, 0.2, 0.3];
-        linear.weight = Tensor::from_vec(weight_data, &[3, 2])?;
-        linear.bias = Some(Tensor::from_vec(bias_data, &[3])?);
+        linear.weight = Tensor::new_from_vec(weight_data, &[3, 2])?;
+        linear.bias = Some(Tensor::new_from_vec(bias_data, &[3])?);
 
         let input_data = vec![1.0, 2.0, 3.0, 4.0];
-        let input = Tensor::from_vec(input_data, &[2, 2])?;
+        let input = Tensor::new_from_vec(input_data, &[2, 2])?;
 
         let output = linear.forward(&input)?;
         let expected = vec![0.6, 1.3, 2.0, 1.2, 2.7, 4.2];
@@ -385,11 +385,11 @@ mod tests {
         // Set weights and bias manually
         let weight_data = vec![0.5, 1.0];
         let bias_data = vec![0.1, 0.2];
-        linear.weight = Tensor::from_vec(weight_data, &[2, 1])?;
-        linear.bias = Some(Tensor::from_vec(bias_data, &[2])?);
+        linear.weight = Tensor::new_from_vec(weight_data, &[2, 1])?;
+        linear.bias = Some(Tensor::new_from_vec(bias_data, &[2])?);
 
         let input_data = vec![1.0, 2.0, 3.0];
-        let input = Tensor::from_vec(input_data, &[3, 1])?;
+        let input = Tensor::new_from_vec(input_data, &[3, 1])?;
 
         let output = linear.forward(&input)?;
         let expected = vec![0.6, 1.2, 1.1, 2.2, 1.6, 3.2];
@@ -406,11 +406,11 @@ mod tests {
         // Set weights and bias manually
         let weight_data = vec![0.5, 1.0, 1.5];
         let bias_data = vec![0.1, 0.2, 0.3];
-        linear.weight = Tensor::from_vec(weight_data, &[3, 1])?;
-        linear.bias = Some(Tensor::from_vec(bias_data, &[3])?);
+        linear.weight = Tensor::new_from_vec(weight_data, &[3, 1])?;
+        linear.bias = Some(Tensor::new_from_vec(bias_data, &[3])?);
 
         let input_data = vec![1.0, 2.0];
-        let input = Tensor::from_vec(input_data, &[2, 1])?;
+        let input = Tensor::new_from_vec(input_data, &[2, 1])?;
 
         let output = linear.forward(&input)?;
         let expected = vec![0.6, 1.2, 1.8, 1.1, 2.2, 3.3];

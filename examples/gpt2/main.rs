@@ -11,7 +11,7 @@ use std::time::Instant;
 
 fn create_position_ids(seq_length: usize) -> MlResult<Tensor> {
     let positions: Vec<f32> = (0..seq_length).map(|x| x as f32).collect();
-    Tensor::from_vec(positions, &[1, seq_length])
+    Tensor::new_from_vec(positions, &[1, seq_length])
 }
 
 fn estimate_mfu(config: &GPTConfig, iter_num: usize, elapsed: f32) -> f32 {

@@ -43,7 +43,7 @@ impl Dropout {
             }
         }
 
-        let mask = Tensor::from_vec(mask_data, x.shape())?;
+        let mask = Tensor::from_vec(mask_data, x.shape(),x.get_backend())?;
         x.mul(&mask)
     }
 

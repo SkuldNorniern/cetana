@@ -139,8 +139,7 @@ mod tests {
 
     #[test]
     fn test_tensor_serialization() {
-        let tensor =
-            Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).expect("Failed to create tensor");
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).expect("Failed to create tensor");
 
         // Test serialization
         let serialized = tensor.serialize();
@@ -159,7 +158,7 @@ mod tests {
 
         // Create a test tensor
         let tensor =
-            Tensor::from_vec(vec![1.0, -2.5, 3.7, 4.2], &[2, 2]).expect("Failed to create tensor");
+            Tensor::new_from_vec(vec![1.0, -2.5, 3.7, 4.2], &[2, 2]).expect("Failed to create tensor");
 
         // Implement a simple struct that implements Module + Model for testing
         struct TestModel(Tensor);
@@ -241,7 +240,7 @@ mod tests {
         impl DeserializeComponents for TestModel {
             fn deserialize_components(_: Vec<Vec<u8>>) -> MlResult<Self> {
                 Ok(Self(
-                    Tensor::from_vec(vec![], &[0]).expect("Failed to create empty tensor"),
+                    Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor"),
                 ))
             }
         }
@@ -257,7 +256,7 @@ mod tests {
     #[test]
     fn test_tensor_serialization_edge_cases() {
         // Test empty tensor
-        let empty_tensor = Tensor::from_vec(vec![], &[0]).expect("Failed to create empty tensor");
+        let empty_tensor = Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor");
         let serialized = empty_tensor.serialize();
         let deserialized =
             Tensor::deserialize(&serialized).expect("Failed to deserialize empty tensor");
@@ -266,7 +265,7 @@ mod tests {
 
         // Test single element tensor
         let single_tensor =
-            Tensor::from_vec(vec![42.0], &[1, 1]).expect("Failed to create single element tensor");
+            Tensor::new_from_vec(vec![42.0], &[1, 1]).expect("Failed to create single element tensor");
         let serialized = single_tensor.serialize();
         let deserialized =
             Tensor::deserialize(&serialized).expect("Failed to deserialize single element tensor");

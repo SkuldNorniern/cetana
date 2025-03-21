@@ -29,7 +29,7 @@ impl Activation for Silu {
         // 1. sigmoid
         let sigmoid_x = Sigmoid::new().act_forward(input)?;
         // 2. inner_term = x * (1 - sigmoid(x))
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
         let inner_term = input.mul(&ones.sub(&sigmoid_x)?)?;
         // 3. silu differential operation
         let grad = sigmoid_x.mul(&ones.add(&inner_term)?)?;
@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn test_silu_forward() -> MlResult<()> {
         let silu = Silu::new();
-        let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
+        let input = Tensor::new_from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
         let output = silu.act_forward(&input)?;
 
         let expected = [-0.238, -0.269, 0.0, 0.731, 1.762];
@@ -57,8 +57,8 @@ mod tests {
     #[test]
     fn test_silu_backward() -> MlResult<()> {
         let silu = Silu::new();
-        let input = Tensor::from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
-        let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
+        let input = Tensor::new_from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
+        let grad_output = Tensor::new_from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
         let grad_input = silu.act_backward(&input, &grad_output)?;
 
         let expected = [0.072, 0.5, 0.928];

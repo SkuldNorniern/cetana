@@ -65,7 +65,7 @@ fn main() -> MlResult<()> {
     let network = SimpleNetwork::new()?;
 
     // Create some test data
-    let input = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
+    let input = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
 
     // Get initial prediction
     let initial_prediction = network.forward(&input)?;

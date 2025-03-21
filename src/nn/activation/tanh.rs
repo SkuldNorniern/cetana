@@ -35,7 +35,7 @@ impl Activation for Tanh {
         let tanh_x = self.forward(input)?;
 
         // 1 - tanh²(x)
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape())?;
+        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
         let grad = ones.sub(&tanh_x.mul(&tanh_x)?)?;
 
         // Multiply with incoming gradient
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn test_tanh_forward() -> MlResult<()> {
         let tanh = Tanh::new();
-        let input = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
+        let input = Tensor::new_from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[1, 5])?;
         let output = tanh.act_forward(&input)?;
 
         // Check approximate values
@@ -64,8 +64,8 @@ mod tests {
     #[test]
     fn test_tanh_backward() -> MlResult<()> {
         let tanh = Tanh::new();
-        let input = Tensor::from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
-        let grad_output = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
+        let input = Tensor::new_from_vec(vec![-1.0, 0.0, 1.0], &[1, 3])?;
+        let grad_output = Tensor::new_from_vec(vec![1.0, 1.0, 1.0], &[1, 3])?;
 
         let grad_input = tanh.act_backward(&input, &grad_output)?;
 

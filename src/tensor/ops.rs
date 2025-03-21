@@ -36,12 +36,12 @@ impl Tensor {
                     *val = self.data[i * features + j] + other.data[j];
                 }
             }
-            return Tensor::from_vec(result, &self.shape);
+            return Tensor::from_vec(result, &self.shape, self.get_backend());
         }
 
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.add(&self.data, &other.data), &self.shape),
+            _ => Tensor::from_vec(self.backend.add(&self.data, &other.data), &self.shape, self.get_backend()),
         }
     }
 
@@ -54,7 +54,7 @@ impl Tensor {
     /// A new tensor with each element being tensor_element + scalar
     pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x + scalar).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Subtracts two tensors element-wise
@@ -74,12 +74,12 @@ impl Tensor {
                     result[i * features + j] = self.data[i * features + j] - other.data[j];
                 }
             }
-            return Tensor::from_vec(result, &self.shape);
+            return Tensor::from_vec(result, &self.shape, self.get_backend());
         }
 
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.sub(&self.data, &other.data), &self.shape),
+            _ => Tensor::from_vec(self.backend.sub(&self.data, &other.data), &self.shape, self.get_backend()),
         }
     }
 
@@ -92,7 +92,7 @@ impl Tensor {
     /// A new tensor with each element being tensor_element - scalar
     pub fn sub_scalar(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x - scalar).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Subtracts a scalar from each element in the tensor
@@ -104,7 +104,7 @@ impl Tensor {
     /// A new tensor with each element being scalar - tensor_element
     pub fn scalar_sub(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| scalar - x).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Multiplies two tensors element-wise
@@ -117,7 +117,7 @@ impl Tensor {
     pub fn mul(&self, other: &Tensor) -> MlResult<Tensor> {
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.multiply(&self.data, &other.data), &self.shape),
+            _ => Tensor::from_vec(self.backend.multiply(&self.data, &other.data), &self.shape, self.get_backend()),
         }
     }
 
@@ -130,7 +130,7 @@ impl Tensor {
     /// A new tensor with each element being tensor_element * scalar
     pub fn mul_scalar(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x * scalar).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Divides two tensors element-wise
@@ -143,7 +143,7 @@ impl Tensor {
     pub fn div(&self, other: &Tensor) -> MlResult<Tensor> {
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.div(&self.data, &other.data), &self.shape),
+            _ => Tensor::from_vec(self.backend.div(&self.data, &other.data), &self.shape, self.get_backend()),
         }
     }
 
@@ -156,7 +156,7 @@ impl Tensor {
     /// A new tensor with each element being tensor_element / scalar
     pub fn div_scalar(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x / scalar).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Divides a scalar by each element in the tensor
@@ -168,7 +168,7 @@ impl Tensor {
     /// A new tensor with each element being scalar / tensor_element
     pub fn scalar_div(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| scalar / x).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Negates each element in the tensor
@@ -178,7 +178,7 @@ impl Tensor {
     pub fn neg(&self) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| -x).collect();
 
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Applies the exponential function to each element in the tensor
@@ -187,7 +187,7 @@ impl Tensor {
     /// A new tensor with each element being e ^ tensor_element
     pub fn exp(&self) -> MlResult<Tensor> {
         let result = self.backend.exp(&self.data);
-        Tensor::from_vec(result, &self.shape)
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Raises each element in the tensor to a power
@@ -199,7 +199,7 @@ impl Tensor {
     /// A new tensor with each element being tensor_element ^ power
     pub fn pow(&self, power: f32) -> MlResult<Tensor> {
         let result = self.backend.pow(&self.data, power);
-        Tensor::from_vec(result, &self.shape)
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Raises each element in the tensor to a power
@@ -211,7 +211,7 @@ impl Tensor {
     /// A new tensor with each element being tensor_element ^ exponent
     pub fn pow_scalar(&self, exponent: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x.powf(exponent)).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Raises a scalar to the power of each element in the tensor
@@ -223,7 +223,7 @@ impl Tensor {
     /// A new tensor with each element being scalar ^ tensor_element
     pub fn scalar_pow(&self, scalar: f32) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| scalar.powf(x)).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Takes the square root of each element in the tensor
@@ -232,7 +232,7 @@ impl Tensor {
     /// A new tensor with each element being the square root of tensor_element
     pub fn sqrt(&self) -> MlResult<Tensor> {
         let result = self.backend.sqrt(&self.data);
-        Tensor::from_vec(result, &self.shape)
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Returns a new tensor with the square of the elements of input
@@ -253,7 +253,7 @@ impl Tensor {
     /// ```
     pub fn square(&self) -> MlResult<Self> {
         let data: Vec<f32> = self.data.iter().map(|&x| x * x).collect();
-        Self::from_vec(data, &self.shape)
+        Self::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Applies the natural logarithm to each element in the tensor
@@ -263,7 +263,7 @@ impl Tensor {
     pub fn log(&self) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x.ln()).collect();
 
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Performs matrix multiplication on two tensors
@@ -294,6 +294,7 @@ impl Tensor {
                         .map(|(&a, &b)| a * b)
                         .sum::<f32>()],
                     &[],
+                    self.get_backend()
                 ),
             },
 
@@ -318,7 +319,7 @@ impl Tensor {
                     }
                     result[i] = sum;
                 }
-                Tensor::from_vec(result, &[m])
+                Tensor::from_vec(result, &[m], self.get_backend())
             }
 
             (1, 2) => {
@@ -341,7 +342,7 @@ impl Tensor {
                     }
                     result[j] = sum;
                 }
-                Tensor::from_vec(result, &[n])
+                Tensor::from_vec(result, &[n], self.get_backend())
             }
 
             // Case 3: Higher dimensional tensor multiplication
@@ -421,7 +422,7 @@ impl Tensor {
                 output_shape.push(m);
                 output_shape.push(n);
 
-                Tensor::from_vec(result, &output_shape)
+                Tensor::from_vec(result, &output_shape, self.get_backend())
             }
         }
     }
@@ -439,7 +440,7 @@ impl Tensor {
             .iter()
             .map(|&x| (x == scalar) as i32 as f32)
             .collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Returns the k largest elements of the tensor along the last dimension.
@@ -515,8 +516,8 @@ impl Tensor {
         new_shape[last_dim] = k;
 
         Ok((
-            Tensor::from_vec(values, &new_shape)?,
-            Tensor::from_vec(indices, &new_shape)?,
+            Tensor::from_vec(values, &new_shape, self.get_backend())?,
+            Tensor::from_vec(indices, &new_shape, self.get_backend())?,
         ))
     }
 
@@ -535,7 +536,7 @@ impl Tensor {
     /// ```
     pub fn abs(&self) -> MlResult<Tensor> {
         let data: Vec<f32> = self.data.iter().map(|&x| x.abs()).collect();
-        Tensor::from_vec(data, &self.shape)
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Returns the maximum value of all elements in the input tensor.
@@ -569,7 +570,7 @@ impl Tensor {
             None => {
                 // Find global maximum
                 let max_val = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-                Ok((Tensor::from_vec(vec![max_val], &[1])?, None))
+                Ok((Tensor::from_vec(vec![max_val], &[1], self.get_backend())?, None))
             }
             Some(d) => {
                 let dim = if d < 0 {
@@ -620,8 +621,8 @@ impl Tensor {
                 }
 
                 Ok((
-                    Tensor::from_vec(max_values, &new_shape)?,
-                    Some(Tensor::from_vec(max_indices, &new_shape)?),
+                    Tensor::from_vec(max_values, &new_shape, self.get_backend())?,
+                    Some(Tensor::from_vec(max_indices, &new_shape, self.get_backend())?),
                 ))
             }
         }
@@ -635,13 +636,13 @@ mod tests {
     #[test]
     fn test_topk() -> MlResult<()> {
         // Test 1: Basic 1D tensor
-        let tensor = Tensor::from_vec(vec![1.0, 4.0, 3.0, 2.0, 5.0], &[5])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 4.0, 3.0, 2.0, 5.0], &[5])?;
         let (values, indices) = tensor.topk(3, true)?;
         assert_eq!(values.data(), &[5.0, 4.0, 3.0]);
         assert_eq!(indices.data(), &[4.0, 1.0, 2.0]);
 
         // Test 2: 2D tensor
-        let tensor = Tensor::from_vec(
+        let tensor = Tensor::new_from_vec(
             vec![1.0, 4.0, 3.0, 2.0, 5.0, 2.0, 3.0, 1.0, 4.0, 5.0],
             &[2, 5],
         )?;
@@ -651,7 +652,7 @@ mod tests {
         assert_eq!(indices.data(), &[4.0, 1.0, 4.0, 3.0]);
 
         // Test 3: Unsorted output
-        let tensor = Tensor::from_vec(vec![1.0, 4.0, 3.0, 2.0, 5.0], &[5])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 4.0, 3.0, 2.0, 5.0], &[5])?;
         let (values, indices) = tensor.topk(3, false)?;
         assert_eq!(values.data(), &[4.0, 3.0, 5.0]);
         assert_eq!(indices.data(), &[1.0, 2.0, 4.0]);
@@ -688,8 +689,8 @@ mod tests {
     #[test]
     fn test_matmul_2d_2d() -> MlResult<()> {
         // Case 1: 2D * 2D Matrix Multiplication
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
-        let b = Tensor::from_vec(vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
+        let b = Tensor::new_from_vec(vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2])?;
         let c = a.matmul(&b)?;
 
         assert_eq!(c.shape(), &[2, 2]);
@@ -700,8 +701,8 @@ mod tests {
     #[test]
     fn test_matmul_1d_2d() -> MlResult<()> {
         // Case 2: 1D * 2D (Vector-Matrix Multiplication)
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
-        let b = Tensor::from_vec(vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0], &[3, 2])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let b = Tensor::new_from_vec(vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0], &[3, 2])?;
         let c = a.matmul(&b)?;
 
         assert_eq!(c.shape(), &[2]);
@@ -712,8 +713,8 @@ mod tests {
     #[test]
     fn test_matmul_2d_1d() -> MlResult<()> {
         // Case 3: 2D * 1D (Matrix-Vector Multiplication)
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
-        let b = Tensor::from_vec(vec![7.0, 8.0, 9.0], &[3])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
+        let b = Tensor::new_from_vec(vec![7.0, 8.0, 9.0], &[3])?;
         let c = a.matmul(&b)?;
 
         assert_eq!(c.shape(), &[2]);
@@ -724,8 +725,8 @@ mod tests {
     #[test]
     fn test_matmul_3d_3d() -> MlResult<()> {
         // Case 4: 3D * 3D (Batch Matrix Multiplication)
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
-        let b = Tensor::from_vec(
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let b = Tensor::new_from_vec(
             vec![9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0],
             &[2, 2, 2],
         )?;
@@ -742,15 +743,15 @@ mod tests {
     #[test]
     fn test_matmul_invalid_shapes() -> MlResult<()> {
         // Test incompatible shapes
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
-        let b = Tensor::from_vec(vec![4.0, 5.0], &[2])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let b = Tensor::new_from_vec(vec![4.0, 5.0], &[2])?;
 
         // This should return an error since the shapes are incompatible
         assert!(a.matmul(&b).is_err());
 
         // Test incompatible batch dimensions
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-        let b = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
+        let b = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2])?;
 
         // This should return an error since the batch dimensions don't match
         assert!(a.matmul(&b).is_err());
@@ -761,8 +762,8 @@ mod tests {
     #[test]
     fn test_matmul_1x1() -> MlResult<()> {
         // Case 5: 1x1 Matrix Multiplication
-        let a = Tensor::from_vec(vec![2.0], &[1, 1])?;
-        let b = Tensor::from_vec(vec![3.0], &[1, 1])?;
+        let a = Tensor::new_from_vec(vec![2.0], &[1, 1])?;
+        let b = Tensor::new_from_vec(vec![3.0], &[1, 1])?;
         let c = a.matmul(&b)?;
 
         assert_eq!(c.shape(), &[1, 1]);
@@ -773,8 +774,8 @@ mod tests {
     #[test]
     fn test_matmul_1d_1d() -> MlResult<()> {
         // Case 6: 1D * 1D (Dot Product)
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
-        let b = Tensor::from_vec(vec![4.0, 5.0, 6.0], &[3])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let b = Tensor::new_from_vec(vec![4.0, 5.0, 6.0], &[3])?;
         let c = a.matmul(&b)?;
 
         // assert_eq!(c.shape(), &[]); // scalar output
@@ -785,8 +786,8 @@ mod tests {
     #[test]
     fn test_matmul_3d_2d_broadcasting() -> MlResult<()> {
         // Case 7: 3D * 2D Broadcasting
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
-        let b = Tensor::from_vec(vec![9.0, 10.0, 11.0, 12.0], &[2, 2])?;
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let b = Tensor::new_from_vec(vec![9.0, 10.0, 11.0, 12.0], &[2, 2])?;
         let c = a.matmul(&b)?;
 
         assert_eq!(c.shape(), &[2, 2, 2]);
@@ -800,13 +801,13 @@ mod tests {
     #[test]
     fn test_matmul_4d_4d() -> MlResult<()> {
         // Case 8: 4D * 4D Batch Matrix Multiplication
-        let a = Tensor::from_vec(
+        let a = Tensor::new_from_vec(
             vec![
                 1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0,
             ],
             &[2, 2, 2, 2],
         )?;
-        let b = Tensor::from_vec(
+        let b = Tensor::new_from_vec(
             vec![
                 5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0,
             ],
@@ -826,8 +827,8 @@ mod tests {
     #[test]
     fn test_matmul_empty() -> MlResult<()> {
         // Case 9: Empty Matrix Multiplication
-        let a = Tensor::from_vec(vec![], &[0, 2])?;
-        let b = Tensor::from_vec(vec![], &[2, 0])?;
+        let a = Tensor::new_from_vec(vec![], &[0, 2])?;
+        let b = Tensor::new_from_vec(vec![], &[2, 0])?;
 
         // This should return an error for empty tensors
         assert!(a.matmul(&b).is_err());
@@ -837,8 +838,8 @@ mod tests {
     #[test]
     fn test_matmul_broadcast_batch_dims() -> MlResult<()> {
         // Case 10: Broadcasting with Different Batch Dimensions
-        let a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2])?;
-        let b = Tensor::from_vec(
+        let a = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2])?;
+        let b = Tensor::new_from_vec(
             vec![5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0],
             &[3, 1, 2, 2],
         )?;
