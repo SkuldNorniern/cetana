@@ -219,7 +219,26 @@ impl Tensor {
 
         Ok(backend)
     }
-    pub fn from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
+    pub fn from_vec(data: Vec<f32>, shape: &[usize], backend: Arc<dyn Backend>) -> MlResult<Self> {
+        let expected_len: usize = shape.iter().product();
+        if data.len() != expected_len {
+            return Err(MlError::TensorError(TensorError::InvalidDataLength {
+                expected: expected_len,
+                got: data.len(),
+            }));
+        }
+
+        Ok(Self {
+            data,
+            shape: shape.to_vec(),
+            backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
+        })
+    }
+
+    pub fn new_from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
             return Err(MlError::TensorError(TensorError::InvalidDataLength {
@@ -307,6 +326,10 @@ impl Tensor {
     pub fn grad(&self) -> Option<&Tensor> {
         self.grad.as_ref().map(|g| g.as_ref())
     }
+
+    pub fn get_backend(&self) -> Arc<dyn Backend> {
+        self.backend.clone()
+    }
 }
 
 #[cfg(test)]
@@ -330,7 +353,7 @@ mod tests {
         assert_eq!(b.data(), &[1.0, 3.0, 2.0, 4.0]);
 
         // Test 3D tensor transpose
-        let c = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let c = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
         let d = c.transpose(1, 2)?;
         assert_eq!(d.shape(), &[2, 2, 2]);
         assert_eq!(d.data(), &[1.0, 3.0, 2.0, 4.0, 5.0, 7.0, 6.0, 8.0]);
@@ -355,7 +378,7 @@ mod tests {
     #[test]
     fn test_add_broadcasting() -> MlResult<()> {
         let a = Tensor::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]])?; // shape: [2, 2]
-        let b = Tensor::from_vec(vec![10.0, 20.0], &[2])?; // shape: [2]
+        let b = Tensor::new_from_vec(vec![10.0, 20.0], &[2])?; // shape: [2]
         let c = a.add(&b)?;
         assert_eq!(c.shape(), &[2, 2]);
         assert_eq!(c.data(), &[11.0, 22.0, 13.0, 24.0]);
@@ -412,7 +435,7 @@ mod tests {
         assert_eq!(reshaped.data(), &[1.0, 2.0, 3.0, 4.0]);
 
         // Test 3D reshape
-        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
         let reshaped = tensor.reshape(&[2, 4])?;
         assert_eq!(reshaped.shape(), &[2, 4]);
         assert_eq!(reshaped.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
@@ -547,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_randn_like() -> MlResult<()> {
-        let original = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let original = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3])?;
         let random = original.randn_like()?;
 
         // Check shapes match
@@ -656,19 +679,19 @@ mod tests {
     #[test]
     fn test_expand() -> MlResult<()> {
         // Test 1: Basic expansion of singleton dimension
-        let t = Tensor::from_vec(vec![1.0], &[1, 1])?;
+        let t = Tensor::new_from_vec(vec![1.0], &[1, 1])?;
         let expanded = t.expand(&[2, 3])?;
         assert_eq!(expanded.shape(), &[2, 3]);
         assert_eq!(expanded.data(), &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
 
         // Test 2: Expansion with existing dimensions
-        let t = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let t = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
         let expanded = t.expand(&[3, 2])?;
         assert_eq!(expanded.shape(), &[3, 2]);
         assert_eq!(expanded.data(), &[1.0, 2.0, 1.0, 2.0, 1.0, 2.0]);
 
         // Test 3: Invalid expansion (non-singleton dimension)
-        let t = Tensor::from_vec(vec![1.0, 2.0], &[1, 2])?;
+        let t = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
         assert!(t.expand(&[2, 3]).is_err());
 
         Ok(())
@@ -677,14 +700,14 @@ mod tests {
     #[test]
     fn test_masked_fill() -> MlResult<()> {
         // Test 1: Basic mask
-        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-        let mask = Tensor::from_vec(vec![1.0, 0.0, 0.0, 1.0], &[2, 2])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
+        let mask = Tensor::new_from_vec(vec![1.0, 0.0, 0.0, 1.0], &[2, 2])?;
         let filled = tensor.masked_fill(&mask, 9.9)?;
         assert_eq!(filled.data(), &[9.9, 2.0, 3.0, 9.9]);
 
         // Test 2: Broadcasting mask
-        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-        let mask = Tensor::from_vec(vec![1.0, 0.0], &[2, 1])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
+        let mask = Tensor::new_from_vec(vec![1.0, 0.0], &[2, 1])?;
         let filled = tensor.masked_fill(&mask, 9.9)?;
         assert_eq!(filled.data(), &[9.9, 9.9, 3.0, 4.0]);
 
@@ -694,13 +717,13 @@ mod tests {
     #[test]
     fn test_var() -> MlResult<()> {
         // Test 1: Simple 1D variance
-        let t = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3])?;
+        let t = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3])?;
         let v = t.var(&[0], false)?;
         assert_eq!(v.shape(), &[1]);
         assert!((v.data()[0] - 0.6666667).abs() < 1e-6);
 
         // Test 2: 2D variance along different axes
-        let t = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
+        let t = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
 
         // Variance along rows (dim 0)
         let v1 = t.var(&[0], true)?;
@@ -716,7 +739,7 @@ mod tests {
         assert!((v2.data()[1] - 0.6666667).abs() < 1e-6);
 
         // Test 3: Multiple reduction dimensions
-        let t = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let t = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
         let v = t.var(&[1, 2], false)?;
         assert_eq!(v.shape(), &[2]);
 
@@ -773,7 +796,7 @@ mod tests {
     #[test]
     fn test_slice() -> MlResult<()> {
         // Create a 2x3x2 tensor
-        let tensor = Tensor::from_vec(
+        let tensor = Tensor::new_from_vec(
             vec![
                 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
             ],
@@ -895,7 +918,7 @@ mod tests {
     #[test]
     fn test_view() -> MlResult<()> {
         // Test 1: Basic view
-        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
         let viewed = tensor.view(&[4])?;
         assert_eq!(viewed.shape(), &[4]);
         assert_eq!(viewed.data(), &[1.0, 2.0, 3.0, 4.0]);
@@ -914,7 +937,7 @@ mod tests {
         assert!(result.is_err());
 
         // Test 5: View with 3D shape
-        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
         let viewed = tensor.view(&[2, 4])?;
         assert_eq!(viewed.shape(), &[2, 4]);
         assert_eq!(viewed.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
