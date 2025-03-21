@@ -10,7 +10,7 @@ pub struct DeviceFeature {
 }
 
 /// A collection of device features.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct DeviceFeatures {
     features: Vec<DeviceFeature>,
 }
@@ -23,15 +23,16 @@ impl DeviceFeatures {
     }
 
     /// Adds a new feature.
-    pub fn add_feature(&mut self, name: &'static str, supported: bool, description: Option<&'static str>) {
-        self.features.push(DeviceFeature { name, supported, description });
+    pub fn add(&mut self, name: &'static str, supported: bool, description: Option<&'static str>) {
+        self.features.push(DeviceFeature {
+            name,
+            supported,
+            description,
+        });
     }
 
-    pub fn is_supported(&self, feature_name: &str) -> bool {
-        self.features
-            .iter()
-            .find(|f| f.name == feature_name)
-            .map_or(false, |f| f.supported)
+    pub fn is_supported(&self, name: &str) -> bool {
+        self.features.iter().any(|f| f.name == name && f.supported)
     }
 }
 

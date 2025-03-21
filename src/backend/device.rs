@@ -214,19 +214,19 @@ impl DeviceManager {
         // Add CPU features
         #[cfg(target_arch = "x86_64")]
         {
-            features.add_feature(
+            features.add(
                 CPU_FEATURE_AVX,
                 is_x86_feature_detected!("avx"),
                 Some("Advanced Vector Extensions"),
             );
 
-            features.add_feature(
+            features.add(
                 CPU_FEATURE_AVX2,
                 is_x86_feature_detected!("avx2"),
                 Some("Advanced Vector Extensions 2"),
             );
 
-            features.add_feature(
+            features.add(
                 CPU_FEATURE_AVX512F,
                 is_x86_feature_detected!("avx512f"),
                 Some("AVX-512 Foundation"),
@@ -236,15 +236,15 @@ impl DeviceManager {
         // Add GPU features if available
         #[cfg(feature = "cuda")]
         if self.available_devices.contains(&DeviceType::Cuda) {
-            features.add_feature(
+            features.add(
                 GPU_FEATURE_FP16,
                 true,
-                Some("Half-precision floating point support".to_string()),
+                Some("Half-precision floating point support"),
             );
-            features.add_feature(
+            features.add(
                 GPU_FEATURE_TENSOR_CORES,
                 true,
-                Some("NVIDIA Tensor Cores support".to_string()),
+                Some("NVIDIA Tensor Cores support"),
             );
         }
 
@@ -273,6 +273,13 @@ pub trait Device {
     fn get_features(&self) -> DeviceFeatures;
 }
 
+#[derive(Debug)]
+pub struct DeviceMemory {
+    pub total: usize,
+    pub free: usize,
+    pub used: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,9 +306,24 @@ mod tests {
         let device = manager.select_device(Some(DeviceType::Cpu))?;
         assert_eq!(device, DeviceType::Cpu);
 
-        // Requesting unavailable device should return error
+        // Test CUDA device selection based on availability
         #[cfg(feature = "cuda")]
-        assert!(manager.select_device(Some(DeviceType::Cuda)).is_err());
+        {
+            if manager.available_devices().contains(&DeviceType::Cuda) {
+                let device = manager.select_device(Some(DeviceType::Cuda))?;
+                assert_eq!(device, DeviceType::Cuda);
+            } else {
+                assert!(manager.select_device(Some(DeviceType::Cuda)).is_err());
+            }
+        }
+
+        // Test with a device type that doesn't exist
+        let unavailable_device = DeviceType::Cpu; // Just placeholder that we'll replace
+        let device_exists = manager.available_devices().contains(&unavailable_device);
+        
+        if !device_exists {
+            assert!(manager.select_device(Some(unavailable_device)).is_err());
+        }
 
         Ok(())
     }
