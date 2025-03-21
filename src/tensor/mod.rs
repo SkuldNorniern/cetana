@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // mod builder;
 mod creation;
 mod display;
+mod dtype;
 mod manipulation;
 mod ops;
 mod reduction;
@@ -33,7 +34,7 @@ use crate::backend::MpsBackend;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
 
-use aporia::{backend::XorShift, RandomBackend, Rng};
+use aporia::{backend::XorShift, RandomBackend};
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -148,9 +149,22 @@ impl Tensor {
         let shape = vec![data.len(), data[0].len()];
         let flat_data: Vec<f32> = data.into_iter().flatten().collect();
 
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
+        println!("Backend: {:?}", backend);
+
+        Ok(Self {
+            data: flat_data,
+            shape,
+            backend,
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
+        })
+    }
+
+    fn get_default_backend() -> MlResult<Arc<dyn Backend>> {
         let device_type = DeviceManager::get_default_device();
         println!("Creating tensor with device: {:?}", device_type);
-
         let backend: Arc<dyn Backend> = match device_type {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => {
@@ -203,16 +217,8 @@ impl Tensor {
             }
         };
 
-        Ok(Self {
-            data: flat_data,
-            shape,
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(backend)
     }
-
     pub fn from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
@@ -222,17 +228,8 @@ impl Tensor {
             }));
         }
 
-        let device_type = DeviceManager::get_default_device();
-        let backend: Arc<dyn Backend> = match device_type {
-            DeviceType::Cpu => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "cuda")]
-            DeviceType::Cuda => Arc::new(CpuBackend::new()?),
-            #[cfg(feature = "mps")]
-            DeviceType::Mps => Arc::new(MpsBackend::new()?),
-            #[cfg(feature = "vulkan")]
-            DeviceType::Vulkan => Arc::new(VulkanBackend::new()?),
-        };
-
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
+        println!("Backend from_vec: {:?}", backend);
         Ok(Self {
             data,
             shape: shape.to_vec(),
@@ -268,12 +265,10 @@ impl Tensor {
 
         // If no gradient is provided, use a tensor of ones with the same shape
         let grad = match gradient {
-            Some(g) => {
-                match g.chk_shape(&self) {
-                    Err(e) => return Err(e),
-                    _ => g.clone()
-                }
-            }
+            Some(g) => match g.chk_shape(self) {
+                Err(e) => return Err(e),
+                _ => g.clone(),
+            },
             None => Tensor::ones(&self.shape)?,
         };
 
