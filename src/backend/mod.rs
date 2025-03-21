@@ -6,6 +6,8 @@ mod cpu;
 mod cuda;
 #[cfg(feature = "mps")]
 mod mps;
+#[cfg(feature = "rocm")]
+mod rocm;
 // #[cfg(feature = "opencl")]
 // mod opencl;
 #[cfg(feature = "vulkan")]
