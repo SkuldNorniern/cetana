@@ -284,16 +284,16 @@ impl MpsCompute {
         let mut features = DeviceFeatures::new();
 
         // Check MPS-specific features
-        features.add_feature(
+        features.add(
             GPU_FEATURE_FP16,
             true, // MPS supports FP16
-            Some("Half-precision floating point support".to_string()),
+            Some("Half-precision floating point support"),
         );
 
-        features.add_feature(
+        features.add(
             GPU_FEATURE_FP64,
             false, // MPS typically doesn't support FP64
-            Some("Double-precision floating point support".to_string()),
+            Some("Double-precision floating point support"),
         );
 
         features
