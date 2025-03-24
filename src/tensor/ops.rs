@@ -28,12 +28,13 @@ impl Tensor {
     /// A new tensor with the result of the element-wise addition
     pub fn add(&self, other: &Tensor) -> MlResult<Tensor> {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
-            let (_batch_size, features) = (self.shape[0], self.shape[1]);
+            // Special case for matrix + vector broadcasting
+            let (batch_size, features) = (self.shape[0], self.shape[1]);
             let mut result = vec![0.0; self.data.len()];
 
-            for (i, chunk) in result.chunks_mut(features).enumerate() {
-                for (j, val) in chunk.iter_mut().enumerate() {
-                    *val = self.data[i * features + j] + other.data[j];
+            for i in 0..batch_size {
+                for j in 0..features {
+                    result[i * features + j] = self.data[i * features + j] + other.data[j];
                 }
             }
             return Tensor::from_vec(result, &self.shape, self.get_backend());
@@ -41,7 +42,11 @@ impl Tensor {
 
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.add(&self.data, &other.data), &self.shape, self.get_backend()),
+            _ => Tensor::from_vec(
+                self.backend.add(&self.data, &other.data), 
+                &self.shape, 
+                self.get_backend()
+            ),
         }
     }
 
@@ -53,8 +58,12 @@ impl Tensor {
     /// # Returns
     /// A new tensor with each element being tensor_element + scalar
     pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x + scalar).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
+        // Create a vector filled with the scalar value
+        let scalar_vec = vec![scalar; self.data.len()];
+        // Use the Backend's add operation
+        let result = self.backend.add(&self.data, &scalar_vec);
+        
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Subtracts two tensors element-wise
@@ -91,20 +100,28 @@ impl Tensor {
     /// # Returns
     /// A new tensor with each element being tensor_element - scalar
     pub fn sub_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x - scalar).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
+        // Create a vector filled with the scalar value
+        let scalar_vec = vec![scalar; self.data.len()];
+        // Use the Backend's sub operation
+        let result = self.backend.sub(&self.data, &scalar_vec);
+        
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Subtracts a scalar from each element in the tensor
+    /// Subtracts the tensor from a scalar
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to subtract
+    /// * `scalar` - The scalar value to subtract from
     ///
     /// # Returns
     /// A new tensor with each element being scalar - tensor_element
     pub fn scalar_sub(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| scalar - x).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
+        // Create a vector filled with the scalar value
+        let scalar_vec = vec![scalar; self.data.len()];
+        // Use the Backend's sub operation (with arguments reversed)
+        let result = self.backend.sub(&scalar_vec, &self.data);
+        
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Multiplies two tensors element-wise
@@ -129,8 +146,12 @@ impl Tensor {
     /// # Returns
     /// A new tensor with each element being tensor_element * scalar
     pub fn mul_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x * scalar).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
+        // Create a vector filled with the scalar value
+        let scalar_vec = vec![scalar; self.data.len()];
+        // Use the Backend's multiply operation
+        let result = self.backend.multiply(&self.data, &scalar_vec);
+        
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Divides two tensors element-wise
@@ -155,8 +176,12 @@ impl Tensor {
     /// # Returns
     /// A new tensor with each element being tensor_element / scalar
     pub fn div_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x / scalar).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
+        // Create a vector filled with the scalar value
+        let scalar_vec = vec![scalar; self.data.len()];
+        // Use the Backend's div operation
+        let result = self.backend.div(&self.data, &scalar_vec);
+        
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Divides a scalar by each element in the tensor
@@ -167,8 +192,12 @@ impl Tensor {
     /// # Returns
     /// A new tensor with each element being scalar / tensor_element
     pub fn scalar_div(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| scalar / x).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
+        // Create a vector filled with the scalar value
+        let scalar_vec = vec![scalar; self.data.len()];
+        // Use the Backend's div operation (with arguments reversed)
+        let result = self.backend.div(&scalar_vec, &self.data);
+        
+        Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
     /// Negates each element in the tensor
