@@ -147,7 +147,7 @@ impl Backend for MpsBackend {
             // Perform division on Apple MPS
             let result_buffer = self
                 .compute
-                .add(&buffer_a, &buffer_b, a.len())
+                .div(&buffer_a, &buffer_b, a.len())
                 .expect("Failed to divide buffers");
 
             // Read result buffer
@@ -245,7 +245,8 @@ impl Backend for MpsBackend {
             return self.sqrt(a);
         }
 
-        a.iter().map(|x| x.powf(power)).collect()
+        let vec = a.iter().map(|x| x.powf(power)).collect();
+        vec
     }
 
     fn sqrt(&self, a: &[f32]) -> Vec<f32> {
@@ -288,8 +289,9 @@ impl Backend for MpsBackend {
         }
 
         let sum_result: f32 = self.sum(a);
+        let result = sum_result / a.len() as f32;
 
-        sum_result / a.len() as f32
+        result
     }
 }
 
