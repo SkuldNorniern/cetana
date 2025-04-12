@@ -150,7 +150,7 @@ impl Tensor {
         let flat_data: Vec<f32> = data.into_iter().flatten().collect();
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-        println!("Backend: {:?}", backend);
+        println!("Backend: {:?}", backend.device());
 
         Ok(Self {
             data: flat_data,
@@ -248,7 +248,7 @@ impl Tensor {
         }
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-        println!("Backend from_vec: {:?}", backend);
+        println!("Backend from_vec: {:?}", backend.device());
         Ok(Self {
             data,
             shape: shape.to_vec(),

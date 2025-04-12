@@ -9,6 +9,7 @@ use metal::{
     NSUInteger,
 };
 use std::{collections::HashMap, path::Path, sync::Arc};
+use std::path::absolute;
 
 #[derive(Debug)]
 pub struct MpsCompute {
@@ -20,10 +21,22 @@ pub struct MpsCompute {
 impl MpsCompute {
     pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::backend::MpsError> {
         let command_queue = device.device().new_command_queue();
+
+        // Load Library
+        let library_path = Path::new("shaders/metal/shaders.metallib");
+        println!("Loading Metal library from {:?}...", absolute(library_path));
+        if !library_path.exists() {
+            eprintln!("Metal library not found at {:?}", absolute(library_path));
+            return Err(MpsError::ShaderCompilationError);
+        }
+
         let library = device
             .device()
-            .new_library_with_file(Path::new("../../../shaders/metal/shaders.metallib"))
-            .map_err(|_| MpsError::ShaderCompilationError)?;
+            .new_library_with_file(library_path)
+            .map_err(|e| {
+                eprintln!("{}", e);
+                MpsError::ShaderCompilationError
+            })?;
         let mut kernel_map = HashMap::new();
 
         // Load all the functions from the library

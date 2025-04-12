@@ -23,7 +23,7 @@ rayon = ["dep:rayon"]
 aporia = "0.1.1"
 ash = { version = "0.38.0", optional = true, features = ["linked","debug","std"] }
 log = "0.4.22"
-metal = { version = "0.30.0", optional = true, features = ["mps"] }
+metal = { version = "0.32.0", optional = true, features = ["mps"] }
 rayon = { version = "1.10.0", optional = true }
 vulkano = { version = "0.34.1", optional = true }
 
