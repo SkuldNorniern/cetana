@@ -42,5 +42,7 @@ Cargo.lock
 .idea/
 
 # Added by cargo
-
 /target
+
+# Ignore .air files
+*.air
