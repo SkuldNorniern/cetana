@@ -216,6 +216,45 @@ impl MpsCompute {
         Ok(result_buffer)
     }
 
+    pub fn div(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
+        let result_buffer = self.device.device().new_buffer(
+            (size * std::mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let pipeline = self.create_pipeline("vector_div")?;
+
+        let command_buffer = self.command_queue.new_command_buffer();
+        let compute_encoder = command_buffer.new_compute_command_encoder();
+
+        compute_encoder.set_compute_pipeline_state(&pipeline);
+        compute_encoder.set_buffer(0, Some(a), 0);
+        compute_encoder.set_buffer(1, Some(b), 0);
+        compute_encoder.set_buffer(2, Some(&result_buffer), 0);
+
+        let num_threads = pipeline.thread_execution_width();
+
+        // Create thread groups
+        let thread_group_count = MTLSize {
+            width: ((size as NSUInteger + num_threads) / num_threads),
+            height: 1,
+            depth: 1,
+        };
+        let thread_group_size = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        compute_encoder.dispatch_thread_groups(thread_group_count, thread_group_size);
+        compute_encoder.end_encoding();
+
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        Ok(result_buffer)
+    }
+
     pub fn multiply(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
         let result_buffer = self.device.device().new_buffer(
             (size * std::mem::size_of::<f32>()) as u64,
