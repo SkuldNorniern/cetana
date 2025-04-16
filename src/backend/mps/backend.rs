@@ -130,6 +130,19 @@ impl Backend for MpsBackend {
         result_vec
     }
 
+    /// Performs element-wise division of two slices using Apple Metal Performance Shaders (MPS).
+    ///
+    /// Returns a vector containing the result of dividing each element of `a` by the corresponding element of `b`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let backend = MpsBackend::default();
+    /// let a = vec![8.0, 27.0, 64.0];
+    /// let b = vec![2.0, 3.0, 8.0];
+    /// let result = backend.div(&a, &b);
+    /// assert_eq!(result, vec![4.0, 9.0, 8.0]);
+    /// ```
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
@@ -147,7 +160,7 @@ impl Backend for MpsBackend {
             // Perform division on Apple MPS
             let result_buffer = self
                 .compute
-                .add(&buffer_a, &buffer_b, a.len())
+                .div(&buffer_a, &buffer_b, a.len())
                 .expect("Failed to divide buffers");
 
             // Read result buffer
@@ -235,6 +248,18 @@ impl Backend for MpsBackend {
         result_vec
     }
 
+    /// Computes the element-wise power of each value in the input slice using CPU computation.
+    ///
+    /// For `power` equal to 2.0, returns the element-wise square. For `power` equal to 0.5, returns the element-wise square root. Otherwise, computes each element raised to the specified power using `powf`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let backend = MpsBackend::default();
+    /// let input = vec![1.0, 4.0, 9.0];
+    /// let result = backend.pow(&input, 0.5);
+    /// assert_eq!(result, vec![1.0, 2.0, 3.0]);
+    /// ```
     fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
         // TODO: consider implementing optimized power operations on the metal backend
         // using cpu compute code for now
@@ -245,9 +270,22 @@ impl Backend for MpsBackend {
             return self.sqrt(a);
         }
 
-        a.iter().map(|x| x.powf(power)).collect()
+        let vec = a.iter().map(|x| x.powf(power)).collect();
+        vec
     }
 
+    /// Computes the element-wise square root of the input slice.
+    ///
+    /// Returns `NaN` for negative input values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let backend = MpsBackend::default();
+    /// let input = [4.0, 9.0, -1.0];
+    /// let result = backend.sqrt(&input);
+    /// assert_eq!(result, vec![2.0, 3.0, f32::NAN]);
+    /// ```
     fn sqrt(&self, a: &[f32]) -> Vec<f32> {
         // TODO: consider implementing optimized power operations on the metal backend
         // using cpu compute code for now
@@ -282,14 +320,27 @@ impl Backend for MpsBackend {
         result_slice[0]
     }
 
+    /// Computes the mean (average) value of the input slice.
+    ///
+    /// Returns 0.0 if the input slice is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let backend = MpsBackend::default();
+    /// let values = vec![1.0, 2.0, 3.0, 4.0];
+    /// let mean = backend.mean(&values);
+    /// assert_eq!(mean, 2.5);
+    /// ```
     fn mean(&self, a: &[f32]) -> f32 {
         if a.is_empty() {
             return 0.0f32;
         }
 
         let sum_result: f32 = self.sum(a);
+        let result = sum_result / a.len() as f32;
 
-        sum_result / a.len() as f32
+        result
     }
 }
 
