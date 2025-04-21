@@ -28,21 +28,31 @@ pub use cuda::{CudaBackend, CudaBackendError};
 pub use mps::{MpsBackend, MpsError};
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
+use crate::tensor::Tensor;
 
+/**
+ * The Backend trait defines the interface for different backends (CPU, CUDA, Vulkan, etc.)
+ * to perform tensor operations.
+ * Backend trait should only contain low-level operations.
+ * Such as:
+ * - add, multiply, matmul, div, sub, exp, log, pow, sqrt
+ *
+ * Higher-level operations should be defined in the other modules.
+ */
 pub trait Backend: Debug + Send + Sync {
     fn device(&self) -> DeviceType;
     fn calc_device_flops(&self) -> f64;
-    fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
-    fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
-    fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32>;
-    fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
-    fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
-    fn exp(&self, a: &[f32]) -> Vec<f32>;
-    fn log(&self, a: &[f32]) -> Vec<f32>;
-    fn pow(&self, a: &[f32], power: f32) -> Vec<f32>;
-    fn sqrt(&self, a: &[f32]) -> Vec<f32>;
-    fn sum(&self, a: &[f32]) -> f32;
-    fn mean(&self, a: &[f32]) -> f32;
+    fn add(&self, a: &Tensor, b: &Tensor) -> Vec<f32>;
+    fn multiply(&self, a: &Tensor, b: &Tensor) -> Vec<f32>;
+    fn matmul(&self, a: &Tensor, b: &Tensor, m: usize, n: usize, k: usize) -> Vec<f32>;
+    fn div(&self, a: &Tensor, b: &Tensor) -> Vec<f32>;
+    fn sub(&self, a: &Tensor, b: &Tensor) -> Vec<f32>;
+    fn exp(&self, a: &Tensor) -> Vec<f32>;
+    fn log(&self, a: &Tensor) -> Vec<f32>;
+    fn pow(&self, a: &Tensor, power: f32) -> Vec<f32>;
+    fn sqrt(&self, a: &Tensor) -> Vec<f32>;
+    fn sum(&self, a: &Tensor) -> f32;
+    fn mean(&self, a: &Tensor) -> f32;
 }
 
 #[derive(Debug)]

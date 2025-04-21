@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::tensor::Tensor;
 
 // Implement fmt Display
-impl Display for Tensor {
+impl Display for Tensor<'_> {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         print_tensor(self);
         Ok(())

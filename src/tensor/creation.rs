@@ -1,6 +1,8 @@
+use aporia::backend::XorShift;
+use aporia::RandomBackend;
 use super::*;
 
-impl Tensor {
+impl<'a> Tensor<'a> {
     /// Creates a tensor filled with zeros
     ///
     /// Args:
@@ -22,16 +24,7 @@ impl Tensor {
         let size: usize = shape.iter().product();
         let data = vec![0.0; size];
 
-        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Self::new_with_name(data, shape.to_vec(), Some("Zeros"))
     }
 
     /// Creates a tensor filled with zeros with the same shape as the input tensor
@@ -72,16 +65,7 @@ impl Tensor {
         let size: usize = shape.iter().product();
         let data = vec![1.0; size];
 
-        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Self::new_with_name(data, shape.to_vec(), Some("Ones"))
     }
 
     /// Creates a tensor filled with ones with the same shape as the input tensor
@@ -138,18 +122,8 @@ impl Tensor {
                 data.push(r * theta.sin());
             }
         }
-
-        // Fixed backend initialization with proper error handling
-        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        
+        Self::new_with_name(data, shape.to_vec(), Some("RandomNormal"))
     }
 
     /// Creates a tensor with elements sampled from a normal distribution with the same shape as the input tensor
@@ -166,16 +140,16 @@ impl Tensor {
     /// Creates a tensor with all elements set to a specified value
     ///
     /// # Arguments
-    /// * `size` - The shape of the tensor to create
+    /// * `shape` - The shape of the tensor to create
     /// * `fill_value` - The value to fill the tensor with
     ///
     /// # Returns
     /// A new tensor with all elements set to the specified value
-    pub fn full(size: &[usize], fill_value: f32) -> MlResult<Self> {
-        let total_size: usize = size.iter().product();
+    pub fn full(shape: &[usize], fill_value: f32) -> MlResult<Self> {
+        let total_size: usize = shape.iter().product();
         let data = vec![fill_value; total_size];
 
-        Tensor::new_from_vec(data, size)
+        Tensor::new_with_name(data, shape.to_vec(), Some("Full"))
     }
 
     /// Creates a 1-D tensor of size ⌈(end - start) / step⌉ with values from the interval [start, end)
@@ -219,17 +193,33 @@ impl Tensor {
             }
         }
 
-        // Create device/backend as in other tensor creation methods
-        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         let data_len = data.len();
-        Ok(Self {
-            data,
-            shape: vec![data_len],
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Self::new_with_name(data, vec![data_len], Some("Arange"))
+    }
+
+    /// Creates a lower triangular mask matrix
+    ///
+    /// # Arguments
+    /// * `size` - The size of the square matrix
+    /// * `diagonal` - The diagonal to consider (default: 0)
+    ///   - 0: main diagonal
+    ///   - positive: diagonals above main diagonal
+    ///   - negative: diagonals below main diagonal
+    ///
+    /// # Returns
+    /// A new tensor containing the lower triangular mask matrix
+    pub fn tril_mask(size: usize, diagonal: i32) -> MlResult<Self> {
+        let mut data = vec![0.0; size * size];
+
+        for i in 0..size {
+            for j in 0..size {
+                if (j as i32) <= (i as i32) + diagonal {
+                    data[i * size + j] = 1.0;
+                }
+            }
+        }
+
+        Self::from_vec(data, vec![size, size])
     }
 }

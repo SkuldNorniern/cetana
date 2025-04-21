@@ -1,4 +1,5 @@
-use crate::backend::{DeviceFeatures, DeviceType};
+use std::sync::Arc;
+use crate::backend::{Backend, CpuBackend, Device, DeviceFeatures, DeviceType};
 use crate::tensor::Tensor;
 
 #[derive(Debug)]
@@ -21,13 +22,21 @@ impl CpuCore {
         // Create two large tensors for benchmarking
         let size = 1024;
         let elements = size * size;
+        let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new().unwrap());
 
-        let a = Tensor::new_from_vec(vec![1.0; elements], &[size, size]).unwrap();
-        let b = Tensor::new_from_vec(vec![2.0; elements], &[size, size]).unwrap();
+        let a = Tensor::from_vec(vec![1.0; elements], vec![size, size]).unwrap();
+        let b = Tensor::from_vec(vec![2.0; elements], vec![size, size]).unwrap();
+        
+        let a_len = a.shape().len();
+        let b_len = b.shape().len();
 
+        let m = a.shape()[a_len - 2];
+        let k = a.shape()[a_len - 1];
+        let n = b.shape()[b_len - 1];
+        
         // Measure matrix multiplication time (more compute intensive than addition)
         let start = std::time::Instant::now();
-        let _c = a.matmul(&b).unwrap();
+        backend.matmul(&a, &b, m, n, k);
         let duration = start.elapsed();
 
         // Calculate FLOPS:

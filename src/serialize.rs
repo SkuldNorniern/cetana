@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn test_tensor_serialization() {
-        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).expect("Failed to create tensor");
+        let tensor = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]).expect("Failed to create tensor");
 
         // Test serialization
         let serialized = tensor.serialize();
@@ -158,12 +158,12 @@ mod tests {
 
         // Create a test tensor
         let tensor =
-            Tensor::new_from_vec(vec![1.0, -2.5, 3.7, 4.2], &[2, 2]).expect("Failed to create tensor");
+            Tensor::from_vec(vec![1.0, -2.5, 3.7, 4.2], vec![2, 2]).expect("Failed to create tensor");
 
         // Implement a simple struct that implements Module + Model for testing
-        struct TestModel(Tensor);
+        struct TestModel<'a>(Tensor<'a>);
 
-        impl Layer for TestModel {
+        impl Layer for TestModel<'_> {
             fn forward(&self, _input: &Tensor) -> MlResult<Tensor> {
                 Ok(self.0.clone())
             }
@@ -177,19 +177,19 @@ mod tests {
             }
         }
 
-        impl SerializeComponents for TestModel {
+        impl SerializeComponents for TestModel<'_> {
             fn serialize_components(&self) -> Vec<Vec<u8>> {
                 vec![self.0.serialize()]
             }
         }
 
-        impl DeserializeComponents for TestModel {
+        impl DeserializeComponents for TestModel<'_> {
             fn deserialize_components(components: Vec<Vec<u8>>) -> MlResult<Self> {
                 Ok(Self(Tensor::deserialize(components[0].as_slice())?))
             }
         }
 
-        impl Model for TestModel {}
+        impl Model for TestModel<'_> {}
 
         // Create test model
         let model = TestModel(tensor);
@@ -218,8 +218,8 @@ mod tests {
         file.write_all(invalid_data)
             .expect("Failed to write test data");
 
-        struct TestModel(Tensor);
-        impl Layer for TestModel {
+        struct TestModel<'a>(Tensor<'a>);
+        impl Layer for TestModel<'_> {
             fn forward(&self, _input: &Tensor) -> MlResult<Tensor> {
                 Ok(self.0.clone())
             }
@@ -232,19 +232,19 @@ mod tests {
                 Ok(self.0.clone())
             }
         }
-        impl SerializeComponents for TestModel {
+        impl SerializeComponents for TestModel<'_> {
             fn serialize_components(&self) -> Vec<Vec<u8>> {
                 vec![]
             }
         }
-        impl DeserializeComponents for TestModel {
+        impl DeserializeComponents for TestModel<'_> {
             fn deserialize_components(_: Vec<Vec<u8>>) -> MlResult<Self> {
                 Ok(Self(
-                    Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor"),
+                    Tensor::from_vec(vec![], vec![0]).expect("Failed to create empty tensor"),
                 ))
             }
         }
-        impl Model for TestModel {}
+        impl Model for TestModel<'_> {}
 
         // Attempt to load should fail
         assert!(TestModel::load(temp_path).is_err());
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_tensor_serialization_edge_cases() {
         // Test empty tensor
-        let empty_tensor = Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor");
+        let empty_tensor = Tensor::from_vec(vec![], vec![0]).expect("Failed to create empty tensor");
         let serialized = empty_tensor.serialize();
         let deserialized =
             Tensor::deserialize(&serialized).expect("Failed to deserialize empty tensor");
@@ -265,7 +265,7 @@ mod tests {
 
         // Test single element tensor
         let single_tensor =
-            Tensor::new_from_vec(vec![42.0], &[1, 1]).expect("Failed to create single element tensor");
+            Tensor::from_vec(vec![42.0], vec![1, 1]).expect("Failed to create single element tensor");
         let serialized = single_tensor.serialize();
         let deserialized =
             Tensor::deserialize(&serialized).expect("Failed to deserialize single element tensor");

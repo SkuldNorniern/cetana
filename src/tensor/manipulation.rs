@@ -1,6 +1,6 @@
 use super::*;
 
-impl Tensor {
+impl Tensor<'_> {
     /// Transposes the tensor across the specified dimensions
     ///
     /// # Arguments
@@ -9,7 +9,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with the specified dimensions transposed
-    pub fn transpose(&self, dim0: i32, dim1: i32) -> MlResult<Tensor> {
+    pub fn transpose(&mut self, dim0: i32, dim1: i32) -> MlResult<&mut Self> {
         let rank = self.shape.len();
         if rank < 2 {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -64,8 +64,10 @@ impl Tensor {
 
             result[target_idx] = self.data[i];
         }
+        self.data = result;
+        self.shape = new_shape;
 
-        Tensor::from_vec(result, &new_shape,self.get_backend())
+        Ok(self)
     }
 
     /// Reshapes the tensor to the specified shape
@@ -75,7 +77,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with the specified shape
-    pub fn reshape(&self, shape: &[isize]) -> MlResult<Tensor> {
+    pub fn reshape(&mut self, shape: &[isize]) -> MlResult<&mut Self> {
         // Calculate total elements
         let total_elements = self.data.len();
 
@@ -125,16 +127,9 @@ impl Tensor {
                 got: self.shape.clone(),
             }));
         }
+        self.shape = new_shape;
 
-        // Create new tensor with same data but different shape
-        Ok(Tensor {
-            data: self.data.clone(),
-            shape: new_shape,
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self)
     }
 
     /// Returns a new view of the tensor with singleton dimensions expanded to a larger size.
@@ -144,7 +139,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor view with expanded dimensions
-    pub fn expand(&self, sizes: &[usize]) -> MlResult<Tensor> {
+    pub fn expand(&mut self, sizes: &[usize]) -> MlResult<&mut Self> {
         // Validate expansion
         if sizes.len() < self.shape.len() {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -195,15 +190,10 @@ impl Tensor {
                 indices[i] = 0;
             }
         }
+        self.data = expanded_data;
+        self.shape = sizes.to_vec();
 
-        Ok(Tensor {
-            data: expanded_data,
-            shape: sizes.to_vec(),
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self)
     }
 
     /// Returns a new tensor with the same data but different shape.
@@ -224,11 +214,11 @@ impl Tensor {
     /// ```
     /// use cetana::tensor::Tensor;
     ///
-    /// let x = Tensor::new(vec![vec![1.0, 2.0, 3.0, 4.0]]).unwrap();
+    /// let mut x = Tensor::from_2dim_vec(vec![vec![1.0, 2.0, 3.0, 4.0]]).unwrap();
     /// let y = x.view(&[-1, 2]).unwrap();  // Reshape to [2, 2]
     /// assert_eq!(y.shape(), &[2, 2]);
     /// ```
-    pub fn view(&self, shape: &[isize]) -> MlResult<Self> {
+    pub fn view(&mut self, shape: &[isize]) -> MlResult<&mut Self> {
         // Calculate total elements
         let total_elements = self.data.len();
 
@@ -278,16 +268,8 @@ impl Tensor {
                 got: self.shape.clone(),
             }));
         }
-
-        // Create new tensor with same data but different shape
-        Ok(Tensor {
-            data: self.data.clone(),
-            shape: new_shape,
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        self.shape = new_shape;
+        Ok(self)
     }
 
     /// Attempts to split a tensor into the specified number of chunks along the given dimension.
@@ -360,7 +342,7 @@ impl Tensor {
                 }
             }
 
-            result.push(Tensor::from_vec(chunk_data, &new_shape,self.get_backend())?);
+            result.push(Self::from_vec(chunk_data, new_shape)?);
             start_idx = end_idx;
         }
 
@@ -374,7 +356,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor containing the sliced data
-    pub fn slice(&self, ranges: &[&[Range<usize>]]) -> MlResult<Tensor> {
+    pub fn slice(&mut self, ranges: &[&[Range<usize>]]) -> MlResult<&mut Self> {
         // Validate number of dimensions
         if ranges.len() != self.shape.len() {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -495,8 +477,10 @@ impl Tensor {
             &self.data,
             &mut new_data,
         );
+        self.data = new_data;
+        self.shape = new_shape;
 
-        Tensor::from_vec(new_data, &new_shape,self.get_backend())
+        Ok(self)
     }
 
     /// Clamps all elements in input into the range [min, max].
@@ -507,8 +491,8 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with values clamped between min and max
-    pub fn clamp_full(&self, min: Option<f32>, max: Option<f32>) -> MlResult<Tensor> {
-        let data: Vec<f32> = self
+    pub fn clamp_full(&mut self, min: Option<f32>, max: Option<f32>) -> MlResult<&mut Self> {
+        self.data = self
             .data
             .iter()
             .map(|&x| {
@@ -523,7 +507,7 @@ impl Tensor {
             })
             .collect();
 
-        Tensor::from_vec(data, &self.shape,self.get_backend())
+        Ok(self)
     }
 
     /// Clamps all elements in input to be larger than min.
@@ -533,7 +517,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with values clamped to minimum value
-    pub fn clamp_min(&self, min: f32) -> MlResult<Tensor> {
+    pub fn clamp_min(&mut self, min: f32) -> MlResult<&mut Self> {
         self.clamp_full(Some(min), None)
     }
 
@@ -544,7 +528,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with values clamped to maximum value
-    pub fn clamp_max(&self, max: f32) -> MlResult<Tensor> {
+    pub fn clamp_max(&mut self, max: f32) -> MlResult<&mut Self> {
         self.clamp_full(None, Some(max))
     }
 
@@ -559,7 +543,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor containing the lower triangular part of the input tensor
-    pub fn tril(&self, diagonal: i32) -> MlResult<Tensor> {
+    pub fn tril(&mut self, diagonal: i32) -> MlResult<&mut Self> {
         if self.shape.len() < 2 {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "tril",
@@ -585,40 +569,9 @@ impl Tensor {
                 }
             }
         }
+        self.data = result;
 
-        Ok(Tensor {
-            data: result,
-            shape: self.shape.clone(),
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
-    }
-
-    /// Creates a lower triangular mask matrix'
-    ///
-    /// # Arguments
-    /// * `size` - The size of the square matrix
-    /// * `diagonal` - The diagonal to consider (default: 0)
-    ///   - 0: main diagonal
-    ///   - positive: diagonals above main diagonal
-    ///   - negative: diagonals below main diagonal
-    ///
-    /// # Returns
-    /// A new tensor containing the lower triangular mask matrix
-    pub fn tril_mask(size: usize, diagonal: i32) -> MlResult<Tensor> {
-        let mut data = vec![0.0; size * size];
-
-        for i in 0..size {
-            for j in 0..size {
-                if (j as i32) <= (i as i32) + diagonal {
-                    data[i * size + j] = 1.0;
-                }
-            }
-        }
-
-        Tensor::new_from_vec(data, &[size, size])
+        Ok(self)
     }
 
     /// Fills elements of self tensor with value where mask is True.
@@ -630,7 +583,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor with the masked fill applied
-    pub fn masked_fill(&self, mask: &Tensor, value: f32) -> MlResult<Tensor> {
+    pub fn masked_fill(&mut self, mask: &Tensor, value: f32) -> MlResult<&mut Self> {
         // Verify mask contains only 0s and 1s
         if !mask.data.iter().all(|&x| x == 0.0 || x == 1.0) {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -694,15 +647,9 @@ impl Tensor {
                 }
             }
         }
+        self.data = result;
 
-        Ok(Tensor {
-            data: result,
-            shape: self.shape.clone(),
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self)
     }
 
     // Helper method to check if tensor is broadcastable with another tensor
@@ -834,7 +781,7 @@ impl Tensor {
     ///
     /// # Returns
     /// A new tensor containing the concatenated tensors
-    pub fn cat(tensors: &[&Tensor], dim: i32) -> MlResult<Tensor> {
+    pub fn cat(tensors: &[&Tensor], dim: i32) -> MlResult<Self> {
         if tensors.is_empty() {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "cat",
@@ -909,7 +856,7 @@ impl Tensor {
             result.push(tensors[tensor_idx].data()[src_idx]);
         }
 
-        Tensor::from_vec(result, &new_shape,tensors[0].get_backend())
+        Self::from_vec(result, new_shape)
     }
 
     /// Splits the tensor into chunks of specified size along a given dimension.
@@ -981,7 +928,7 @@ impl Tensor {
                 }
             }
 
-            result.push(Tensor::from_vec(split_data, &new_shape,self.get_backend())?);
+            result.push(Self::from_vec(split_data, new_shape)?);
             start_idx = end_idx;
         }
 
@@ -997,8 +944,8 @@ mod tests {
     fn test_scatter() -> MlResult<()> {
         // Test 2D scatter
         let mut x = Tensor::zeros(&[3, 5])?;
-        let src = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
-        let index = Tensor::new_from_vec(vec![0.0, 2.0, 4.0], &[3, 1])?;
+        let src = Tensor::from_vec(vec![1.0, 2.0, 3.0], vec![3, 1])?;
+        let index = Tensor::from_vec(vec![0.0, 2.0, 4.0], vec![3, 1])?;
         x.scatter(&index, &src, 1)?;
 
         let expected = vec![
@@ -1008,8 +955,8 @@ mod tests {
 
         // Test negative dimension
         let mut x = Tensor::zeros(&[3, 4])?;
-        let src = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3, 1])?;
-        let index = Tensor::new_from_vec(vec![0.0, 1.0, 2.0], &[3, 1])?;
+        let src = Tensor::from_vec(vec![1.0, 2.0, 3.0], vec![3, 1])?;
+        let index = Tensor::from_vec(vec![0.0, 1.0, 2.0], vec![3, 1])?;
         x.scatter(&index, &src, -1)?;
 
         let expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0];
@@ -1020,29 +967,29 @@ mod tests {
     #[test]
     fn test_cat() -> MlResult<()> {
         // Test 1: Basic concatenation along dimension 0
-        let t1 = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
-        let t2 = Tensor::new_from_vec(vec![3.0, 4.0], &[1, 2])?;
+        let t1 = Tensor::from_vec(vec![1.0, 2.0], vec![1, 2])?;
+        let t2 = Tensor::from_vec(vec![3.0, 4.0], vec![1, 2])?;
         let result = Tensor::cat(&[&t1, &t2], 0)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);
 
         // Test 2: Concatenation along dimension 1
-        let t1 = Tensor::new_from_vec(vec![1.0, 2.0], &[2, 1])?;
-        let t2 = Tensor::new_from_vec(vec![3.0, 4.0], &[2, 1])?;
+        let t1 = Tensor::from_vec(vec![1.0, 2.0], vec![2, 1])?;
+        let t2 = Tensor::from_vec(vec![3.0, 4.0], vec![2, 1])?;
         let result = Tensor::cat(&[&t1, &t2], 1)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 3.0, 2.0, 4.0]);
 
         // Test 3: 3D tensor concatenation
-        let t1 = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2])?;
-        let t2 = Tensor::new_from_vec(vec![5.0, 6.0, 7.0, 8.0], &[1, 2, 2])?;
+        let t1 = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![1, 2, 2])?;
+        let t2 = Tensor::from_vec(vec![5.0, 6.0, 7.0, 8.0], vec![1, 2, 2])?;
         let result = Tensor::cat(&[&t1, &t2], 0)?;
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         // Test 4: Negative dimension
-        let t1 = Tensor::new_from_vec(vec![1.0, 2.0], &[1, 2])?;
-        let t2 = Tensor::new_from_vec(vec![3.0, 4.0], &[1, 2])?;
+        let t1 = Tensor::from_vec(vec![1.0, 2.0], vec![1, 2])?;
+        let t2 = Tensor::from_vec(vec![3.0, 4.0], vec![1, 2])?;
         let result = Tensor::cat(&[&t1, &t2], -2)?;
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.data(), &[1.0, 2.0, 3.0, 4.0]);
@@ -1053,11 +1000,14 @@ mod tests {
     #[test]
     fn test_split() -> MlResult<()> {
         // Test 1: Basic splitting along dimension 0
-        let tensor = Tensor::new(vec![
+        let actual_data = vec![
             vec![1.0, 2.0, 3.0],
             vec![4.0, 5.0, 6.0],
             vec![7.0, 8.0, 9.0],
-        ])?;
+        ];
+        let shape = vec![actual_data.len(), actual_data[0].len()];
+        let data: Vec<f32> =  actual_data.into_iter().flatten().collect();
+        let tensor = Tensor::new(data, shape)?;
 
         let splits = tensor.split(2, 0)?;
         assert_eq!(splits.len(), 2);

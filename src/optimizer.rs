@@ -25,18 +25,18 @@ impl Display for OptimError {
     }
 }
 
-pub struct Adam {
-    params: Vec<(Tensor, Option<Tensor>)>, // (parameter, gradient)
+pub struct Adam<'a> {
+    params: Vec<(Tensor<'a>, Option<Tensor<'a>>)>, // (parameter, gradient)
     lr: f32,
     betas: (f32, f32),
     eps: f32,
     weight_decay: f32,
     step_count: usize,
-    exp_avg: HashMap<usize, Tensor>,
-    exp_avg_sq: HashMap<usize, Tensor>,
+    exp_avg: HashMap<usize, Tensor<'a>>,
+    exp_avg_sq: HashMap<usize, Tensor<'a>>,
 }
 
-impl Adam {
+impl Adam<'_> {
     pub fn new(
         lr: f32,
         betas: Option<(f32, f32)>,
@@ -60,7 +60,7 @@ impl Adam {
     }
 }
 
-impl Optimizer for Adam {
+impl Optimizer for Adam<'_> {
     fn step(&mut self) -> MlResult<()> {
         info!("Starting Adam optimization step {}", self.step_count + 1);
         self.step_count += 1;
@@ -177,7 +177,7 @@ impl Optimizer for Adam {
         debug!("All gradients have been zeroed");
     }
 
-    fn add_param(&mut self, param: Tensor, grad: Option<Tensor>) {
+    fn add_param(&mut self, param: Tensor<'_>, grad: Option<Tensor<'_>>) {
         let param_idx = self.params.len();
         debug!(
             "Adding parameter {} with shape {:?}",
