@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
-use std::sync::Mutex;
-use std::sync::Once;
+use std::sync::{Mutex, OnceLock};
 
 #[cfg(feature = "cuda")]
 use crate::backend::cuda::CudaDevice;
@@ -9,9 +8,8 @@ use crate::backend::feature::*;
 use crate::backend::BackendError;
 use crate::MlResult;
 
-static INIT: Once = Once::new();
-static mut GLOBAL_DEVICE_MANAGER: Option<DeviceManager> = None;
-static mut DEFAULT_DEVICE: Option<Mutex<DeviceType>> = None;
+static GLOBAL_DEVICE_MANAGER: OnceLock<DeviceManager> = OnceLock::new();
+static DEFAULT_DEVICE: OnceLock<Mutex<DeviceType>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeviceType {
@@ -134,60 +132,52 @@ impl DeviceManager {
     }
 
     pub fn global() -> &'static DeviceManager {
-        unsafe {
-            INIT.call_once(|| {
-                GLOBAL_DEVICE_MANAGER = Some(DeviceManager::new());
+        let manager = GLOBAL_DEVICE_MANAGER.get_or_init(|| DeviceManager::new());
 
-                // Initialize default device
-                let manager = GLOBAL_DEVICE_MANAGER.as_ref().unwrap();
-
-                // Select default device based on priority and availability
-                let device_type = {
-                    #[cfg(feature = "cuda")]
-                    {
-                        if manager.available_devices.contains(&DeviceType::Cuda) {
-                            DeviceType::Cuda
-                        } else {
-                            DeviceType::Cpu
-                        }
-                    }
-                    #[cfg(all(feature = "vulkan", not(feature = "cuda")))]
-                    {
-                        if manager.available_devices.contains(&DeviceType::Vulkan) {
-                            DeviceType::Vulkan
-                        } else {
-                            DeviceType::Cpu
-                        }
-                    }
-                    #[cfg(all(feature = "mps", not(feature = "vulkan"), not(feature = "cuda")))]
-                    {
-                        if manager.available_devices.contains(&DeviceType::Mps) {
-                            DeviceType::Mps
-                        } else {
-                            DeviceType::Cpu
-                        }
-                    }
-                    #[cfg(not(any(feature = "cuda", feature = "vulkan", feature = "mps")))]
-                    {
+        // Ensure DEFAULT_DEVICE is initialized once based on available devices
+        DEFAULT_DEVICE.get_or_init(|| {
+            let device_type = {
+                #[cfg(feature = "cuda")]
+                {
+                    if manager.available_devices.contains(&DeviceType::Cuda) {
+                        DeviceType::Cuda
+                    } else {
                         DeviceType::Cpu
                     }
-                };
+                }
+                #[cfg(all(feature = "vulkan", not(feature = "cuda")))]
+                {
+                    if manager.available_devices.contains(&DeviceType::Vulkan) {
+                        DeviceType::Vulkan
+                    } else {
+                        DeviceType::Cpu
+                    }
+                }
+                #[cfg(all(feature = "mps", not(feature = "vulkan"), not(feature = "cuda")))]
+                {
+                    if manager.available_devices.contains(&DeviceType::Mps) {
+                        DeviceType::Mps
+                    } else {
+                        DeviceType::Cpu
+                    }
+                }
+                #[cfg(not(any(feature = "cuda", feature = "vulkan", feature = "mps")))]
+                {
+                    DeviceType::Cpu
+                }
+            };
+            println!("Default device set to: {:?}", device_type);
+            Mutex::new(device_type)
+        });
 
-                DEFAULT_DEVICE = Some(Mutex::new(device_type));
-                println!("Default device set to: {:?}", device_type);
-            });
-            GLOBAL_DEVICE_MANAGER.as_ref().unwrap()
-        }
+        manager
     }
 
     pub fn set_default_device(device: DeviceType) -> MlResult<()> {
         let manager = Self::global();
         if manager.available_devices.contains(&device) {
-            unsafe {
-                if let Some(ref mutex) = DEFAULT_DEVICE {
-                    *mutex.lock().unwrap() = device;
-                }
-            }
+            let mtx = DEFAULT_DEVICE.get_or_init(|| Mutex::new(DeviceType::Cpu));
+            *mtx.lock().unwrap() = device;
             Ok(())
         } else {
             Err(BackendError::Other(format!(
@@ -199,13 +189,8 @@ impl DeviceManager {
     }
 
     pub fn get_default_device() -> DeviceType {
-        unsafe {
-            if let Some(ref mutex) = DEFAULT_DEVICE {
-                *mutex.lock().unwrap()
-            } else {
-                DeviceType::Cpu
-            }
-        }
+        let mtx = DEFAULT_DEVICE.get_or_init(|| Mutex::new(DeviceType::Cpu));
+        *mtx.lock().unwrap()
     }
 
     pub fn get_features(&self) -> DeviceFeatures {
