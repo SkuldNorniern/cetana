@@ -74,7 +74,8 @@ impl From<Float16Val> for f32 {
             }
         } else {
             // Normal number: adjust exponent from bias 15 to bias 127
-            let new_exp = (exp as u32 - 15 + 127) << 23;
+            let exp_adj: i32 = exp - 15 + 127;
+            let new_exp = ((exp_adj as u32) & 0xff) << 23;
             let new_mantissa = mantissa << 13;
             f32::from_bits((sign << 31) | new_exp | new_mantissa)
         }

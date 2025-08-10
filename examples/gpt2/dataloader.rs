@@ -1,6 +1,6 @@
 use cetana::{tensor::Tensor, MlError, MlResult};
-use rand::seq::SliceRandom;
-use rand::thread_rng;
+use aporia::backend::Xoshiro256StarStar;
+use aporia::Rng;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -58,7 +58,13 @@ impl DataLoader {
         }
 
         let mut indices: Vec<usize> = (0..chunked_data.len()).collect();
-        indices.shuffle(&mut thread_rng());
+        let mut rng = Rng::new(Xoshiro256StarStar::new(42));
+        // Simple Fisher-Yates using aporia RNG
+        for i in (1..indices.len()).rev() {
+            let rnd = rng.next_f64() as f32;
+            let j = (rnd * ((i + 1) as f32)) as usize % (i + 1);
+            indices.swap(i, j);
+        }
 
         Ok(Self {
             data: chunked_data,
@@ -129,12 +135,21 @@ impl DataLoader {
 
     pub fn get_eval_batch(&mut self) -> MlResult<(Tensor, Tensor)> {
         // Get a random batch for evaluation
-        let batch_idx = rand::random::<usize>() % self.num_batches();
+        let mut rng = Rng::new(Xoshiro256StarStar::new(1337));
+        let rnd = rng.next_f64() as f32;
+        let batch_idx = ((rnd * self.num_batches() as f32) as usize)
+            .min(self.num_batches().saturating_sub(1));
         self.get_batch(batch_idx)
     }
 
     pub fn shuffle(&mut self) {
-        self.indices.shuffle(&mut thread_rng());
+        // Shuffle in-place using aporia RNG
+        let mut rng = Rng::new(Xoshiro256StarStar::new(4242));
+        for i in (1..self.indices.len()).rev() {
+            let rnd = rng.next_f64() as f32;
+            let j = (rnd * ((i + 1) as f32)) as usize % (i + 1);
+            self.indices.swap(i, j);
+        }
         self.current_pos = 0;
     }
 

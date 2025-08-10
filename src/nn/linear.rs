@@ -41,28 +41,21 @@ impl Linear {
         let rng_backend = Xoshiro256StarStar::new(seed);
         let mut rng = Rng::new(rng_backend);
 
-        // Add this helper function within the new() method
-        // FEAT: TODO: implement this in aporia
-        fn gen_range(rng: &mut Rng<Xoshiro256StarStar>, min: f32, max: f32) -> f32 {
-            let random = rng.next_f64() as f32; // Convert to f32
-            min + (random * (max - min))
-        }
-
         // Xavier/Glorot initialization
         // Using Kaiming/He initialization bounds which is more modern
         // k = sqrt(1/fan_in) where fan_in = in_features
         let k = 1.0 / (in_features as f32).sqrt();
-        let weight_data: Vec<f32> = (0..in_features * out_features)
-            .map(|_| {
-                let val = gen_range(&mut rng, -k, k);
-                // Avoid exact boundary values
-                match val {
-                    v if v == k => k - f32::EPSILON,
-                    v if v == -k => -k + f32::EPSILON,
-                    _ => val,
-                }
-            })
-            .collect();
+        let mut weight_data: Vec<f32> = Vec::with_capacity(in_features * out_features);
+        for _ in 0..(in_features * out_features) {
+            let r = rng.next_f64() as f32; // [0,1)
+            let mut val = -k + r * (2.0 * k);
+            if val == k {
+                val = k - f32::EPSILON;
+            } else if val == -k {
+                val = -k + f32::EPSILON;
+            }
+            weight_data.push(val);
+        }
 
         trace!("Initializing weights with Xavier/Glorot bounds k={}", k);
         let weight = Tensor::new_from_vec(weight_data, &[out_features, in_features])?;
@@ -70,9 +63,12 @@ impl Linear {
         // Bias initialization
         let bias = if bias {
             trace!("Initializing bias vector");
-            let bias_data: Vec<f32> = (0..out_features)
-                .map(|_| gen_range(&mut rng, -k, k))
-                .collect();
+            let mut bias_data: Vec<f32> = Vec::with_capacity(out_features);
+            for _ in 0..out_features {
+                let r = rng.next_f64() as f32;
+                let val = -k + r * (2.0 * k);
+                bias_data.push(val);
+            }
             Some(Tensor::new_from_vec(bias_data, &[out_features])?)
         } else {
             trace!("Skipping bias initialization");

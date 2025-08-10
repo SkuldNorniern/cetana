@@ -38,16 +38,20 @@ impl Conv2d {
     ) -> MlResult<Self> {
         // Initialize weights using Xavier initialization
         let k = 1.0 / ((in_channels * kernel_size * kernel_size) as f32).sqrt();
-        let mut rng = crate::nn::random::SimpleRng::new(
+        // Initialize RNG using aporia
+        let mut rng = aporia::Rng::new(aporia::backend::Xoshiro256StarStar::new(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .map_err(|e| format!("Time error: {}", e))?,
-        );
+        ));
 
-        let weight_data: Vec<f32> = (0..out_channels * in_channels * kernel_size * kernel_size)
-            .map(|_| rng.gen_range(-k, k))
-            .collect();
+        let mut weight_data: Vec<f32> = Vec::with_capacity(out_channels * in_channels * kernel_size * kernel_size);
+        for _ in 0..(out_channels * in_channels * kernel_size * kernel_size) {
+            let r = rng.next_f64() as f32;
+            let val = -k + r * (2.0 * k);
+            weight_data.push(val);
+        }
 
         let weights = Tensor::new_from_vec(
             weight_data,
@@ -55,7 +59,12 @@ impl Conv2d {
         )?;
 
         let bias = if use_bias {
-            let bias_data: Vec<f32> = (0..out_channels).map(|_| rng.gen_range(-k, k)).collect();
+            let mut bias_data: Vec<f32> = Vec::with_capacity(out_channels);
+            for _ in 0..out_channels {
+                let r = rng.next_f64() as f32;
+                let val = -k + r * (2.0 * k);
+                bias_data.push(val);
+            }
             Some(Tensor::new_from_vec(bias_data, &[out_channels])?)
         } else {
             None
