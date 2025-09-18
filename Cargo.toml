@@ -1,12 +1,12 @@
 [package]
 name = "cetana"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
 description = "Yet Another Neural Network Library"
 license = "Apache-2.0"
 categories = ["science"]
 build = "build.rs"
-authors = ["SkuldNorniern <skuldnorniern@gmail.com>"]
+authors = ["Eira <eira@nornity.com>"]
 
 [features]
 default = ["cpu"]
