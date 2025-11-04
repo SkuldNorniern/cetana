@@ -5,7 +5,6 @@ pub mod embedding;
 pub mod layernorm;
 pub mod linear;
 pub mod pooling;
-pub mod random;
 
 pub use activation::{Activation, ReLU, Sigmoid, Swish, Tanh};
 pub use conv::{Conv2d, PaddingMode};

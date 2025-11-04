@@ -16,9 +16,7 @@ use cetana::{
 };
 use csv::ReaderBuilder;
 use pinax::prelude::*;
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use aporia::{backend::Xoshiro256StarStar as AporiaRngBackend, Rng as AporiaRng};
 
 type Float = f32;
 
@@ -184,14 +182,18 @@ fn train_test_split(
     test_ratio: f32,
     seed: u64,
 ) -> (Tensor, Tensor, Tensor, Tensor) {
-    let mut rng = StdRng::seed_from_u64(seed);
-    let _rng_backend = Xoshiro256StarStar::new(seed);
+    let mut rng = AporiaRng::new(AporiaRngBackend::new(seed));
     let n_samples = x_data.len();
     let test_size = (n_samples as f32 * test_ratio) as usize;
 
     // Create indices and shuffle them
     let mut indices: Vec<usize> = (0..n_samples).collect();
-    indices.shuffle(&mut rng);
+    // Fisher-Yates shuffle using aporia RNG
+    for i in (1..indices.len()).rev() {
+        let rnd = rng.next_f64() as f32;
+        let j = (rnd * ((i + 1) as f32)) as usize % (i + 1);
+        indices.swap(i, j);
+    }
 
     // Split indices
     let test_indices = &indices[..test_size];
