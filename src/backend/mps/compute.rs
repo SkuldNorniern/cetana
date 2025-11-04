@@ -19,6 +19,19 @@ pub struct MpsCompute {
 }
 
 impl MpsCompute {
+    /// Creates a new `MpsCompute` instance by loading Metal shader kernels from a precompiled library.
+    ///
+    /// Attempts to load the Metal shader library from `"shaders/metal/shaders.metallib"`. Returns an error if the library file does not exist or fails to load, or if any kernel function cannot be retrieved from the library.
+    ///
+    /// # Returns
+    /// A new `MpsCompute` instance on success, or an error if initialization fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let device = Arc::new(MpsDevice::new()?);
+    /// let compute = MpsCompute::new(device)?;
+    /// ```
     pub fn new(device: Arc<MpsDevice>) -> Result<Self, crate::backend::MpsError> {
         let command_queue = device.device().new_command_queue();
 
@@ -177,6 +190,16 @@ impl MpsCompute {
         Ok(result_buffer)
     }
 
+    /// Performs element-wise subtraction of two input buffers on the GPU.
+    ///
+    /// Returns a buffer containing the result of `a - b` for each element, using the Metal Performance Shaders backend.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let result = mps_compute.sub(&buffer_a, &buffer_b, size).unwrap();
+    /// // result now contains the element-wise difference of buffer_a and buffer_b
+    /// ```
     pub fn sub(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
         let result_buffer = self.device.device().new_buffer(
             (size * std::mem::size_of::<f32>()) as u64,
@@ -216,6 +239,24 @@ impl MpsCompute {
         Ok(result_buffer)
     }
 
+    /// Performs element-wise division of two input buffers on the GPU.
+    ///
+    /// Returns a buffer containing the result of dividing each element of `a` by the corresponding element of `b`.
+    ///
+    /// # Parameters
+    /// - `a`: Buffer containing the dividend values.
+    /// - `b`: Buffer containing the divisor values.
+    /// - `size`: Number of elements to process.
+    ///
+    /// # Returns
+    /// A buffer with the element-wise division results, or an error if the operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let result = mps_compute.div(&buffer_a, &buffer_b, 1024)?;
+    /// // result now contains 1024 elements where result[i] = buffer_a[i] / buffer_b[i]
+    /// ```
     pub fn div(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
         let result_buffer = self.device.device().new_buffer(
             (size * std::mem::size_of::<f32>()) as u64,
@@ -255,6 +296,27 @@ impl MpsCompute {
         Ok(result_buffer)
     }
 
+    /// Performs element-wise multiplication of two input buffers on the GPU.
+    ///
+    /// Returns a buffer containing the result of multiplying each corresponding element of `a` and `b`.
+    ///
+    /// # Parameters
+    /// - `a`: First input buffer.
+    /// - `b`: Second input buffer.
+    /// - `size`: Number of elements to process.
+    ///
+    /// # Returns
+    /// A buffer containing the element-wise products.
+    ///
+    /// # Errors
+    /// Returns an error if the compute pipeline cannot be created or if GPU execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let result = mps_compute.multiply(&buffer_a, &buffer_b, 1024)?;
+    /// // `result` now contains the element-wise products of `buffer_a` and `buffer_b`
+    /// ```
     pub fn multiply(&self, a: &Buffer, b: &Buffer, size: usize) -> Result<Buffer, MpsError> {
         let result_buffer = self.device.device().new_buffer(
             (size * std::mem::size_of::<f32>()) as u64,

@@ -145,6 +145,21 @@ impl Ord for Tensor {
 }
 
 impl Tensor {
+    /// Creates a new tensor from a 2D vector of `f32` values using the default backend.
+    ///
+    /// The input must be a non-empty matrix with consistent row lengths. The resulting tensor will have shape `[rows, columns]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the default backend cannot be determined.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let data = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+    /// let tensor = Tensor::new(data).unwrap();
+    /// assert_eq!(tensor.shape(), &[2, 2]);
+    /// ```
     pub fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
         let shape = vec![data.len(), data[0].len()];
         let flat_data: Vec<f32> = data.into_iter().flatten().collect();
@@ -238,6 +253,19 @@ impl Tensor {
         })
     }
 
+    /// Creates a tensor from a flat vector of data and a specified shape using the default backend.
+    ///
+    /// Returns an error if the length of the data does not match the product of the shape dimensions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let data = vec![1.0, 2.0, 3.0, 4.0];
+    /// let shape = &[2, 2];
+    /// let tensor = Tensor::new_from_vec(data, shape).unwrap();
+    /// assert_eq!(tensor.shape(), &[2, 2]);
+    /// assert_eq!(tensor.data(), &[1.0, 2.0, 3.0, 4.0]);
+    /// ```
     pub fn new_from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
