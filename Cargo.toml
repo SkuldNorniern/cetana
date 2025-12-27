@@ -9,7 +9,7 @@ build = "build.rs"
 authors = ["SkuldNorniern <skuldnorniern@gmail.com>"]
 
 [features]
-default = ["cpu"]
+default = ["cpu", "mps"]
 cpu = []
 cuda = []
 mps = ["dep:metal"]
@@ -20,23 +20,23 @@ opencl = []
 rayon = ["dep:rayon"]
 
 [dependencies]
-aporia = "0.1.1"
+aporia = "0.2.0"
 ash = { version = "0.38.0", optional = true, features = ["linked","debug","std"] }
-log = "0.4.22"
-metal = { version = "0.32.0", optional = true, features = ["mps"] }
-rayon = { version = "1.10.0", optional = true }
-vulkano = { version = "0.34.1", optional = true }
+log = "0.4.29"
+metal = { version = "0.33.0", optional = true, features = ["mps"] }
+rayon = { version = "1.11.0", optional = true }
+vulkano = { version = "0.35.2", optional = true }
 
 [dev-dependencies]
-csv = "1.3"
-rand = "0.8.5"
+csv = "1.4.0"
+rand = "0.9.2"
 pinax = "0.1.0"
-flate2 = "1.0.34"
+flate2 = "1.1.5"
 reqwest = { version = "0.12.9", features = ["json","blocking"] }
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full"] }
 
 [build-dependencies]
-cmake = "0.1"
+cmake = "0.1.57"
 
 [profile.dev]
 debug = true
