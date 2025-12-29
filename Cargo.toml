@@ -9,7 +9,7 @@ build = "build.rs"
 authors = ["SkuldNorniern <skuldnorniern@gmail.com>"]
 
 [features]
-default = ["cpu", "mps"]
+default = ["mps"]
 cpu = []
 cuda = []
 mps = ["dep:metal"]

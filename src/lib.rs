@@ -8,6 +8,7 @@ pub mod optimizer;
 pub mod prelude;
 pub mod serialize;
 pub mod tensor;
+pub mod middleware;
 
 use backend::BackendError;
 use loss::LossError;

@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::{fmt::{Debug, Display, Formatter}, sync::{Arc, OnceLock}};
 
 #[cfg(feature = "cpu")]
 mod cpu;
@@ -29,7 +29,6 @@ pub use mps::{MpsBackend, MpsError};
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
 use crate::tensor::Tensor;
-
 /**
  * The Backend trait defines the interface for different backends (CPU, CUDA, Vulkan, etc.)
  * to perform tensor operations.

@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use crate::{tensor::Tensor, MlResult};
+use crate::{MlResult, backend::Backend, middleware::{get_backend, middleware}, tensor::Tensor};
 
 use log::{debug, trace};
 
@@ -39,8 +39,9 @@ pub fn calculate_mse_loss(predictions: &Tensor, labels: &Tensor) -> MlResult<f32
         .into());
     }
 
-    let diff = predictions.sub(labels)?;
-    let squared = diff.data().iter().map(|&x| x * x).sum::<f32>();
+    let backend = get_backend();
+    let diff = backend.sub(predictions, labels);
+    let squared = diff.iter().map(|&x| x * x).sum::<f32>();
     Ok(squared / (predictions.data().len() as f32))
 }
 

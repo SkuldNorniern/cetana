@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::backend::{DeviceType, MpsBackend};
+use crate::backend::{Backend, DeviceType, MpsBackend};
 use crate::tensor::Tensor;
 
 use metal::Device;
@@ -31,14 +31,13 @@ impl MpsDevice {
         // Create two large tensors for benchmarking
         let size = 1024;
         let elements = size * size;
-        let backend_a = Arc::new(MpsBackend::new().unwrap());
-        let backend_b = Arc::new(MpsBackend::new().unwrap());
-        let a = Tensor::from_vec(vec![1.0; elements], &[size, size],backend_a).unwrap();
-        let b = Tensor::from_vec(vec![2.0; elements], &[size, size],backend_b).unwrap();
+        let backend = MpsBackend::new().unwrap();
+        let a = Tensor::from_vec(vec![1.0; elements], &[size, size]).unwrap();
+        let b = Tensor::from_vec(vec![2.0; elements], &[size, size]).unwrap();
 
         // Measure matrix multiplication time (more compute intensive than addition)
         let start = std::time::Instant::now();
-        let _c = a.matmul(&b).unwrap();
+        let _c = backend.matmul(&a, &b, size, size, size);
         let duration = start.elapsed();
 
         // Calculate FLOPS:

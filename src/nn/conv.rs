@@ -49,14 +49,14 @@ impl Conv2d {
             .map(|_| rng.gen_range(-k, k))
             .collect();
 
-        let weights = Tensor::new_from_vec(
+        let weights = Tensor::from_vec(
             weight_data,
             &[out_channels, in_channels, kernel_size, kernel_size],
         )?;
 
         let bias = if use_bias {
             let bias_data: Vec<f32> = (0..out_channels).map(|_| rng.gen_range(-k, k)).collect();
-            Some(Tensor::new_from_vec(bias_data, &[out_channels])?)
+            Some(Tensor::from_vec(bias_data, &[out_channels])?)
         } else {
             None
         };
@@ -157,8 +157,7 @@ impl Layer for Conv2d {
 
         Tensor::from_vec(
             output,
-            &[batch_size, self.out_channels, output_height, output_width],
-            input.get_backend()
+            &[batch_size, self.out_channels, output_height, output_width]
         )
     }
 
@@ -245,18 +244,17 @@ impl Layer for Conv2d {
                 self.in_channels,
                 self.kernel_size,
                 self.kernel_size,
-            ],
-            input.get_backend()
+            ]
         )?;
         self.weights = self.weights.sub(&weight_grad.mul_scalar(learning_rate)?)?;
 
         // Update bias if it exists
         if let Some(bias) = &mut self.bias {
-            let bias_grad = Tensor::from_vec(grad_bias, &[self.out_channels],input.get_backend())?;
+            let bias_grad = Tensor::from_vec(grad_bias, &[self.out_channels])?;
             *bias = bias.sub(&bias_grad.mul_scalar(learning_rate)?)?;
         }
 
-        Tensor::from_vec(grad_input, input_shape,input.get_backend())
+        Tensor::from_vec(grad_input, input_shape)
     }
 }
 
@@ -275,7 +273,7 @@ mod tests {
     #[test]
     fn test_conv2d_forward() -> MlResult<()> {
         let conv = Conv2d::new(1, 1, 2, 1, PaddingMode::Valid, false)?;
-        let input = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 1, 2, 2])?;
+        let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 1, 2, 2])?;
 
         let output = conv.forward(&input)?;
         assert_eq!(output.shape(), &[1, 1, 1, 1]);
@@ -285,10 +283,10 @@ mod tests {
     #[test]
     fn test_conv2d_backward() -> MlResult<()> {
         let mut conv = Conv2d::new(1, 1, 2, 1, PaddingMode::Valid, false)?;
-        let input = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 1, 2, 2])?;
+        let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 1, 2, 2])?;
 
         let _output = conv.forward(&input)?;
-        let grad_output = Tensor::new_from_vec(vec![1.0], &[1, 1, 1, 1])?;
+        let grad_output = Tensor::from_vec(vec![1.0], &[1, 1, 1, 1])?;
 
         let grad_input = conv.backward(&input, &grad_output, 0.1)?;
         assert_eq!(grad_input.shape(), input.shape());

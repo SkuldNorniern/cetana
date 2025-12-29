@@ -65,7 +65,7 @@ impl Linear {
             .collect();
 
         trace!("Initializing weights with Xavier/Glorot bounds k={}", k);
-        let weight = Tensor::new_from_vec(weight_data, &[out_features, in_features])?;
+        let weight = Tensor::from_vec(weight_data, &[out_features, in_features])?;
 
         // Bias initialization
         let bias = if bias {
@@ -73,7 +73,7 @@ impl Linear {
             let bias_data: Vec<f32> = (0..out_features)
                 .map(|_| gen_range(&mut rng, -k, k))
                 .collect();
-            Some(Tensor::new_from_vec(bias_data, &[out_features])?)
+            Some(Tensor::from_vec(bias_data, &[out_features])?)
         } else {
             trace!("Skipping bias initialization");
             None
@@ -127,7 +127,7 @@ impl Layer for Linear {
         let reshaped_input = if input_shape.len() > 2 {
             input.reshape(&[(batch_size * seq_len) as isize, in_features as isize])?
         } else {
-            input.clone()
+            &mut input.clone()
         };
 
         trace!(

@@ -2,7 +2,7 @@ use aporia::backend::XorShift;
 use aporia::RandomBackend;
 use super::*;
 
-impl<'a> Tensor<'a> {
+impl Tensor {
     /// Creates a tensor filled with zeros
     ///
     /// Args:

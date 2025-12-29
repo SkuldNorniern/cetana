@@ -161,9 +161,9 @@ mod tests {
             Tensor::from_vec(vec![1.0, -2.5, 3.7, 4.2], vec![2, 2]).expect("Failed to create tensor");
 
         // Implement a simple struct that implements Module + Model for testing
-        struct TestModel<'a>(Tensor<'a>);
+        struct TestModel(Tensor);
 
-        impl Layer for TestModel<'_> {
+        impl Layer for TestModel {
             fn forward(&self, _input: &Tensor) -> MlResult<Tensor> {
                 Ok(self.0.clone())
             }
@@ -177,19 +177,19 @@ mod tests {
             }
         }
 
-        impl SerializeComponents for TestModel<'_> {
+        impl SerializeComponents for TestModel {
             fn serialize_components(&self) -> Vec<Vec<u8>> {
                 vec![self.0.serialize()]
             }
         }
 
-        impl DeserializeComponents for TestModel<'_> {
+        impl DeserializeComponents for TestModel {
             fn deserialize_components(components: Vec<Vec<u8>>) -> MlResult<Self> {
                 Ok(Self(Tensor::deserialize(components[0].as_slice())?))
             }
         }
 
-        impl Model for TestModel<'_> {}
+        impl Model for TestModel {}
 
         // Create test model
         let model = TestModel(tensor);
@@ -218,8 +218,8 @@ mod tests {
         file.write_all(invalid_data)
             .expect("Failed to write test data");
 
-        struct TestModel<'a>(Tensor<'a>);
-        impl Layer for TestModel<'_> {
+        struct TestModel(Tensor);
+        impl Layer for TestModel {
             fn forward(&self, _input: &Tensor) -> MlResult<Tensor> {
                 Ok(self.0.clone())
             }
@@ -232,19 +232,19 @@ mod tests {
                 Ok(self.0.clone())
             }
         }
-        impl SerializeComponents for TestModel<'_> {
+        impl SerializeComponents for TestModel {
             fn serialize_components(&self) -> Vec<Vec<u8>> {
                 vec![]
             }
         }
-        impl DeserializeComponents for TestModel<'_> {
+        impl DeserializeComponents for TestModel {
             fn deserialize_components(_: Vec<Vec<u8>>) -> MlResult<Self> {
                 Ok(Self(
                     Tensor::from_vec(vec![], vec![0]).expect("Failed to create empty tensor"),
                 ))
             }
         }
-        impl Model for TestModel<'_> {}
+        impl Model for TestModel {}
 
         // Attempt to load should fail
         assert!(TestModel::load(temp_path).is_err());

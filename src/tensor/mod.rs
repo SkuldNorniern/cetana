@@ -71,14 +71,43 @@ impl Display for TensorError {
 
 // Tensor struct just holds data and shape with optional name
 #[derive(Debug, Clone)]
-pub struct Tensor<'a> {
+pub struct Tensor {
     id:  String,
-    name: Option<&'a str>,
+    name: Option<String>,
     data: Vec<f32>,
-    shape: Vec<usize>
+    shape: Vec<usize>,
 }
 
-impl PartialEq for Tensor<'_> {
+impl Index<usize> for Tensor {
+    type Output = f32;
+
+    /// Indexing into the tensor using a slice of indices
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
+    }
+}
+
+impl IntoIterator for Tensor {
+    type Item = f32;
+    type IntoIter = std::vec::IntoIter<f32>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
+}
+
+// Allow iteration by reference
+impl<'a> IntoIterator for &'a Tensor {
+    type Item = &'a f32;
+    type IntoIter = std::slice::Iter<'a, f32>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.iter()
+    }
+}
+
+
+impl PartialEq for Tensor {
     /// Two tensors are equal if they have the same data and shape
     fn eq(&self, other: &Self) -> bool {
         self.data == other.data && self.shape == other.shape
@@ -88,9 +117,9 @@ impl PartialEq for Tensor<'_> {
 // Implementing Eq indicates that equality is reflexive, symmetric and transitive
 // Since we're using == on f32 vectors and usize vectors which satisfy these properties,
 // we can safely implement Eq
-impl Eq for Tensor<'_> {}
+impl Eq for Tensor {}
 
-impl PartialOrd for Tensor<'_> {
+impl PartialOrd for Tensor {
     /// Defines partial ordering based on the underlying data
     /// Returns None if any pair of elements can't be compared (e.g., NaN)
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -98,7 +127,7 @@ impl PartialOrd for Tensor<'_> {
     }
 }
 
-impl Ord for Tensor<'_> {
+impl Ord for Tensor {
     /// Defines total ordering based on the underlying data
     /// Note: This implementation uses partial_cmp and defaults to Equal if comparison fails
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -106,19 +135,18 @@ impl Ord for Tensor<'_> {
     }
 }
 
-impl<'a> Tensor<'a> {
-
-    pub fn new_with_name(data: Vec<f32>, shape: Vec<usize>, name: Option<&'a str>) -> MlResult<Self> {
+impl Tensor { 
+    pub fn new_with_name<T: AsRef<str>>(data: Vec<f32>, shape: Vec<usize>, name: Option<T>) -> MlResult<Self> {
         Ok(Self {
             id: get_unique_id(),
-            name,
+            name: name.map(|n| n.as_ref().to_string()),
             data,
             shape
         })
     }
 
     pub fn new(data: Vec<f32>, shape: Vec<usize>) -> MlResult<Self> {
-        Self::new_with_name(data, shape, None)
+        Self::new_with_name::<&str>(data, shape, None)
     }
     
     pub fn from_2dim_vec(data: Vec<Vec<f32>>) -> MlResult<Self> {
@@ -127,8 +155,12 @@ impl<'a> Tensor<'a> {
         Self::new(flat_data, shape)
     }
 
-    pub fn from_vec(data: Vec<f32>, shape: Vec<usize>) -> MlResult<Self> {
-        let expected_len: usize = shape.iter().product();
+    pub fn from_vec<S>(data: Vec<f32>, shape: S) -> MlResult<Self> 
+    where
+        S: AsRef<[usize]>,
+    {
+        let shape_slice = shape.as_ref();
+        let expected_len: usize = shape_slice.iter().product();
         if data.len() != expected_len {
             return Err(MlError::TensorError(TensorError::InvalidDataLength {
                 expected: expected_len,
@@ -136,7 +168,14 @@ impl<'a> Tensor<'a> {
             }));
         }
 
-        Self::new(data, shape)
+        Self::new(data, shape_slice.to_vec())
+    }
+
+    pub fn from_vec_with_no_shape(data: Vec<Vec<f32>>) -> MlResult<Self> {
+        let shape = vec![data.len(), data[0].len()];
+        let flat_data: Vec<f32> = data.into_iter().flatten().collect();
+
+        Self::new(flat_data, shape)
     }
 
     pub fn shape(&self) -> &[usize] {
@@ -153,5 +192,30 @@ impl<'a> Tensor<'a> {
 
     pub fn chunks(&self, chunk_size: usize) -> Chunks<'_, f32> {
         self.data.chunks(chunk_size)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Returns a new tensor with the square of the elements of input
+    ///
+    /// Args:
+    ///     None
+    ///
+    /// Returns:
+    ///     A new tensor with each element being the square of the corresponding element in the input tensor
+    ///
+    /// Example:
+    /// ```
+    /// use cetana::tensor::Tensor;
+    ///
+    /// let a = Tensor::new(vec![vec![-2.0, 1.0, 0.5]]).unwrap();
+    /// let b = a.square().unwrap();
+    /// assert_eq!(b.data(), &[4.0, 1.0, 0.25]);
+    /// ```
+    pub fn square(&mut self) -> MlResult<&mut Self> {
+        self.data = self.data.iter().map(|&x| x * x).collect();
+        Ok(self)
     }
 }

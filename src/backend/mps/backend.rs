@@ -4,6 +4,7 @@ use super::{MpsCompute, MpsDevice};
 use crate::backend::feature::DeviceFeatures;
 use crate::backend::{Backend, Device, DeviceType};
 use crate::MlResult;
+use crate::tensor::Tensor;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -37,18 +38,18 @@ impl Backend for MpsBackend {
         self.device.calc_device_flops()
     }
 
-    fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+    fn add(&self, a: &Tensor, b: &Tensor) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
             let buffer_b = self
                 .compute
-                .create_buffer(b)
+                .create_buffer(b.data())
                 .expect("Failed to create buffer B");
 
             // Perform addition on Apple MPS
@@ -68,18 +69,18 @@ impl Backend for MpsBackend {
         result_vec
     }
 
-    fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+    fn multiply(&self, a: &Tensor, b: &Tensor) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
             let buffer_b = self
                 .compute
-                .create_buffer(b)
+                .create_buffer(b.data())
                 .expect("Failed to create buffer B");
 
             // Perform multiplication on Apple MPS
@@ -99,18 +100,18 @@ impl Backend for MpsBackend {
         result_vec
     }
 
-    fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
+    fn matmul(&self, a: &Tensor, b: &Tensor, m: usize, n: usize, k: usize) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
             let buffer_b = self
                 .compute
-                .create_buffer(b)
+                .create_buffer(b.data())
                 .expect("Failed to create buffer B");
 
             // Perform matrix multiplication on Apple MPS
@@ -130,18 +131,18 @@ impl Backend for MpsBackend {
         result_vec
     }
 
-    fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+    fn div(&self, a: &Tensor, b: &Tensor) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
             let buffer_b = self
                 .compute
-                .create_buffer(b)
+                .create_buffer(b.data())
                 .expect("Failed to create buffer B");
 
             // Perform division on Apple MPS
@@ -161,18 +162,18 @@ impl Backend for MpsBackend {
         result_vec
     }
 
-    fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
+    fn sub(&self, a: &Tensor, b: &Tensor) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
             let buffer_b = self
                 .compute
-                .create_buffer(b)
+                .create_buffer(b.data())
                 .expect("Failed to create buffer B");
 
             // Perform subtraction on Apple MPS
@@ -192,7 +193,7 @@ impl Backend for MpsBackend {
         result_vec
     }
 
-    fn exp(&self, a: &[f32]) -> Vec<f32> {
+    fn exp(&self, a: &Tensor) -> Vec<f32> {
         // TODO: consider implementing optimized power operations on the metal backend
         // using cpu compute code for now
         let mut result = Vec::with_capacity(a.len());
@@ -208,14 +209,14 @@ impl Backend for MpsBackend {
         result
     }
 
-    fn log(&self, a: &[f32]) -> Vec<f32> {
+    fn log(&self, a: &Tensor) -> Vec<f32> {
         let mut result_vec: Vec<f32> = vec![];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
 
             // Perform log on Apple MPS
@@ -235,21 +236,21 @@ impl Backend for MpsBackend {
         result_vec
     }
 
-    fn pow(&self, a: &[f32], power: f32) -> Vec<f32> {
+    fn pow(&self, a: &Tensor, power: f32) -> Vec<f32> {
         // TODO: consider implementing optimized power operations on the metal backend
         // using cpu compute code for now
         if power == 2.0 {
-            return a.iter().map(|x| x * x).collect();
+            return a.data().iter().map(|x| x * x).collect();
         }
         if power == 0.5 {
             return self.sqrt(a);
         }
 
-        let vec = a.iter().map(|x| x.powf(power)).collect();
+        let vec = a.data().iter().map(|x| x.powf(power)).collect();
         vec
     }
 
-    fn sqrt(&self, a: &[f32]) -> Vec<f32> {
+    fn sqrt(&self, a: &Tensor) -> Vec<f32> {
         // TODO: consider implementing optimized power operations on the metal backend
         // using cpu compute code for now
         let mut result = Vec::with_capacity(a.len());
@@ -259,14 +260,14 @@ impl Backend for MpsBackend {
         result
     }
 
-    fn sum(&self, a: &[f32]) -> f32 {
+    fn sum(&self, a: &Tensor) -> f32 {
         let mut result_slice: &[f32] = &[];
 
         autoreleasepool(|| {
             // Create Buffers on Apple MPS
             let buffer_a = self
                 .compute
-                .create_buffer(a)
+                .create_buffer(a.data())
                 .expect("Failed to create buffer A");
 
             // Perform sum on Apple MPS
@@ -283,7 +284,7 @@ impl Backend for MpsBackend {
         result_slice[0]
     }
 
-    fn mean(&self, a: &[f32]) -> f32 {
+    fn mean(&self, a: &Tensor) -> f32 {
         if a.is_empty() {
             return 0.0f32;
         }

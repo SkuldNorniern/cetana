@@ -1,6 +1,6 @@
 use super::*;
 
-impl Tensor<'_> {
+impl Tensor {
     /// Transposes the tensor across the specified dimensions
     ///
     /// # Arguments

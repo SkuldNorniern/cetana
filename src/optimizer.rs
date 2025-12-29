@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
+use crate::backend::Backend;
+use crate::middleware::{get_backend, middleware};
 use crate::tensor::Tensor;
 use crate::MlResult;
 
@@ -25,18 +27,18 @@ impl Display for OptimError {
     }
 }
 
-pub struct Adam<'a> {
-    params: Vec<(Tensor<'a>, Option<Tensor<'a>>)>, // (parameter, gradient)
+pub struct Adam {
+    params: Vec<(Tensor, Option<Tensor>)>, // (parameter, gradient)
     lr: f32,
     betas: (f32, f32),
     eps: f32,
     weight_decay: f32,
     step_count: usize,
-    exp_avg: HashMap<usize, Tensor<'a>>,
-    exp_avg_sq: HashMap<usize, Tensor<'a>>,
+    exp_avg: HashMap<usize, Tensor>,
+    exp_avg_sq: HashMap<usize, Tensor>,
 }
 
-impl Adam<'_> {
+impl Adam {
     pub fn new(
         lr: f32,
         betas: Option<(f32, f32)>,
@@ -60,7 +62,7 @@ impl Adam<'_> {
     }
 }
 
-impl Optimizer for Adam<'_> {
+impl Optimizer for Adam {
     fn step(&mut self) -> MlResult<()> {
         info!("Starting Adam optimization step {}", self.step_count + 1);
         self.step_count += 1;
@@ -72,6 +74,8 @@ impl Optimizer for Adam<'_> {
             bias_correction1, bias_correction2
         );
 
+        let middleware = middleware();
+        let backend = get_backend();
         for (i, (param, grad)) in self.params.iter_mut().enumerate() {
             trace!("Processing parameter {}: shape={:?}", i, param.shape());
 
@@ -121,8 +125,9 @@ impl Optimizer for Adam<'_> {
 
             // Update momentum buffers
             debug!("Updating momentum buffers for parameter {}", i);
-            let grad_mul = grad.mul_scalar(1.0 - self.betas.0)?;
-            exp_avg.mul_scalar(self.betas.0)?.add(&grad_mul)?;
+            let grad_mul = middleware.multiply_scalar(grad, 1.0 - self.betas.0);
+            middleware.multiply_scalar(exp_avg, self.betas.0).add(&grad_mul)?;
+            
             trace!("Updated exp_avg with beta1={:.6}", self.betas.0);
 
             let grad_sq = grad.square()?;
@@ -177,7 +182,7 @@ impl Optimizer for Adam<'_> {
         debug!("All gradients have been zeroed");
     }
 
-    fn add_param(&mut self, param: Tensor<'_>, grad: Option<Tensor<'_>>) {
+    fn add_param(&mut self, param: Tensor, grad: Option<Tensor>) {
         let param_idx = self.params.len();
         debug!(
             "Adding parameter {} with shape {:?}",

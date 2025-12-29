@@ -2,7 +2,7 @@ use crate::prelude::{Deserialize, Serialize};
 use super::*;
 
 // Implement serialization for Tensor
-impl Serialize for Tensor<'_> {
+impl Serialize for Tensor {
     fn serialize(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
@@ -23,7 +23,7 @@ impl Serialize for Tensor<'_> {
     }
 }
 
-impl Deserialize for Tensor<'_> {
+impl Deserialize for Tensor {
     fn deserialize(bytes: &[u8]) -> MlResult<Self> {
         let mut cursor = 0;
 
