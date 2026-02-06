@@ -33,8 +33,8 @@ impl MpsDevice {
         let elements = size * size;
         let backend_a = Arc::new(MpsBackend::new().unwrap());
         let backend_b = Arc::new(MpsBackend::new().unwrap());
-        let a = Tensor::from_vec(vec![1.0; elements], &[size, size],backend_a).unwrap();
-        let b = Tensor::from_vec(vec![2.0; elements], &[size, size],backend_b).unwrap();
+        let a = Tensor::from_vec(vec![1.0; elements], &[size, size], backend_a).unwrap();
+        let b = Tensor::from_vec(vec![2.0; elements], &[size, size], backend_b).unwrap();
 
         // Measure matrix multiplication time (more compute intensive than addition)
         let start = std::time::Instant::now();

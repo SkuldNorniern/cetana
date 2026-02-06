@@ -4,12 +4,13 @@ use crate::backend::{
 };
 
 use super::{core::MpsDevice, MpsError};
+use log::{debug, error};
 use metal::{
     Buffer, CommandQueue, ComputePipelineState, Function, Library, MTLResourceOptions, MTLSize,
     NSUInteger,
 };
-use std::{collections::HashMap, path::Path, sync::Arc};
 use std::path::absolute;
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 #[derive(Debug)]
 pub struct MpsCompute {
@@ -24,9 +25,9 @@ impl MpsCompute {
 
         // Load Library
         let library_path = Path::new("shaders/metal/shaders.metallib");
-        println!("Loading Metal library from {:?}...", absolute(library_path));
+        debug!("Loading Metal library from {:?}...", absolute(library_path));
         if !library_path.exists() {
-            eprintln!("Metal library not found at {:?}", absolute(library_path));
+            error!("Metal library not found at {:?}", absolute(library_path));
             return Err(MpsError::ShaderCompilationError);
         }
 
@@ -34,7 +35,7 @@ impl MpsCompute {
             .device()
             .new_library_with_file(library_path)
             .map_err(|e| {
-                eprintln!("{}", e);
+                error!("{}", e);
                 MpsError::ShaderCompilationError
             })?;
         let mut kernel_map = HashMap::new();
