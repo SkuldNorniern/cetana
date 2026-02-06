@@ -1,9 +1,9 @@
 use metal::objc::rc::autoreleasepool;
 
 use super::{MpsCompute, MpsDevice};
+use crate::MlResult;
 use crate::backend::feature::DeviceFeatures;
 use crate::backend::{Backend, Device, DeviceType};
-use crate::MlResult;
 use std::fmt::Debug;
 use std::sync::Arc;
 

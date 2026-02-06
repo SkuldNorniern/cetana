@@ -1,6 +1,6 @@
 use super::{Buffer, VulkanError};
 use crate::MlResult;
-use ash::{vk, Device};
+use ash::{Device, vk};
 use std::sync::Arc;
 
 pub fn create_descriptor_resources(

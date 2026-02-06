@@ -1,8 +1,8 @@
+use cetana::nn::ReLU;
 use cetana::prelude::*;
 use cetana::tensor::Tensor;
-use std::time::Instant;
-use cetana::nn::ReLU;
 use std::env;
+use std::time::Instant;
 
 // Function to print the active Cetana backend feature
 // (Same as in benchmark_matmul.rs)
@@ -49,7 +49,7 @@ where
     for _ in 0..num_runs {
         let start = Instant::now();
         let _result = op(t1, t2)?;
-         // TODO: Add synchronization here if backend is async
+        // TODO: Add synchronization here if backend is async
         total_duration += start.elapsed();
     }
     Ok((total_duration.as_nanos() as f64 / num_runs as f64) / 1_000_000.0)
@@ -64,7 +64,7 @@ fn benchmark_sum_all(tensor: &Tensor, num_runs: usize) -> MlResult<f64> {
     for _ in 0..num_runs {
         let start = Instant::now();
         let _result = tensor.sum_all()?;
-         // TODO: Add synchronization here if backend is async
+        // TODO: Add synchronization here if backend is async
         total_duration += start.elapsed();
     }
     Ok((total_duration.as_nanos() as f64 / num_runs as f64) / 1_000_000.0)
@@ -127,4 +127,4 @@ fn main() -> MlResult<()> {
     println!("cetana_transpose_ms:{}", transpose_ms);
 
     Ok(())
-} 
+}

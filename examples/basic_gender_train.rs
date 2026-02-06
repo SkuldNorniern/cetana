@@ -3,20 +3,20 @@ use std::fs::File;
 use std::time::Instant;
 
 use aporia::backend::Xoshiro256StarStar;
+use aporia::{Rng as AporiaRng, backend::Xoshiro256StarStar as AporiaRngBackend};
 use cetana::{
+    MlError, MlResult,
     backend::DeviceManager,
     loss::calculate_binary_cross_entropy_loss,
     nn::{
-        activation::{Sigmoid, Swish},
         Activation, Layer, Linear,
+        activation::{Sigmoid, Swish},
     },
     serialize::{Deserialize, DeserializeComponents, Model, Serialize, SerializeComponents},
     tensor::Tensor,
-    MlError, MlResult,
 };
 use csv::ReaderBuilder;
 use pinax::prelude::*;
-use aporia::{backend::Xoshiro256StarStar as AporiaRngBackend, Rng as AporiaRng};
 
 type Float = f32;
 

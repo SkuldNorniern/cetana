@@ -1,10 +1,10 @@
 use cetana::{
+    MlResult,
     nn::{
-        pooling::{Pooling, PoolingType},
         Layer,
+        pooling::{Pooling, PoolingType},
     },
     tensor::Tensor,
-    MlResult,
 };
 use pinax::{BorderStyle, Grid};
 

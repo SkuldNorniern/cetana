@@ -1,6 +1,6 @@
 use super::{Buffer, VulkanError};
 use crate::MlResult;
-use ash::{vk, Device, Instance};
+use ash::{Device, Instance, vk};
 use std::fs::read;
 use std::sync::Arc;
 

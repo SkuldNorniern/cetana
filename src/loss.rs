@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use crate::{tensor::Tensor, MlResult};
+use crate::{MlResult, tensor::Tensor};
 
 use log::{debug, trace};
 

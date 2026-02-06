@@ -37,8 +37,10 @@ fn main() -> MlResult<()> {
         eprintln!("Using default dimensions: {} {} {}", dim_a, dim_b, dim_c);
     }
 
-
-    println!("Benchmarking Cetana matrix multiplication: ({}x{}) * ({}x{})", dim_a, dim_b, dim_b, dim_c);
+    println!(
+        "Benchmarking Cetana matrix multiplication: ({}x{}) * ({}x{})",
+        dim_a, dim_b, dim_b, dim_c
+    );
 
     // Create tensors (consider using a specific backend if needed)
     // Using default backend for now
@@ -66,4 +68,4 @@ fn main() -> MlResult<()> {
     println!("cetana_ms:{}", avg_duration_ms);
 
     Ok(())
-} 
+}

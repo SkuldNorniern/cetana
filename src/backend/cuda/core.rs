@@ -1,8 +1,8 @@
 use super::CudaError;
+use log::{debug, info, trace, warn};
 use std::ffi::CStr;
-use std::sync::Once;
 use std::marker::PhantomData;
-use log::{debug, trace, warn, info};
+use std::sync::Once;
 
 static CUDA_INIT: Once = Once::new();
 
@@ -113,9 +113,11 @@ impl CudaDevice {
                 .into_owned()
         };
 
-        info!("CUDA device initialized: {} (Compute {}.{}), Memory: {} bytes", 
-            device_name, major, minor, total_memory);
-        
+        info!(
+            "CUDA device initialized: {} (Compute {}.{}), Memory: {} bytes",
+            device_name, major, minor, total_memory
+        );
+
         Ok(CudaDevice {
             device_id,
             device_name,
@@ -159,7 +161,10 @@ impl CudaDevice {
         unsafe {
             let result = cudaDeviceSynchronize();
             if result != CUDA_SUCCESS {
-                warn!("Failed to synchronize CUDA device {}: error code {}", self.device_id, result);
+                warn!(
+                    "Failed to synchronize CUDA device {}: error code {}",
+                    self.device_id, result
+                );
                 return Err(CudaError::Synchronization(
                     "Device synchronization failed".into(),
                 ));
@@ -177,7 +182,10 @@ pub fn initialize_cuda() -> Result<(), CudaError> {
         trace!("First-time CUDA initialization");
         let init_result = cudaInit(0);
         if init_result != CUDA_SUCCESS {
-            warn!("CUDA initialization failed with error code: {}", init_result);
+            warn!(
+                "CUDA initialization failed with error code: {}",
+                init_result
+            );
             result = Err(CudaError::InitializationFailed(
                 "Failed to initialize CUDA".into(),
             ));

@@ -1,5 +1,5 @@
 use super::VulkanError;
-use ash::{vk, Device, Entry, Instance};
+use ash::{Device, Entry, Instance, vk};
 use std::ffi::CStr;
 use std::sync::Arc;
 

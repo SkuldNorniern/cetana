@@ -1,8 +1,8 @@
+use crate::MlResult;
 use crate::backend::feature::{
-    DeviceFeatures, CPU_FEATURE_AVX, CPU_FEATURE_AVX2, CPU_FEATURE_AVX512F,
+    CPU_FEATURE_AVX, CPU_FEATURE_AVX2, CPU_FEATURE_AVX512F, DeviceFeatures,
 };
 use crate::backend::{Backend, Device, DeviceType};
-use crate::MlResult;
 
 mod compute;
 mod core;

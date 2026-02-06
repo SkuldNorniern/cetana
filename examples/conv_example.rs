@@ -1,10 +1,10 @@
 use cetana::{
+    MlResult,
     nn::{
-        conv::{Conv2d, PaddingMode},
         Layer,
+        conv::{Conv2d, PaddingMode},
     },
     tensor::Tensor,
-    MlResult,
 };
 use pinax::{BorderStyle, Grid};
 

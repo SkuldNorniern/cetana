@@ -1,6 +1,6 @@
-use cetana::{tensor::Tensor, MlError, MlResult};
-use aporia::backend::Xoshiro256StarStar;
 use aporia::Rng;
+use aporia::backend::Xoshiro256StarStar;
+use cetana::{MlError, MlResult, tensor::Tensor};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -137,8 +137,8 @@ impl DataLoader {
         // Get a random batch for evaluation
         let mut rng = Rng::new(Xoshiro256StarStar::new(1337));
         let rnd = rng.next_f64() as f32;
-        let batch_idx = ((rnd * self.num_batches() as f32) as usize)
-            .min(self.num_batches().saturating_sub(1));
+        let batch_idx =
+            ((rnd * self.num_batches() as f32) as usize).min(self.num_batches().saturating_sub(1));
         self.get_batch(batch_idx)
     }
 

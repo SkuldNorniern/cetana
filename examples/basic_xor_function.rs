@@ -1,11 +1,11 @@
 use cetana::{
+    MlResult,
     backend::DeviceManager,
     nn::{
-        activation::{ReLU, Sigmoid},
         Layer, Linear,
+        activation::{ReLU, Sigmoid},
     },
     tensor::Tensor,
-    MlResult,
 };
 use std::time::Instant;
 

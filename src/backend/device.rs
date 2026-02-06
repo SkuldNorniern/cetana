@@ -2,11 +2,13 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::sync::{Mutex, OnceLock};
 
+use log::{debug, info, warn};
+
+use crate::MlResult;
+use crate::backend::BackendError;
 #[cfg(feature = "cuda")]
 use crate::backend::cuda::CudaDevice;
 use crate::backend::feature::*;
-use crate::backend::BackendError;
-use crate::MlResult;
 
 static GLOBAL_DEVICE_MANAGER: OnceLock<DeviceManager> = OnceLock::new();
 static DEFAULT_DEVICE: OnceLock<Mutex<DeviceType>> = OnceLock::new();
@@ -48,48 +50,48 @@ impl DeviceManager {
         // Check for CUDA support
         #[cfg(feature = "cuda")]
         {
-            println!("Checking CUDA support...");
+            debug!("Checking CUDA support...");
             match CudaDevice::new(0) {
                 Ok(_) => {
-                    println!("CUDA GPU support confirmed");
+                    info!("CUDA GPU support confirmed");
                     available_devices.insert(DeviceType::Cuda);
                 }
-                Err(e) => println!("CUDA initialization failed: {}", e),
+                Err(e) => warn!("CUDA initialization failed: {}", e),
             }
         }
 
         // Check for Vulkan support
         #[cfg(feature = "vulkan")]
         {
-            println!("Checking Vulkan support...");
+            debug!("Checking Vulkan support...");
             if let Ok(entry) = unsafe { ash::Entry::load() } {
                 match unsafe { entry.enumerate_instance_extension_properties(None) } {
                     Ok(_) => match crate::backend::VulkanBackend::new() {
                         Ok(_) => {
-                            println!("Vulkan GPU support confirmed");
+                            info!("Vulkan GPU support confirmed");
                             available_devices.insert(DeviceType::Vulkan);
                             // cleanup backend
                             // backend.cleanup();
                         }
-                        Err(e) => println!("Vulkan backend creation failed: {:?}", e),
+                        Err(e) => warn!("Vulkan backend creation failed: {:?}", e),
                     },
-                    Err(e) => println!("Vulkan extension enumeration failed: {:?}", e),
+                    Err(e) => warn!("Vulkan extension enumeration failed: {:?}", e),
                 }
             } else {
-                println!("Failed to load Vulkan entry points");
+                warn!("Failed to load Vulkan entry points");
             }
         }
 
         #[cfg(feature = "mps")]
         {
-            println!("Checking MPS support...");
+            debug!("Checking MPS support...");
             if mps_is_available() {
-                println!("MPS support confirmed");
+                info!("MPS support confirmed");
                 available_devices.insert(DeviceType::Mps);
             }
         }
 
-        println!("Available devices: {:?}", available_devices);
+        info!("Available devices: {:?}", available_devices);
         Self { available_devices }
     }
 
@@ -166,7 +168,7 @@ impl DeviceManager {
                     DeviceType::Cpu
                 }
             };
-            println!("Default device set to: {:?}", device_type);
+            info!("Default device set to: {:?}", device_type);
             Mutex::new(device_type)
         });
 
@@ -305,7 +307,7 @@ mod tests {
         // Test with a device type that doesn't exist
         let unavailable_device = DeviceType::Cpu; // Just placeholder that we'll replace
         let device_exists = manager.available_devices().contains(&unavailable_device);
-        
+
         if !device_exists {
             assert!(manager.select_device(Some(unavailable_device)).is_err());
         }

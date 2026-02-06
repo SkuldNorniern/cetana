@@ -123,13 +123,13 @@ impl CpuCompute {
         if let Some(len) = self.check_dimensions(a, b) {
             let mut result = Vec::with_capacity(len);
             for (x, y) in a.chunks(4).zip(b.chunks(4)) {
-                result.extend(x.iter().zip(y.iter()).map(|(a, b)| {
-                    if *b == 0.0 {
-                        f32::INFINITY
-                    } else {
-                        a / b
-                    }
-                }));
+                result.extend(
+                    x.iter().zip(y.iter()).map(
+                        |(a, b)| {
+                            if *b == 0.0 { f32::INFINITY } else { a / b }
+                        },
+                    ),
+                );
             }
             result
         } else {

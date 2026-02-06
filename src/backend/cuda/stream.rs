@@ -1,7 +1,7 @@
 use super::CudaError;
-use std::ptr::null_mut;
+use log::{debug, trace, warn};
 use std::marker::PhantomData;
-use log::{debug, trace, warn}; // Add logging import
+use std::ptr::null_mut; // Add logging import
 
 #[link(name = "cuda")]
 extern "C" {
@@ -36,33 +36,35 @@ impl CudaStream {
             let result = cudaStreamCreate(&mut stream);
             if result != CUDA_SUCCESS {
                 warn!("Failed to create CUDA stream: error code {}", result);
-                return Err(CudaError::Other(
-                    format!("Failed to create CUDA stream: error code {}", result)
-                ));
+                return Err(CudaError::Other(format!(
+                    "Failed to create CUDA stream: error code {}",
+                    result
+                )));
             }
         }
         debug!("CUDA stream created successfully: {:p}", stream);
-        Ok(CudaStream { 
+        Ok(CudaStream {
             stream,
             _marker: PhantomData,
         })
     }
-    
+
     pub fn synchronize(&self) -> Result<(), CudaError> {
         trace!("Synchronizing CUDA stream {:p}", self.stream);
         unsafe {
             let result = cudaStreamSynchronize(self.stream);
             if result != CUDA_SUCCESS {
                 warn!("Failed to synchronize CUDA stream: error code {}", result);
-                return Err(CudaError::Synchronization(
-                    format!("Failed to synchronize CUDA stream: error code {}", result)
-                ));
+                return Err(CudaError::Synchronization(format!(
+                    "Failed to synchronize CUDA stream: error code {}",
+                    result
+                )));
             }
         }
         trace!("CUDA stream synchronized successfully");
         Ok(())
     }
-    
+
     pub fn as_ptr(&self) -> cudaStream_t {
         trace!("Getting CUDA stream pointer: {:p}", self.stream);
         self.stream
@@ -76,4 +78,4 @@ impl Drop for CudaStream {
             cudaStreamDestroy(self.stream);
         }
     }
-} 
+}

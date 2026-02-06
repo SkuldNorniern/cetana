@@ -1,9 +1,9 @@
 use crate::backend::{
-    feature::{GPU_FEATURE_FP16, GPU_FEATURE_FP64},
     DeviceFeatures,
+    feature::{GPU_FEATURE_FP16, GPU_FEATURE_FP64},
 };
 
-use super::{core::MpsDevice, MpsError};
+use super::{MpsError, core::MpsDevice};
 use log::{debug, error};
 use metal::{
     Buffer, CommandQueue, ComputePipelineState, Function, Library, MTLResourceOptions, MTLSize,

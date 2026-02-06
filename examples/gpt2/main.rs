@@ -3,7 +3,7 @@ mod dataloader;
 mod model;
 
 use cetana::optimizer::{Adam, Optimizer};
-use cetana::{backend::DeviceManager, tensor::Tensor, MlResult};
+use cetana::{MlResult, backend::DeviceManager, tensor::Tensor};
 use config::GPTConfig;
 use dataloader::DataLoader;
 use model::GPT;

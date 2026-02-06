@@ -1,11 +1,11 @@
 use super::config::GPTConfig;
 use cetana::{
+    MlResult,
     loss::calculate_cross_entropy_loss,
     nn::embedding::Embedding,
-    nn::{activation::Softmax, Dropout, Layer, LayerNorm, Linear, Swish},
+    nn::{Dropout, Layer, LayerNorm, Linear, Swish, activation::Softmax},
     optimizer::Optimizer,
     tensor::Tensor,
-    MlResult,
 };
 use log::{debug, info, trace};
 

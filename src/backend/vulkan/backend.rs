@@ -1,6 +1,6 @@
 use super::{VulkanCompute, VulkanCore};
-use crate::backend::{Backend, DeviceType};
 use crate::MlResult;
+use crate::backend::{Backend, DeviceType};
 use std::fmt::Debug;
 
 pub struct VulkanBackend {

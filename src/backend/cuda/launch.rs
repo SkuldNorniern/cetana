@@ -24,18 +24,23 @@ impl Dim3 {
     pub fn new(x: u32, y: u32, z: u32) -> Self {
         Self { x, y, z }
     }
-    
+
     pub fn x(x: u32) -> Self {
         Self { x, y: 1, z: 1 }
     }
-    
+
     pub fn xy(x: u32, y: u32) -> Self {
         Self { x, y, z: 1 }
     }
 }
 
 impl LaunchConfig {
-    pub fn new(grid_dim: Dim3, block_dim: Dim3, shared_mem_bytes: u32, stream: cudaStream_t) -> Self {
+    pub fn new(
+        grid_dim: Dim3,
+        block_dim: Dim3,
+        shared_mem_bytes: u32,
+        stream: cudaStream_t,
+    ) -> Self {
         Self {
             grid_dim,
             block_dim,
@@ -44,12 +49,12 @@ impl LaunchConfig {
             _marker: PhantomData,
         }
     }
-    
+
     /// Calculate a good launch configuration for a 1D problem
     pub fn for_1d_problem(elements: u32, stream: cudaStream_t) -> Self {
         const BLOCK_SIZE: u32 = 256; // Usually a good default for modern GPUs
         let num_blocks = (elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        
+
         Self {
             grid_dim: Dim3::x(num_blocks),
             block_dim: Dim3::x(BLOCK_SIZE),
@@ -58,15 +63,15 @@ impl LaunchConfig {
             _marker: PhantomData,
         }
     }
-    
+
     /// Calculate a good launch configuration for a 2D problem
     pub fn for_2d_problem(width: u32, height: u32, stream: cudaStream_t) -> Self {
         const BLOCK_DIM_X: u32 = 16;
         const BLOCK_DIM_Y: u32 = 16;
-        
+
         let grid_dim_x = (width + BLOCK_DIM_X - 1) / BLOCK_DIM_X;
         let grid_dim_y = (height + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
-        
+
         Self {
             grid_dim: Dim3::xy(grid_dim_x, grid_dim_y),
             block_dim: Dim3::xy(BLOCK_DIM_X, BLOCK_DIM_Y),
@@ -75,7 +80,7 @@ impl LaunchConfig {
             _marker: PhantomData,
         }
     }
-    
+
     /// Configure shared memory size
     pub fn with_shared_memory(mut self, bytes: u32) -> Self {
         self.shared_mem_bytes = bytes;
@@ -86,17 +91,20 @@ impl LaunchConfig {
     pub fn for_reduction(elements: u32, stream: cudaStream_t) -> Self {
         // For reductions, we want to use larger block sizes
         const BLOCK_SIZE: u32 = 1024; // Maximum block size for most GPUs
-        
+
         // Calculate grid size to cover all elements, but with a reasonable limit
         let mut grid_size = (elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        
+
         // Limit grid size for large arrays - this is a hardware limitation
         const MAX_GRID_SIZE: u32 = 65535; // Maximum grid dimension for most GPUs
         if grid_size > MAX_GRID_SIZE {
             grid_size = MAX_GRID_SIZE;
-            trace!("Grid size limited to {} for {} elements", grid_size, elements);
+            trace!(
+                "Grid size limited to {} for {} elements",
+                grid_size, elements
+            );
         }
-        
+
         Self {
             grid_dim: Dim3::x(grid_size),
             block_dim: Dim3::x(BLOCK_SIZE),
