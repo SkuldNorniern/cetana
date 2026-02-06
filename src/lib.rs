@@ -9,6 +9,8 @@ pub mod prelude;
 pub mod serialize;
 pub mod tensor;
 
+pub use numina::{BFloat8, BFloat16, DType, DTypeId, DTypeInfo, Float16, QuantizedI4, QuantizedU8};
+
 use backend::BackendError;
 use loss::LossError;
 use optimizer::OptimError;
