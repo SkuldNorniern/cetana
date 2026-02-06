@@ -7,21 +7,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // mod builder;
 mod creation;
 mod display;
-mod dtype;
 mod manipulation;
 mod ops;
 mod reduction;
 mod sampling;
 mod serialization;
+mod shape;
 
 // pub use builder::*;
 
-use crate::serialize::{Deserialize, Serialize};
-use crate::{MlError, MlResult};
-
-use crate::backend::Backend;
-
-use crate::backend::{Device, DeviceType};
+pub use numina::{BFloat16, BFloat8, DType, DTypeId, DTypeInfo, Float16, QuantizedI4, QuantizedU8};
 
 #[cfg(feature = "cpu")]
 use crate::backend::CpuBackend;
@@ -33,8 +28,13 @@ use crate::backend::DeviceManager;
 use crate::backend::MpsBackend;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
+use crate::backend::{Backend, Device, DeviceType};
+
+use crate::serialize::{Deserialize, Serialize};
+use crate::{MlError, MlResult};
 
 use aporia::{backend::XorShift, RandomBackend};
+use log::{debug, info, warn};
 
 #[derive(Debug, Clone)]
 pub enum TensorError {
@@ -85,7 +85,11 @@ impl Display for TensorError {
                 left_shape,
                 right_shape,
             } => {
-                write!(f, "Invalid dimensions for matrix multiplication: left shape {:?}, right shape {:?}", left_shape, right_shape)
+                write!(
+                    f,
+                    "Invalid dimensions for matrix multiplication: left shape {:?}, right shape {:?}",
+                    left_shape, right_shape
+                )
             }
             TensorError::InvalidBackend { backend } => {
                 write!(f, "Invalid backend: {}", backend)
@@ -145,51 +149,59 @@ impl Ord for Tensor {
 }
 
 impl Tensor {
-    pub fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
-        let shape = vec![data.len(), data[0].len()];
-        let flat_data: Vec<f32> = data.into_iter().flatten().collect();
-
-        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-        println!("Backend: {:?}", backend.device());
-
-        Ok(Self {
-            data: flat_data,
+    fn from_parts(data: Vec<f32>, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Self {
+        Self {
+            data,
             shape,
             backend,
             grad: None,
             requires_grad: false,
             grad_fn: None,
-        })
+        }
+    }
+
+    fn from_parts_with_backend(&self, data: Vec<f32>, shape: Vec<usize>) -> Self {
+        Self::from_parts(data, shape, self.backend.clone())
+    }
+
+    pub fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
+        let shape = vec![data.len(), data[0].len()];
+        let flat_data: Vec<f32> = data.into_iter().flatten().collect();
+
+        let backend: Arc<dyn Backend> = Self::get_default_backend()?;
+        debug!("Backend: {:?}", backend.device());
+
+        Ok(Self::from_parts(flat_data, shape, backend))
     }
 
     fn get_default_backend() -> MlResult<Arc<dyn Backend>> {
         let device_type = DeviceManager::get_default_device();
-        println!("Creating tensor with device: {:?}", device_type);
+        debug!("Creating tensor with device: {:?}", device_type);
         let backend: Arc<dyn Backend> = match device_type {
             #[cfg(feature = "cuda")]
             DeviceType::Cuda => {
-                println!("Attempting to create CudaBackend...");
+                debug!("Attempting to create CudaBackend...");
                 match CudaBackend::new() {
                     Ok(backend) => {
-                        println!("Successfully created CudaBackend");
+                        info!("Successfully created CudaBackend");
                         Arc::new(backend)
                     }
                     Err(e) => {
-                        println!("Failed to create CudaBackend: {:?}, falling back to CPU", e);
+                        warn!("Failed to create CudaBackend: {:?}, falling back to CPU", e);
                         Arc::new(CpuBackend::new()?)
                     }
                 }
             }
             #[cfg(feature = "vulkan")]
             DeviceType::Vulkan => {
-                println!("Attempting to create VulkanBackend...");
+                debug!("Attempting to create VulkanBackend...");
                 match VulkanBackend::new() {
                     Ok(backend) => {
-                        println!("Successfully created VulkanBackend");
+                        info!("Successfully created VulkanBackend");
                         Arc::new(backend)
                     }
                     Err(e) => {
-                        println!(
+                        warn!(
                             "Failed to create VulkanBackend: {:?}, falling back to CPU",
                             e
                         );
@@ -199,26 +211,27 @@ impl Tensor {
             }
             #[cfg(feature = "mps")]
             DeviceType::Mps => {
-                println!("Attempting to create MpsBackend...");
+                debug!("Attempting to create MpsBackend...");
                 match MpsBackend::new() {
                     Ok(backend) => {
-                        println!("Successfully created MpsBackend");
+                        info!("Successfully created MpsBackend");
                         Arc::new(backend)
                     }
                     Err(e) => {
-                        println!("Failed to create MpsBackend: {:?}, falling back to CPU", e);
+                        warn!("Failed to create MpsBackend: {:?}, falling back to CPU", e);
                         Arc::new(CpuBackend::new()?)
                     }
                 }
             }
             _ => {
-                println!("Using CpuBackend");
+                info!("Using CpuBackend");
                 Arc::new(CpuBackend::new()?)
             }
         };
 
         Ok(backend)
     }
+
     pub fn from_vec(data: Vec<f32>, shape: &[usize], backend: Arc<dyn Backend>) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
@@ -228,14 +241,7 @@ impl Tensor {
             }));
         }
 
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
     pub fn new_from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
@@ -248,15 +254,8 @@ impl Tensor {
         }
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
-        println!("Backend from_vec: {:?}", backend.device());
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        debug!("Backend from_vec: {:?}", backend.device());
+        Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
     pub fn shape(&self) -> &[usize] {
@@ -435,7 +434,8 @@ mod tests {
         assert_eq!(reshaped.data(), &[1.0, 2.0, 3.0, 4.0]);
 
         // Test 3D reshape
-        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let tensor =
+            Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
         let reshaped = tensor.reshape(&[2, 4])?;
         assert_eq!(reshaped.shape(), &[2, 4]);
         assert_eq!(reshaped.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
@@ -937,7 +937,8 @@ mod tests {
         assert!(result.is_err());
 
         // Test 5: View with 3D shape
-        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
+        let tensor =
+            Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
         let viewed = tensor.view(&[2, 4])?;
         assert_eq!(viewed.shape(), &[2, 4]);
         assert_eq!(viewed.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
