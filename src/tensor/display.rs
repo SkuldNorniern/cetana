@@ -1,29 +1,30 @@
-use std::fmt::Display;
+use std::fmt;
 
 use crate::tensor::Tensor;
 
-// Implement fmt Display
-impl Display for Tensor {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        print_tensor(self);
-        Ok(())
-    }
-}
+impl fmt::Display for Tensor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Shape: {:?}", self.shape())?;
+        writeln!(f, "Data:")?;
 
-fn print_tensor(tensor: &Tensor) {
-    eprintln!("Shape: {:?}", tensor.shape());
-    eprintln!("Data:");
-
-    let (rows, cols) = (tensor.shape()[0], tensor.shape()[1]);
-    for i in 0..rows {
-        print!("[");
-        for j in 0..cols {
-            let idx = i * cols + j;
-            print!("{:8.4}", tensor.data()[idx]);
-            if j < cols - 1 {
-                print!(", ");
+        if self.shape().len() == 2 {
+            let rows = self.shape()[0];
+            let cols = self.shape()[1];
+            for i in 0..rows {
+                write!(f, "[")?;
+                for j in 0..cols {
+                    let idx = i * cols + j;
+                    write!(f, "{:8.4}", self.data()[idx])?;
+                    if j < cols - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                writeln!(f, " ]")?;
             }
+        } else {
+            writeln!(f, "{:?}", self.data())?;
         }
-        println!(" ]");
+
+        Ok(())
     }
 }
