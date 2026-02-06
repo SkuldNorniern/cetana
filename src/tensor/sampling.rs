@@ -1,5 +1,5 @@
-use crate::{tensor::Tensor, MlError, MlResult, TensorError};
-use aporia::{backend::Xoshiro256StarStar, Rng};
+use crate::{MlError, MlResult, TensorError, tensor::Tensor};
+use aporia::{Rng, backend::Xoshiro256StarStar};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl Tensor {
@@ -108,6 +108,6 @@ impl Tensor {
             vec![batch_size, num_samples]
         };
 
-        Tensor::from_vec(result, &output_shape,self.get_backend())
+        Tensor::from_vec(result, &output_shape, self.get_backend())
     }
 }

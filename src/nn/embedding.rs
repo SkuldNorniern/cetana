@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::serialize::{Deserialize, Model, Serialize};
-use crate::{nn::Layer, tensor::Tensor, MlResult};
-use aporia::{backend::Xoshiro256StarStar, Rng};
+use crate::{MlResult, nn::Layer, tensor::Tensor};
+use aporia::{Rng, backend::Xoshiro256StarStar};
 
 /// A simple lookup table that stores embeddings of a fixed dictionary and size.
 ///
@@ -101,8 +101,11 @@ impl Embedding {
             for i in 0..self.embedding_dim {
                 weight_data[padding_idx * self.embedding_dim + i] = 0.0;
             }
-            self.weight =
-                Tensor::from_vec(weight_data, &[self.num_embeddings, self.embedding_dim],self.weight.get_backend())?;
+            self.weight = Tensor::from_vec(
+                weight_data,
+                &[self.num_embeddings, self.embedding_dim],
+                self.weight.get_backend(),
+            )?;
         }
         Ok(())
     }
@@ -176,7 +179,11 @@ impl Layer for Embedding {
         let mut output_shape = input.shape().to_vec();
         output_shape.push(self.embedding_dim);
 
-        let mut output = Tensor::from_vec(output_data.clone(), &output_shape,self.weight.get_backend())?;
+        let mut output = Tensor::from_vec(
+            output_data.clone(),
+            &output_shape,
+            self.weight.get_backend(),
+        )?;
 
         // Apply max_norm if specified
         if let Some(max_norm) = self.max_norm {
@@ -210,7 +217,7 @@ impl Layer for Embedding {
             }
 
             // Recreate tensor with normalized data
-            output = Tensor::from_vec(output_data, &output_shape,self.weight.get_backend())?;
+            output = Tensor::from_vec(output_data, &output_shape, self.weight.get_backend())?;
         }
 
         Ok(output)
@@ -261,8 +268,11 @@ impl Layer for Embedding {
         }
 
         // Update weights
-        let weight_update =
-            Tensor::from_vec(grad_weight, &[self.num_embeddings, self.embedding_dim],self.weight.get_backend())?;
+        let weight_update = Tensor::from_vec(
+            grad_weight,
+            &[self.num_embeddings, self.embedding_dim],
+            self.weight.get_backend(),
+        )?;
         self.weight = self.weight.sub(&weight_update)?;
 
         // Return empty gradient for input since it's just indices

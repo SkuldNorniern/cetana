@@ -11,9 +11,9 @@ pub use softmax::Softmax;
 pub use swish::Swish;
 pub use tanh::Tanh;
 
+use crate::MlResult;
 use crate::nn::Layer;
 use crate::tensor::Tensor;
-use crate::MlResult;
 
 pub trait Activation: Layer {
     fn act_forward(&self, input: &Tensor) -> MlResult<Tensor>;
@@ -39,9 +39,9 @@ impl<T: Activation> Layer for T {
 mod tests {
     use super::*;
 
+    use crate::MlResult;
     use crate::nn::Layer;
     use crate::tensor::Tensor;
-    use crate::MlResult;
 
     #[test]
     fn test_relu() -> MlResult<()> {

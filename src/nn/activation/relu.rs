@@ -1,4 +1,4 @@
-use crate::{nn::Activation, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Activation, tensor::Tensor};
 
 /// Rectified Linear Unit (ReLU) activation function module.
 ///
@@ -26,8 +26,16 @@ impl Activation for ReLU {
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
         // Create a tensor of ones and zeros based on input > 0
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
-        let zeros = Tensor::from_vec(vec![0.0; input.data().len()], input.shape(),input.get_backend())?;
+        let ones = Tensor::from_vec(
+            vec![1.0; input.data().len()],
+            input.shape(),
+            input.get_backend(),
+        )?;
+        let zeros = Tensor::from_vec(
+            vec![0.0; input.data().len()],
+            input.shape(),
+            input.get_backend(),
+        )?;
 
         // Use backend operations to create mask
         let mask = input.clamp_full(Some(0.0), Some(1.0))?;

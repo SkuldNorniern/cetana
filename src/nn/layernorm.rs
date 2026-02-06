@@ -1,8 +1,8 @@
-use crate::nn::Layer;
-use crate::tensor::Tensor;
 use crate::MlError;
 use crate::MlResult;
 use crate::TensorError;
+use crate::nn::Layer;
+use crate::tensor::Tensor;
 
 #[derive(Debug)]
 pub struct LayerNorm {
@@ -116,7 +116,7 @@ impl Layer for LayerNorm {
             });
         }
 
-        Tensor::from_vec(normalized, input_shape,input.get_backend())
+        Tensor::from_vec(normalized, input_shape, input.get_backend())
     }
 
     fn backward(
@@ -138,16 +138,16 @@ mod tests {
     #[test]
     fn test_simple_case() -> MlResult<()> {
         let ln = LayerNorm::new(vec![4], None, Some(false), None)?;
-        eprintln!("ln: {:?}", ln);
+        log::debug!("ln: {:?}", ln);
 
         // Input data from PyTorch example
         let input_data = vec![
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
         ];
         let input = Tensor::new_from_vec(input_data, &[3, 4])?;
-        eprintln!("input: {:?}", input);
+        log::debug!("input: {:?}", input);
         let output = ln.forward(&input)?;
-        eprintln!("output: {:?}", output);
+        log::debug!("output: {:?}", output);
 
         // Expected output from PyTorch
         let expected_output = vec![
@@ -155,7 +155,7 @@ mod tests {
             0.4472, 1.3416,
         ];
         let expected_output_tensor = Tensor::new_from_vec(expected_output.clone(), &[3, 4])?;
-        eprintln!("expected_output: {:?}", expected_output_tensor);
+        log::debug!("expected_output: {:?}", expected_output_tensor);
 
         // Compare output values with tolerance
         let output_data = output.data();

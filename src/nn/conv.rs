@@ -1,4 +1,4 @@
-use crate::{nn::Layer, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Layer, tensor::Tensor};
 
 /// Represents different padding modes for the convolutional layer
 #[derive(Clone, Copy)]
@@ -46,7 +46,8 @@ impl Conv2d {
                 .map_err(|e| format!("Time error: {}", e))?,
         ));
 
-        let mut weight_data: Vec<f32> = Vec::with_capacity(out_channels * in_channels * kernel_size * kernel_size);
+        let mut weight_data: Vec<f32> =
+            Vec::with_capacity(out_channels * in_channels * kernel_size * kernel_size);
         for _ in 0..(out_channels * in_channels * kernel_size * kernel_size) {
             let r = rng.next_f64() as f32;
             let val = -k + r * (2.0 * k);
@@ -167,7 +168,7 @@ impl Layer for Conv2d {
         Tensor::from_vec(
             output,
             &[batch_size, self.out_channels, output_height, output_width],
-            input.get_backend()
+            input.get_backend(),
         )
     }
 
@@ -255,17 +256,17 @@ impl Layer for Conv2d {
                 self.kernel_size,
                 self.kernel_size,
             ],
-            input.get_backend()
+            input.get_backend(),
         )?;
         self.weights = self.weights.sub(&weight_grad.mul_scalar(learning_rate)?)?;
 
         // Update bias if it exists
         if let Some(bias) = &mut self.bias {
-            let bias_grad = Tensor::from_vec(grad_bias, &[self.out_channels],input.get_backend())?;
+            let bias_grad = Tensor::from_vec(grad_bias, &[self.out_channels], input.get_backend())?;
             *bias = bias.sub(&bias_grad.mul_scalar(learning_rate)?)?;
         }
 
-        Tensor::from_vec(grad_input, input_shape,input.get_backend())
+        Tensor::from_vec(grad_input, input_shape, input.get_backend())
     }
 }
 

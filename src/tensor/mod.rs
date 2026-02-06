@@ -16,7 +16,7 @@ mod shape;
 
 // pub use builder::*;
 
-pub use numina::{BFloat16, BFloat8, DType, DTypeId, DTypeInfo, Float16, QuantizedI4, QuantizedU8};
+pub use numina::{BFloat8, BFloat16, DType, DTypeId, DTypeInfo, Float16, QuantizedI4, QuantizedU8};
 
 #[cfg(feature = "cpu")]
 use crate::backend::CpuBackend;
@@ -33,7 +33,7 @@ use crate::backend::{Backend, Device, DeviceType};
 use crate::serialize::{Deserialize, Serialize};
 use crate::{MlError, MlResult};
 
-use aporia::{backend::XorShift, RandomBackend};
+use aporia::{RandomBackend, backend::XorShift};
 use log::{debug, info, warn};
 
 #[derive(Debug, Clone)]

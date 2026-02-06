@@ -1,6 +1,6 @@
-use crate::tensor::Tensor;
 use crate::MlResult;
-use aporia::{backend::Xoshiro256StarStar, Rng};
+use crate::tensor::Tensor;
+use aporia::{Rng, backend::Xoshiro256StarStar};
 
 pub struct Dropout {
     p: f64,
@@ -43,7 +43,7 @@ impl Dropout {
             }
         }
 
-        let mask = Tensor::from_vec(mask_data, x.shape(),x.get_backend())?;
+        let mask = Tensor::from_vec(mask_data, x.shape(), x.get_backend())?;
         x.mul(&mask)
     }
 

@@ -2,8 +2,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::prelude::Layer;
 use crate::MlResult;
+use crate::prelude::Layer;
 
 // Magic bytes to identify our format
 const MAGIC_BYTES: &[u8] = b"SPN1";
@@ -139,7 +139,8 @@ mod tests {
 
     #[test]
     fn test_tensor_serialization() {
-        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).expect("Failed to create tensor");
+        let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])
+            .expect("Failed to create tensor");
 
         // Test serialization
         let serialized = tensor.serialize();
@@ -157,8 +158,8 @@ mod tests {
         let temp_path = "test_tensor.spn";
 
         // Create a test tensor
-        let tensor =
-            Tensor::new_from_vec(vec![1.0, -2.5, 3.7, 4.2], &[2, 2]).expect("Failed to create tensor");
+        let tensor = Tensor::new_from_vec(vec![1.0, -2.5, 3.7, 4.2], &[2, 2])
+            .expect("Failed to create tensor");
 
         // Implement a simple struct that implements Module + Model for testing
         struct TestModel(Tensor);
@@ -256,7 +257,8 @@ mod tests {
     #[test]
     fn test_tensor_serialization_edge_cases() {
         // Test empty tensor
-        let empty_tensor = Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor");
+        let empty_tensor =
+            Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor");
         let serialized = empty_tensor.serialize();
         let deserialized =
             Tensor::deserialize(&serialized).expect("Failed to deserialize empty tensor");
@@ -264,8 +266,8 @@ mod tests {
         assert_eq!(empty_tensor.data(), deserialized.data());
 
         // Test single element tensor
-        let single_tensor =
-            Tensor::new_from_vec(vec![42.0], &[1, 1]).expect("Failed to create single element tensor");
+        let single_tensor = Tensor::new_from_vec(vec![42.0], &[1, 1])
+            .expect("Failed to create single element tensor");
         let serialized = single_tensor.serialize();
         let deserialized =
             Tensor::deserialize(&serialized).expect("Failed to deserialize single element tensor");

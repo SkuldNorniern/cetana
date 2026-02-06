@@ -43,9 +43,9 @@ impl Tensor {
         match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(
-                self.backend.add(&self.data, &other.data), 
-                &self.shape, 
-                self.get_backend()
+                self.backend.add(&self.data, &other.data),
+                &self.shape,
+                self.get_backend(),
             ),
         }
     }
@@ -62,7 +62,7 @@ impl Tensor {
         let scalar_vec = vec![scalar; self.data.len()];
         // Use the Backend's add operation
         let result = self.backend.add(&self.data, &scalar_vec);
-        
+
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
@@ -88,7 +88,11 @@ impl Tensor {
 
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.sub(&self.data, &other.data), &self.shape, self.get_backend()),
+            _ => Tensor::from_vec(
+                self.backend.sub(&self.data, &other.data),
+                &self.shape,
+                self.get_backend(),
+            ),
         }
     }
 
@@ -104,7 +108,7 @@ impl Tensor {
         let scalar_vec = vec![scalar; self.data.len()];
         // Use the Backend's sub operation
         let result = self.backend.sub(&self.data, &scalar_vec);
-        
+
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
@@ -120,7 +124,7 @@ impl Tensor {
         let scalar_vec = vec![scalar; self.data.len()];
         // Use the Backend's sub operation (with arguments reversed)
         let result = self.backend.sub(&scalar_vec, &self.data);
-        
+
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
@@ -134,7 +138,11 @@ impl Tensor {
     pub fn mul(&self, other: &Tensor) -> MlResult<Tensor> {
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.multiply(&self.data, &other.data), &self.shape, self.get_backend()),
+            _ => Tensor::from_vec(
+                self.backend.multiply(&self.data, &other.data),
+                &self.shape,
+                self.get_backend(),
+            ),
         }
     }
 
@@ -150,7 +158,7 @@ impl Tensor {
         let scalar_vec = vec![scalar; self.data.len()];
         // Use the Backend's multiply operation
         let result = self.backend.multiply(&self.data, &scalar_vec);
-        
+
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
@@ -164,7 +172,11 @@ impl Tensor {
     pub fn div(&self, other: &Tensor) -> MlResult<Tensor> {
         match self.chk_shape(other) {
             Err(e) => Err(e),
-            _ => Tensor::from_vec(self.backend.div(&self.data, &other.data), &self.shape, self.get_backend()),
+            _ => Tensor::from_vec(
+                self.backend.div(&self.data, &other.data),
+                &self.shape,
+                self.get_backend(),
+            ),
         }
     }
 
@@ -180,7 +192,7 @@ impl Tensor {
         let scalar_vec = vec![scalar; self.data.len()];
         // Use the Backend's div operation
         let result = self.backend.div(&self.data, &scalar_vec);
-        
+
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
@@ -196,7 +208,7 @@ impl Tensor {
         let scalar_vec = vec![scalar; self.data.len()];
         // Use the Backend's div operation (with arguments reversed)
         let result = self.backend.div(&scalar_vec, &self.data);
-        
+
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
@@ -316,14 +328,15 @@ impl Tensor {
             (1, 1) => match self.chk_shape(other) {
                 Err(e) => Err(e),
                 _ => Tensor::from_vec(
-                    vec![self
-                        .data
-                        .iter()
-                        .zip(other.data.iter())
-                        .map(|(&a, &b)| a * b)
-                        .sum::<f32>()],
+                    vec![
+                        self.data
+                            .iter()
+                            .zip(other.data.iter())
+                            .map(|(&a, &b)| a * b)
+                            .sum::<f32>(),
+                    ],
                     &[],
-                    self.get_backend()
+                    self.get_backend(),
                 ),
             },
 
@@ -599,7 +612,10 @@ impl Tensor {
             None => {
                 // Find global maximum
                 let max_val = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-                Ok((Tensor::from_vec(vec![max_val], &[1], self.get_backend())?, None))
+                Ok((
+                    Tensor::from_vec(vec![max_val], &[1], self.get_backend())?,
+                    None,
+                ))
             }
             Some(d) => {
                 let dim = if d < 0 {
@@ -651,7 +667,11 @@ impl Tensor {
 
                 Ok((
                     Tensor::from_vec(max_values, &new_shape, self.get_backend())?,
-                    Some(Tensor::from_vec(max_indices, &new_shape, self.get_backend())?),
+                    Some(Tensor::from_vec(
+                        max_indices,
+                        &new_shape,
+                        self.get_backend(),
+                    )?),
                 ))
             }
         }

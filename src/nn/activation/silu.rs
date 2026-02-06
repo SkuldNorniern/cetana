@@ -1,4 +1,4 @@
-use crate::{nn::Activation, nn::Sigmoid, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Activation, nn::Sigmoid, tensor::Tensor};
 
 /// Sigmoid Linear Unit(Silu) activation function module.
 ///
@@ -29,7 +29,11 @@ impl Activation for Silu {
         // 1. sigmoid
         let sigmoid_x = Sigmoid::new().act_forward(input)?;
         // 2. inner_term = x * (1 - sigmoid(x))
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
+        let ones = Tensor::from_vec(
+            vec![1.0; input.data().len()],
+            input.shape(),
+            input.get_backend(),
+        )?;
         let inner_term = input.mul(&ones.sub(&sigmoid_x)?)?;
         // 3. silu differential operation
         let grad = sigmoid_x.mul(&ones.add(&inner_term)?)?;

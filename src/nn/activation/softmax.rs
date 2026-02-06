@@ -1,4 +1,4 @@
-use crate::{nn::Activation, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Activation, tensor::Tensor};
 
 pub struct Softmax {
     dim: Option<i32>,
@@ -81,7 +81,7 @@ impl Activation for Softmax {
             }
         }
 
-        Tensor::from_vec(result, shape,input.get_backend())
+        Tensor::from_vec(result, shape, input.get_backend())
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
@@ -116,7 +116,7 @@ impl Activation for Softmax {
             }
         }
 
-        Tensor::from_vec(result, shape,input.get_backend())
+        Tensor::from_vec(result, shape, input.get_backend())
     }
 }
 

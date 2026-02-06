@@ -1,4 +1,4 @@
-use crate::{nn::Activation, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Activation, tensor::Tensor};
 
 /// Sigmoid activation function module.
 ///
@@ -25,14 +25,22 @@ impl Activation for Sigmoid {
         let exp_neg = neg_input.exp()?;
         let denominator = exp_neg.add_scalar(1.0)?;
 
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
+        let ones = Tensor::from_vec(
+            vec![1.0; input.data().len()],
+            input.shape(),
+            input.get_backend(),
+        )?;
         ones.div(&denominator)
     }
 
     fn act_backward(&self, input: &Tensor, grad_output: &Tensor) -> MlResult<Tensor> {
         // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
         let sigmoid_x = self.act_forward(input)?;
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
+        let ones = Tensor::from_vec(
+            vec![1.0; input.data().len()],
+            input.shape(),
+            input.get_backend(),
+        )?;
         let grad = sigmoid_x.mul(&ones.sub(&sigmoid_x)?)?;
 
         grad_output.mul(&grad)

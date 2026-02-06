@@ -1,4 +1,4 @@
-use crate::{nn::Activation, nn::Layer, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Activation, nn::Layer, tensor::Tensor};
 
 /// Hyperbolic tangent activation function module.
 ///
@@ -35,7 +35,11 @@ impl Activation for Tanh {
         let tanh_x = self.forward(input)?;
 
         // 1 - tanh²(x)
-        let ones = Tensor::from_vec(vec![1.0; input.data().len()], input.shape(),input.get_backend())?;
+        let ones = Tensor::from_vec(
+            vec![1.0; input.data().len()],
+            input.shape(),
+            input.get_backend(),
+        )?;
         let grad = ones.sub(&tanh_x.mul(&tanh_x)?)?;
 
         // Multiply with incoming gradient

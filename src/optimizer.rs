@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
-use crate::tensor::Tensor;
 use crate::MlResult;
+use crate::tensor::Tensor;
 
 use log::{debug, info, trace};
 

@@ -1,9 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::serialize::{Deserialize, Model, Serialize};
-use crate::{nn::Layer, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Layer, tensor::Tensor};
 
-use aporia::{backend::Xoshiro256StarStar, Rng};
+use aporia::{Rng, backend::Xoshiro256StarStar};
 use log::{debug, trace};
 
 /// A fully connected (linear/dense) neural network layer.
@@ -128,10 +128,7 @@ impl Layer for Linear {
 
         trace!(
             "Computed dimensions - batch_size: {}, seq_len: {}, in_features: {}, out_features: {}",
-            batch_size,
-            seq_len,
-            in_features,
-            out_features
+            batch_size, seq_len, in_features, out_features
         );
 
         // Compute xW^T

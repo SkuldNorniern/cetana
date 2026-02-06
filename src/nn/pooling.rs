@@ -1,4 +1,4 @@
-use crate::{nn::Layer, tensor::Tensor, MlResult};
+use crate::{MlResult, nn::Layer, tensor::Tensor};
 
 /// Represents different types of pooling operations
 #[derive(Clone, Copy)]
@@ -87,7 +87,7 @@ impl Layer for Pooling {
         Tensor::from_vec(
             output_data,
             &[batch_size, channels, output_height, output_width],
-            input.get_backend()
+            input.get_backend(),
         )
     }
     /// Computes the gradient for backpropagation
@@ -157,7 +157,7 @@ impl Layer for Pooling {
             }
         }
 
-        Tensor::from_vec(grad_input, input_shape,input.get_backend())
+        Tensor::from_vec(grad_input, input_shape, input.get_backend())
     }
 }
 
