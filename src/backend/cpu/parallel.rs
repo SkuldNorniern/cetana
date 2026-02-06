@@ -16,6 +16,7 @@ impl ParallelExecutor {
         ParallelExecutor { thread_count }
     }
 
+    #[allow(dead_code)]
     pub fn execute<T, F>(&self, data: &[T], chunk_size: usize, f: F) -> Vec<T>
     where
         T: Send + Sync + Copy + 'static,

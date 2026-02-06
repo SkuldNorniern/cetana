@@ -13,6 +13,7 @@ impl CpuCore {
         DeviceType::Cpu
     }
 
+    #[allow(dead_code)]
     pub fn supports_feature(&self, _feature: &str) -> DeviceFeatures {
         DeviceFeatures::new()
     }

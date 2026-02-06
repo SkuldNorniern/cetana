@@ -1,11 +1,8 @@
-use std::fmt::Debug;
-
-use super::BackendError;
-
 /// Generic buffer for device memory.
 ///
 /// This trait now uses an associated error type which allows each backend
 /// to plug its own error domain while keeping a uniform interface.
+#[allow(dead_code)]
 pub trait Buffer: std::fmt::Debug {
     type Error: std::error::Error;
 

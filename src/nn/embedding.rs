@@ -87,7 +87,7 @@ impl Embedding {
         };
 
         // Initialize padding_idx to zeros if specified
-        if let Some(idx) = padding_idx {
+        if padding_idx.is_some() {
             embedding.reset_padding_idx()?;
         }
 
@@ -113,7 +113,7 @@ impl Embedding {
     /// Creates an Embedding instance from given pretrained embeddings
     pub fn from_pretrained(
         embeddings: Tensor,
-        freeze: bool,
+        _freeze: bool,
         padding_idx: Option<usize>,
         max_norm: Option<f32>,
         norm_type: f32,

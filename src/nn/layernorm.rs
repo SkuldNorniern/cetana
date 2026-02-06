@@ -8,6 +8,7 @@ use crate::tensor::Tensor;
 pub struct LayerNorm {
     normalized_shape: Vec<usize>,
     eps: f32,
+    #[allow(dead_code)]
     elementwise_affine: bool,
     weight: Option<Tensor>,
     bias: Option<Tensor>,

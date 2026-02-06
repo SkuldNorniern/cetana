@@ -1,7 +1,7 @@
 use crate::MlResult;
-use crate::backend::feature::{
-    CPU_FEATURE_AVX, CPU_FEATURE_AVX2, CPU_FEATURE_AVX512F, DeviceFeatures,
-};
+use crate::backend::feature::DeviceFeatures;
+#[cfg(target_arch = "x86_64")]
+use crate::backend::feature::{CPU_FEATURE_AVX, CPU_FEATURE_AVX2, CPU_FEATURE_AVX512F};
 use crate::backend::{Backend, Device, DeviceType};
 
 mod compute;
@@ -30,7 +30,10 @@ impl Device for CpuBackend {
     }
 
     fn get_features(&self) -> DeviceFeatures {
+        #[cfg(target_arch = "x86_64")]
         let mut features = DeviceFeatures::new();
+        #[cfg(not(target_arch = "x86_64"))]
+        let features = DeviceFeatures::new();
 
         #[cfg(target_arch = "x86_64")]
         {

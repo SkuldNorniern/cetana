@@ -4,6 +4,7 @@ use crate::{MlResult, nn::Activation, nn::Sigmoid, tensor::Tensor};
 ///
 /// silu(x)=x∗σ(x),where σ(x) is the logistic sigmoid
 ///
+#[allow(dead_code)]
 pub struct Silu;
 
 impl Default for Silu {
@@ -13,6 +14,7 @@ impl Default for Silu {
 }
 
 impl Silu {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }

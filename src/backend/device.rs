@@ -2,13 +2,17 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::sync::{Mutex, OnceLock};
 
-use log::{debug, info, warn};
+use log::info;
 
 use crate::MlResult;
 use crate::backend::BackendError;
 #[cfg(feature = "cuda")]
 use crate::backend::cuda::CudaDevice;
-use crate::backend::feature::*;
+use crate::backend::feature::DeviceFeatures;
+#[cfg(target_arch = "x86_64")]
+use crate::backend::feature::{CPU_FEATURE_AVX, CPU_FEATURE_AVX2, CPU_FEATURE_AVX512F};
+#[cfg(feature = "cuda")]
+use crate::backend::feature::{GPU_FEATURE_FP16, GPU_FEATURE_TENSOR_CORES};
 
 static GLOBAL_DEVICE_MANAGER: OnceLock<DeviceManager> = OnceLock::new();
 static DEFAULT_DEVICE: OnceLock<Mutex<DeviceType>> = OnceLock::new();
@@ -196,7 +200,10 @@ impl DeviceManager {
     }
 
     pub fn get_features(&self) -> DeviceFeatures {
+        #[cfg(any(target_arch = "x86_64", feature = "cuda"))]
         let mut features = DeviceFeatures::new();
+        #[cfg(not(any(target_arch = "x86_64", feature = "cuda")))]
+        let features = DeviceFeatures::new();
 
         // Add CPU features
         #[cfg(target_arch = "x86_64")]
@@ -261,6 +268,7 @@ pub trait Device {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct DeviceMemory {
     pub total: usize,
     pub free: usize,
