@@ -24,14 +24,7 @@ impl Tensor {
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
     /// Creates a tensor filled with zeros with the same shape as the input tensor
@@ -74,14 +67,7 @@ impl Tensor {
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
     /// Creates a tensor filled with ones with the same shape as the input tensor
@@ -142,14 +128,7 @@ impl Tensor {
         // Fixed backend initialization with proper error handling
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
-        Ok(Self {
-            data,
-            shape: shape.to_vec(),
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
     /// Creates a tensor with elements sampled from a normal distribution with the same shape as the input tensor
@@ -223,13 +202,6 @@ impl Tensor {
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         let data_len = data.len();
-        Ok(Self {
-            data,
-            shape: vec![data_len],
-            backend,
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(Self::from_parts(data, vec![data_len], backend))
     }
 }
