@@ -1,3 +1,4 @@
+use super::shape;
 use super::*;
 
 impl Tensor {
@@ -34,10 +35,7 @@ impl Tensor {
         new_shape.swap(d0, d1);
 
         // Calculate strides for the original shape
-        let mut strides = vec![1usize; rank];
-        for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * self.shape[i + 1];
-        }
+        let strides = shape::compute_strides(&self.shape);
 
         // Create transposed data
         let mut result = vec![0.0; self.data.len()];
@@ -65,7 +63,7 @@ impl Tensor {
             result[target_idx] = self.data[i];
         }
 
-        Tensor::from_vec(result, &new_shape,self.get_backend())
+        Tensor::from_vec(result, &new_shape, self.get_backend())
     }
 
     /// Reshapes the tensor to the specified shape
@@ -76,65 +74,10 @@ impl Tensor {
     /// # Returns
     /// A new tensor with the specified shape
     pub fn reshape(&self, shape: &[isize]) -> MlResult<Tensor> {
-        // Calculate total elements
         let total_elements = self.data.len();
+        let new_shape = shape::infer_shape(shape, total_elements, &self.shape, "reshape")?;
 
-        // Convert shape and handle -1
-        let mut new_shape: Vec<usize> = Vec::with_capacity(shape.len());
-        let mut infer_dim = None;
-        let mut known_size = 1;
-
-        // Process each dimension
-        for (i, &dim) in shape.iter().enumerate() {
-            if dim == -1 {
-                if infer_dim.is_some() {
-                    return Err(MlError::TensorError(TensorError::InvalidOperation {
-                        op: "reshape",
-                        reason: "Only one dimension can be inferred (-1)".to_string(),
-                    }));
-                }
-                infer_dim = Some(i);
-            } else if dim < -1 {
-                return Err(MlError::TensorError(TensorError::InvalidOperation {
-                    op: "reshape",
-                    reason: format!("Invalid dimension size: {}", dim),
-                }));
-            } else {
-                known_size *= dim as usize;
-                new_shape.push(dim as usize);
-            }
-        }
-
-        // Infer the -1 dimension if present
-        if let Some(idx) = infer_dim {
-            if known_size == 0 {
-                return Err(MlError::TensorError(TensorError::InvalidOperation {
-                    op: "reshape",
-                    reason: "Cannot infer dimension with zero elements".to_string(),
-                }));
-            }
-            let inferred_size = total_elements / known_size;
-            new_shape.insert(idx, inferred_size);
-        }
-
-        // Verify total size matches
-        let new_total: usize = new_shape.iter().product();
-        if new_total != total_elements {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: new_shape,
-                got: self.shape.clone(),
-            }));
-        }
-
-        // Create new tensor with same data but different shape
-        Ok(Tensor {
-            data: self.data.clone(),
-            shape: new_shape,
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self.from_parts_with_backend(self.data.clone(), new_shape))
     }
 
     /// Returns a new view of the tensor with singleton dimensions expanded to a larger size.
@@ -196,14 +139,7 @@ impl Tensor {
             }
         }
 
-        Ok(Tensor {
-            data: expanded_data,
-            shape: sizes.to_vec(),
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self.from_parts_with_backend(expanded_data, sizes.to_vec()))
     }
 
     /// Returns a new tensor with the same data but different shape.
@@ -229,65 +165,10 @@ impl Tensor {
     /// assert_eq!(y.shape(), &[2, 2]);
     /// ```
     pub fn view(&self, shape: &[isize]) -> MlResult<Self> {
-        // Calculate total elements
         let total_elements = self.data.len();
+        let new_shape = shape::infer_shape(shape, total_elements, &self.shape, "view")?;
 
-        // Convert shape and handle -1
-        let mut new_shape: Vec<usize> = Vec::with_capacity(shape.len());
-        let mut infer_dim = None;
-        let mut known_size = 1;
-
-        // Process each dimension
-        for (i, &dim) in shape.iter().enumerate() {
-            if dim == -1 {
-                if infer_dim.is_some() {
-                    return Err(MlError::TensorError(TensorError::InvalidOperation {
-                        op: "view",
-                        reason: "Only one dimension can be inferred (-1)".to_string(),
-                    }));
-                }
-                infer_dim = Some(i);
-            } else if dim < -1 {
-                return Err(MlError::TensorError(TensorError::InvalidOperation {
-                    op: "view",
-                    reason: format!("Invalid dimension size: {}", dim),
-                }));
-            } else {
-                known_size *= dim as usize;
-                new_shape.push(dim as usize);
-            }
-        }
-
-        // Infer the -1 dimension if present
-        if let Some(idx) = infer_dim {
-            if known_size == 0 {
-                return Err(MlError::TensorError(TensorError::InvalidOperation {
-                    op: "view",
-                    reason: "Cannot infer dimension with zero elements".to_string(),
-                }));
-            }
-            let inferred_size = total_elements / known_size;
-            new_shape.insert(idx, inferred_size);
-        }
-
-        // Verify total size matches
-        let new_total: usize = new_shape.iter().product();
-        if new_total != total_elements {
-            return Err(MlError::TensorError(TensorError::InvalidShape {
-                expected: new_shape,
-                got: self.shape.clone(),
-            }));
-        }
-
-        // Create new tensor with same data but different shape
-        Ok(Tensor {
-            data: self.data.clone(),
-            shape: new_shape,
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self.from_parts_with_backend(self.data.clone(), new_shape))
     }
 
     /// Attempts to split a tensor into the specified number of chunks along the given dimension.
@@ -324,6 +205,7 @@ impl Tensor {
         let dim_size = self.shape[dim];
         let chunk_size = dim_size.div_ceil(chunks); // ceiling division
         let mut result = Vec::with_capacity(chunks);
+        let strides = shape::compute_strides(&self.shape);
 
         let mut start_idx = 0;
         while start_idx < dim_size {
@@ -335,12 +217,6 @@ impl Tensor {
             // Calculate the shape and data for this chunk
             let mut new_shape = self.shape.clone();
             new_shape[dim] = end_idx - start_idx;
-
-            // Calculate strides for the original shape
-            let mut strides = vec![1usize; ndim];
-            for i in (0..ndim - 1).rev() {
-                strides[i] = strides[i + 1] * self.shape[i + 1];
-            }
 
             // Extract data for this chunk
             let mut chunk_data = Vec::with_capacity(new_shape.iter().product());
@@ -360,7 +236,11 @@ impl Tensor {
                 }
             }
 
-            result.push(Tensor::from_vec(chunk_data, &new_shape,self.get_backend())?);
+            result.push(Tensor::from_vec(
+                chunk_data,
+                &new_shape,
+                self.get_backend(),
+            )?);
             start_idx = end_idx;
         }
 
@@ -416,10 +296,7 @@ impl Tensor {
         }
 
         // Calculate strides for the original shape
-        let mut strides = vec![1usize; self.shape.len()];
-        for i in (0..self.shape.len() - 1).rev() {
-            strides[i] = strides[i + 1] * self.shape[i + 1];
-        }
+        let strides = shape::compute_strides(&self.shape);
 
         // Create new data array
         let new_size: usize = new_shape.iter().product();
@@ -496,7 +373,7 @@ impl Tensor {
             &mut new_data,
         );
 
-        Tensor::from_vec(new_data, &new_shape,self.get_backend())
+        Tensor::from_vec(new_data, &new_shape, self.get_backend())
     }
 
     /// Clamps all elements in input into the range [min, max].
@@ -523,7 +400,7 @@ impl Tensor {
             })
             .collect();
 
-        Tensor::from_vec(data, &self.shape,self.get_backend())
+        Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
     /// Clamps all elements in input to be larger than min.
@@ -586,14 +463,7 @@ impl Tensor {
             }
         }
 
-        Ok(Tensor {
-            data: result,
-            shape: self.shape.clone(),
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self.from_parts_with_backend(result, self.shape.clone()))
     }
 
     /// Creates a lower triangular mask matrix'
@@ -664,13 +534,8 @@ impl Tensor {
             }
 
             // Calculate strides
-            let mut mask_strides = vec![1; broadcast_dims];
-            let mut self_strides = vec![1; broadcast_dims];
-
-            for i in (0..broadcast_dims - 1).rev() {
-                mask_strides[i] = mask_strides[i + 1] * mask_shape[i + 1];
-                self_strides[i] = self_strides[i + 1] * self_shape[i + 1];
-            }
+            let mask_strides = shape::compute_strides(&mask_shape);
+            let self_strides = shape::compute_strides(&self_shape);
 
             // Apply mask with broadcasting
             let total_size: usize = self_shape.iter().product();
@@ -695,14 +560,7 @@ impl Tensor {
             }
         }
 
-        Ok(Tensor {
-            data: result,
-            shape: self.shape.clone(),
-            backend: self.backend.clone(),
-            grad: None,
-            requires_grad: false,
-            grad_fn: None,
-        })
+        Ok(self.from_parts_with_backend(result, self.shape.clone()))
     }
 
     // Helper method to check if tensor is broadcastable with another tensor
@@ -784,10 +642,7 @@ impl Tensor {
         }
 
         // Calculate strides for the output tensor
-        let mut strides = vec![1usize; ndim];
-        for i in (0..ndim - 1).rev() {
-            strides[i] = strides[i + 1] * self.shape[i + 1];
-        }
+        let strides = shape::compute_strides(&self.shape);
 
         // Iterate through the index tensor
         for i in 0..index.data().len() {
@@ -909,7 +764,7 @@ impl Tensor {
             result.push(tensors[tensor_idx].data()[src_idx]);
         }
 
-        Tensor::from_vec(result, &new_shape,tensors[0].get_backend())
+        Tensor::from_vec(result, &new_shape, tensors[0].get_backend())
     }
 
     /// Splits the tensor into chunks of specified size along a given dimension.
@@ -945,6 +800,7 @@ impl Tensor {
         let dim_size = self.shape[dim];
         let num_splits = dim_size.div_ceil(split_size); // ceiling division
         let mut result = Vec::with_capacity(num_splits);
+        let strides = shape::compute_strides(&self.shape);
 
         let mut start_idx = 0;
         while start_idx < dim_size {
@@ -956,12 +812,6 @@ impl Tensor {
             // Calculate the shape and data for this split
             let mut new_shape = self.shape.clone();
             new_shape[dim] = end_idx - start_idx;
-
-            // Calculate strides for the original shape
-            let mut strides = vec![1usize; ndim];
-            for i in (0..ndim - 1).rev() {
-                strides[i] = strides[i + 1] * self.shape[i + 1];
-            }
 
             // Extract data for this split
             let mut split_data = Vec::with_capacity(new_shape.iter().product());
@@ -981,7 +831,11 @@ impl Tensor {
                 }
             }
 
-            result.push(Tensor::from_vec(split_data, &new_shape,self.get_backend())?);
+            result.push(Tensor::from_vec(
+                split_data,
+                &new_shape,
+                self.get_backend(),
+            )?);
             start_idx = end_idx;
         }
 

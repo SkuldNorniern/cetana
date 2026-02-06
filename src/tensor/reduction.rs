@@ -1,3 +1,4 @@
+use super::shape;
 use super::*;
 
 impl Tensor {
@@ -11,21 +12,7 @@ impl Tensor {
     /// A new tensor with the sum of the specified dimensions
     pub fn sum(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor> {
         let rank = self.shape.len();
-
-        // Convert negative dimensions to positive and sort them
-        let mut positive_dims: Vec<usize> = dims
-            .iter()
-            .map(|&d| if d < 0 { rank as i32 + d } else { d } as usize)
-            .collect();
-        positive_dims.sort_unstable();
-
-        // Validate dimensions
-        if let Some(&dim) = positive_dims.iter().find(|&&d| d >= rank) {
-            return Err(MlError::TensorError(TensorError::InvalidAxis {
-                axis: dim,
-                shape: self.shape.clone(),
-            }));
-        }
+        let positive_dims = shape::normalize_dims(dims, &self.shape)?;
 
         // Calculate new shape
         let mut new_shape: Vec<usize> = if keepdim {
@@ -48,10 +35,7 @@ impl Tensor {
         }
 
         // Calculate strides for the original shape
-        let mut strides = vec![1usize; rank];
-        for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * self.shape[i + 1];
-        }
+        let strides = shape::compute_strides(&self.shape);
 
         // Calculate the number of elements to sum over
         let elements_per_sum: usize = positive_dims.iter().map(|&d| self.shape[d]).product();
@@ -98,21 +82,7 @@ impl Tensor {
 
     pub fn mean(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor> {
         let rank = self.shape.len();
-
-        // Convert negative dimensions to positive and sort them
-        let mut positive_dims: Vec<usize> = dims
-            .iter()
-            .map(|&d| if d < 0 { rank as i32 + d } else { d } as usize)
-            .collect();
-        positive_dims.sort_unstable();
-
-        // Validate dimensions
-        if let Some(&dim) = positive_dims.iter().find(|&&d| d >= rank) {
-            return Err(MlError::TensorError(TensorError::InvalidAxis {
-                axis: dim,
-                shape: self.shape.clone(),
-            }));
-        }
+        let positive_dims = shape::normalize_dims(dims, &self.shape)?;
 
         // Calculate new shape
         let mut new_shape: Vec<usize> = if keepdim {
@@ -135,10 +105,7 @@ impl Tensor {
         }
 
         // Calculate strides for the original shape
-        let mut strides = vec![1usize; rank];
-        for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * self.shape[i + 1];
-        }
+        let strides = shape::compute_strides(&self.shape);
 
         // Calculate the number of elements to average over
         let elements_per_mean: usize = positive_dims.iter().map(|&d| self.shape[d]).product();
@@ -241,21 +208,7 @@ impl Tensor {
             }
             Some(dims) => {
                 let rank = self.shape.len();
-
-                // Convert negative dimensions to positive
-                let mut positive_dims: Vec<usize> = dims
-                    .iter()
-                    .map(|&d| if d < 0 { rank as i32 + d } else { d } as usize)
-                    .collect();
-                positive_dims.sort_unstable();
-
-                // Validate dimensions
-                if let Some(&dim) = positive_dims.iter().find(|&&d| d >= rank) {
-                    return Err(MlError::TensorError(TensorError::InvalidAxis {
-                        axis: dim,
-                        shape: self.shape.clone(),
-                    }));
-                }
+                let positive_dims = shape::normalize_dims(dims, &self.shape)?;
 
                 // Calculate new shape
                 let mut new_shape: Vec<usize> = if keepdim {
@@ -275,12 +228,6 @@ impl Tensor {
 
                 if new_shape.is_empty() {
                     new_shape = vec![1];
-                }
-
-                // Calculate strides for the original shape
-                let mut strides = vec![1usize; rank];
-                for i in (0..rank - 1).rev() {
-                    strides[i] = strides[i + 1] * self.shape[i + 1];
                 }
 
                 // Calculate the number of norms we need to compute
