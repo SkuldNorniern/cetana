@@ -1,15 +1,14 @@
 use super::*;
 
-impl Tensor {
-    /// Verifies if two tensors can perform element-wise operations
+impl<T: TensorElement> Tensor<T> {
+    /// Checks whether two tensors have the same shape.
     ///
     /// # Arguments
-    /// * `other` - The tensor to compare shapes with
+    /// * `other` - Tensor to compare shapes with.
     ///
-    /// # Returns
-    /// * `Ok(())` if the shapes match
-    /// * `Err(MlError::TensorError)` if shapes don't match
-    pub fn chk_shape(&self, other: &Tensor) -> MlResult<()> {
+    /// # Errors
+    /// Returns an error if the shapes do not match.
+    pub fn chk_shape(&self, other: &Tensor<T>) -> MlResult<()> {
         if self.shape != other.shape {
             return Err(MlError::TensorError(TensorError::InvalidShape {
                 expected: self.shape.clone(),
@@ -19,22 +18,31 @@ impl Tensor {
         Ok(())
     }
 
-    /// Adds two tensors element-wise
+    /// Adds two tensors element-wise.
+    ///
+    /// Supports matrix + vector broadcasting for shapes `[m, n]` and `[n]`.
     ///
     /// # Arguments
-    /// * `other` - The tensor to add to the current tensor
+    /// * `other` - Tensor to add.
     ///
-    /// # Returns
-    /// A new tensor with the result of the element-wise addition
-    pub fn add(&self, other: &Tensor) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if shapes are incompatible.
+    pub fn add(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
+    where
+        T::Accum: std::ops::Add<Output = T::Accum>,
+    {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
             // Special case for matrix + vector broadcasting
             let (batch_size, features) = (self.shape[0], self.shape[1]);
-            let mut result = vec![0.0; self.data.len()];
+            let mut result = Vec::with_capacity(self.data.len());
+            result.resize(self.data.len(), T::zero());
 
             for i in 0..batch_size {
                 for j in 0..features {
-                    result[i * features + j] = self.data[i * features + j] + other.data[j];
+                    let idx = i * features + j;
+                    let left = self.data.as_ref()[idx].to_accum();
+                    let right = other.data.as_ref()[j].to_accum();
+                    result[idx] = T::from_accum(left + right);
                 }
             }
             return Tensor::from_vec(result, &self.shape, self.get_backend());
@@ -43,44 +51,51 @@ impl Tensor {
         match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(
-                self.backend.add(&self.data, &other.data),
+                self.map_binary(other, |a, b| a + b),
                 &self.shape,
                 self.get_backend(),
             ),
         }
     }
 
-    /// Adds a scalar to each element in the tensor
+    /// Adds a scalar to each element in the tensor.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to add
-    ///
-    /// # Returns
-    /// A new tensor with each element being tensor_element + scalar
-    pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        // Create a vector filled with the scalar value
-        let scalar_vec = vec![scalar; self.data.len()];
-        // Use the Backend's add operation
-        let result = self.backend.add(&self.data, &scalar_vec);
-
+    /// * `scalar` - Scalar value to add.
+    pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Add<Output = T::Accum>,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| x + scalar);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Subtracts two tensors element-wise
+    /// Subtracts two tensors element-wise.
+    ///
+    /// Supports matrix - vector broadcasting for shapes `[m, n]` and `[n]`.
     ///
     /// # Arguments
-    /// * `other` - The tensor to subtract from the current tensor
+    /// * `other` - Tensor to subtract.
     ///
-    /// # Returns
-    /// A new tensor with the result of the element-wise subtraction
-    pub fn sub(&self, other: &Tensor) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if shapes are incompatible.
+    pub fn sub(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
+    where
+        T::Accum: std::ops::Sub<Output = T::Accum>,
+    {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
-            let mut result = vec![0.0; self.data.len()];
+            let mut result = Vec::with_capacity(self.data.len());
+            result.resize(self.data.len(), T::zero());
             let (batch_size, features) = (self.shape[0], self.shape[1]);
 
             for i in 0..batch_size {
                 for j in 0..features {
-                    result[i * features + j] = self.data[i * features + j] - other.data[j];
+                    let idx = i * features + j;
+                    let left = self.data.as_ref()[idx].to_accum();
+                    let right = other.data.as_ref()[j].to_accum();
+                    result[idx] = T::from_accum(left - right);
                 }
             }
             return Tensor::from_vec(result, &self.shape, self.get_backend());
@@ -89,202 +104,205 @@ impl Tensor {
         match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(
-                self.backend.sub(&self.data, &other.data),
+                self.map_binary(other, |a, b| a - b),
                 &self.shape,
                 self.get_backend(),
             ),
         }
     }
 
-    /// Subtracts a scalar from each element in the tensor
+    /// Subtracts a scalar from each element in the tensor.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to subtract
-    ///
-    /// # Returns
-    /// A new tensor with each element being tensor_element - scalar
-    pub fn sub_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        // Create a vector filled with the scalar value
-        let scalar_vec = vec![scalar; self.data.len()];
-        // Use the Backend's sub operation
-        let result = self.backend.sub(&self.data, &scalar_vec);
-
+    /// * `scalar` - Scalar value to subtract.
+    pub fn sub_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Sub<Output = T::Accum>,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| x - scalar);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Subtracts the tensor from a scalar
+    /// Subtracts each element in the tensor from a scalar.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to subtract from
-    ///
-    /// # Returns
-    /// A new tensor with each element being scalar - tensor_element
-    pub fn scalar_sub(&self, scalar: f32) -> MlResult<Tensor> {
-        // Create a vector filled with the scalar value
-        let scalar_vec = vec![scalar; self.data.len()];
-        // Use the Backend's sub operation (with arguments reversed)
-        let result = self.backend.sub(&scalar_vec, &self.data);
-
+    /// * `scalar` - Scalar value to subtract from.
+    pub fn scalar_sub(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Sub<Output = T::Accum>,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| scalar - x);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Multiplies two tensors element-wise
+    /// Multiplies two tensors element-wise.
     ///
     /// # Arguments
-    /// * `other` - The tensor to multiply the current tensor by
+    /// * `other` - Tensor to multiply with.
     ///
-    /// # Returns
-    /// A new tensor with the result of the element-wise multiplication
-    pub fn mul(&self, other: &Tensor) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if shapes are incompatible.
+    pub fn mul(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
+    where
+        T::Accum: std::ops::Mul<Output = T::Accum>,
+    {
         match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(
-                self.backend.multiply(&self.data, &other.data),
+                self.map_binary(other, |a, b| a * b),
                 &self.shape,
                 self.get_backend(),
             ),
         }
     }
 
-    /// Multiplies a scalar by each element in the tensor
+    /// Multiplies each element in the tensor by a scalar.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to multiply
-    ///
-    /// # Returns
-    /// A new tensor with each element being tensor_element * scalar
-    pub fn mul_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        // Create a vector filled with the scalar value
-        let scalar_vec = vec![scalar; self.data.len()];
-        // Use the Backend's multiply operation
-        let result = self.backend.multiply(&self.data, &scalar_vec);
-
+    /// * `scalar` - Scalar value to multiply by.
+    pub fn mul_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Mul<Output = T::Accum>,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| x * scalar);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Divides two tensors element-wise
+    /// Divides two tensors element-wise.
     ///
     /// # Arguments
-    /// * `other` - The tensor to divide the current tensor by
+    /// * `other` - Tensor to divide by.
     ///
-    /// # Returns
-    /// A new tensor with the result of the element-wise division
-    pub fn div(&self, other: &Tensor) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if shapes are incompatible.
+    pub fn div(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
+    where
+        T::Accum: std::ops::Div<Output = T::Accum>,
+    {
         match self.chk_shape(other) {
             Err(e) => Err(e),
             _ => Tensor::from_vec(
-                self.backend.div(&self.data, &other.data),
+                self.map_binary(other, |a, b| a / b),
                 &self.shape,
                 self.get_backend(),
             ),
         }
     }
 
-    /// Divides each element in the tensor by a scalar
+    /// Divides each element in the tensor by a scalar.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to divide
-    ///
-    /// # Returns
-    /// A new tensor with each element being tensor_element / scalar
-    pub fn div_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        // Create a vector filled with the scalar value
-        let scalar_vec = vec![scalar; self.data.len()];
-        // Use the Backend's div operation
-        let result = self.backend.div(&self.data, &scalar_vec);
-
+    /// * `scalar` - Scalar value to divide by.
+    pub fn div_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Div<Output = T::Accum>,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| x / scalar);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Divides a scalar by each element in the tensor
+    /// Divides a scalar by each element in the tensor.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to divide
-    ///
-    /// # Returns
-    /// A new tensor with each element being scalar / tensor_element
-    pub fn scalar_div(&self, scalar: f32) -> MlResult<Tensor> {
-        // Create a vector filled with the scalar value
-        let scalar_vec = vec![scalar; self.data.len()];
-        // Use the Backend's div operation (with arguments reversed)
-        let result = self.backend.div(&scalar_vec, &self.data);
-
+    /// * `scalar` - Scalar value to divide by.
+    pub fn scalar_div(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Div<Output = T::Accum>,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| scalar / x);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Negates each element in the tensor
-    ///
-    /// # Returns
-    /// A new tensor with each element being the negation of tensor_element
-    pub fn neg(&self) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| -x).collect();
-
-        Tensor::from_vec(data, &self.shape, self.get_backend())
-    }
-
-    /// Applies the exponential function to each element in the tensor
-    ///
-    /// # Returns
-    /// A new tensor with each element being e ^ tensor_element
-    pub fn exp(&self) -> MlResult<Tensor> {
-        let result = self.backend.exp(&self.data);
+    /// Negates each element in the tensor.
+    pub fn neg(&self) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Neg<Output = T::Accum>,
+    {
+        let result = self.map_unary(|x| -x);
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Raises each element in the tensor to a power
-    ///
-    /// # Arguments
-    /// * `power` - The power to raise each element to
-    ///
-    /// # Returns
-    /// A new tensor with each element being tensor_element ^ power
-    pub fn pow(&self, power: f32) -> MlResult<Tensor> {
-        let result = self.backend.pow(&self.data, power);
+    /// Applies the exponential function to each element in the tensor.
+    pub fn exp(&self) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+    {
+        let result = self.map_unary(|x| T::exp(x));
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Raises each element in the tensor to a power
+    /// Raises each element in the tensor to a power.
     ///
     /// # Arguments
-    /// * `exponent` - The power to raise each element to
-    ///
-    /// # Returns
-    /// A new tensor with each element being tensor_element ^ exponent
-    pub fn pow_scalar(&self, exponent: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x.powf(exponent)).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
-    }
-
-    /// Raises a scalar to the power of each element in the tensor
-    ///
-    /// # Arguments
-    /// * `scalar` - The scalar value to raise
-    ///
-    /// # Returns
-    /// A new tensor with each element being scalar ^ tensor_element
-    pub fn scalar_pow(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| scalar.powf(x)).collect();
-        Tensor::from_vec(data, &self.shape, self.get_backend())
-    }
-
-    /// Takes the square root of each element in the tensor
-    ///
-    /// # Returns
-    /// A new tensor with each element being the square root of tensor_element
-    pub fn sqrt(&self) -> MlResult<Tensor> {
-        let result = self.backend.sqrt(&self.data);
+    /// * `power` - Power to raise each element to.
+    pub fn pow(&self, power: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+    {
+        let result = self.map_unary(|x| T::powf(x, power));
         Tensor::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Returns a new tensor with the square of the elements of input
+    /// Raises each element in the tensor to a power.
     ///
-    /// Args:
-    ///     None
+    /// # Arguments
+    /// * `exponent` - Power to raise each element to.
+    pub fn pow_scalar(&self, exponent: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+    {
+        let result = self.map_unary(|x| T::powf(x, exponent));
+        Tensor::from_vec(result, &self.shape, self.get_backend())
+    }
+
+    /// Raises a scalar to the power of each element in the tensor.
     ///
-    /// Returns:
-    ///     A new tensor with each element being the square of the corresponding element in the input tensor
+    /// # Arguments
+    /// * `scalar` - Scalar base value.
+    pub fn scalar_pow(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Mul<Output = T::Accum> + PartialEq + Default,
+    {
+        let base = T::accum_from_f32(scalar);
+        let result = self.map_unary(|x| {
+            if x == T::Accum::default() {
+                T::Accum::default()
+            } else {
+                let exp = x;
+                // Use exp/ln: base^exp = exp(ln(base) * exp)
+                T::exp(T::ln(base) * exp)
+            }
+        });
+        Tensor::from_vec(result, &self.shape, self.get_backend())
+    }
+
+    /// Takes the square root of each element in the tensor.
+    pub fn sqrt(&self) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+    {
+        let result = self.map_unary(|x| T::sqrt(x));
+        Tensor::from_vec(result, &self.shape, self.get_backend())
+    }
+
+    /// Squares each element of the tensor.
     ///
-    /// Example:
+    /// # Returns
+    /// A new tensor with each element squared.
+    ///
+    /// # Examples
     /// ```
     /// use cetana::tensor::Tensor;
     ///
@@ -292,31 +310,42 @@ impl Tensor {
     /// let b = a.square().unwrap();
     /// assert_eq!(b.data(), &[4.0, 1.0, 0.25]);
     /// ```
-    pub fn square(&self) -> MlResult<Self> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x * x).collect();
-        Self::from_vec(data, &self.shape, self.get_backend())
+    pub fn square(&self) -> MlResult<Self>
+    where
+        T::Accum: std::ops::Mul<Output = T::Accum>,
+    {
+        let result = self.map_unary(|x| x * x);
+        Self::from_vec(result, &self.shape, self.get_backend())
     }
 
-    /// Applies the natural logarithm to each element in the tensor
+    /// Applies the natural logarithm to each element in the tensor.
+    pub fn log(&self) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+    {
+        let result = self.map_unary(|x| T::ln(x));
+        Tensor::from_vec(result, &self.shape, self.get_backend())
+    }
+
+    /// Performs matrix multiplication between two tensors.
     ///
-    /// # Returns
-    /// A new tensor with each element being the natural logarithm of tensor_element
-    pub fn log(&self) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x.ln()).collect();
-
-        Tensor::from_vec(data, &self.shape, self.get_backend())
-    }
-
-    /// Performs matrix multiplication on two tensors
+    /// Supports vector-vector, matrix-vector, vector-matrix, matrix-matrix, and
+    /// batched matrix multiplication with broadcasted batch dimensions.
     ///
     /// # Arguments
-    /// * `other` - The tensor to multiply the current tensor by
+    /// * `other` - Tensor to multiply with.
     ///
-    /// # Returns
-    /// A new tensor with the result of the matrix multiplication
-    pub fn matmul(&self, other: &Tensor) -> MlResult<Tensor> {
-        // Handle empty tensors
-        if self.data.is_empty() || other.data.is_empty() {
+    /// # Errors
+    /// Returns an error if the shapes are incompatible or if either tensor is empty.
+    pub fn matmul(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
+    where
+        T::Accum:
+            std::ops::Add<Output = T::Accum> + std::ops::Mul<Output = T::Accum> + Default + Copy,
+    {
+        let left = self.data.as_ref();
+        let right = other.data.as_ref();
+
+        if left.is_empty() || right.is_empty() {
             return Err(MlError::TensorError(TensorError::EmptyTensor));
         }
 
@@ -324,23 +353,16 @@ impl Tensor {
         let b = other.shape.len();
 
         match (a, b) {
-            // Case 1: 1D * 1D (dot product)
-            (1, 1) => match self.chk_shape(other) {
-                Err(e) => Err(e),
-                _ => Tensor::from_vec(
-                    vec![
-                        self.data
-                            .iter()
-                            .zip(other.data.iter())
-                            .map(|(&a, &b)| a * b)
-                            .sum::<f32>(),
-                    ],
-                    &[],
-                    self.get_backend(),
-                ),
-            },
-
-            // Case 2: 2D * 1D or 1D * 2D
+            (1, 1) => {
+                self.chk_shape(other)?;
+                let sum = left
+                    .iter()
+                    .zip(right.iter())
+                    .fold(T::Accum::default(), |acc, (&a, &b)| {
+                        acc + a.to_accum() * b.to_accum()
+                    });
+                Tensor::from_vec(vec![T::from_accum(sum)], &[], self.get_backend())
+            }
             (2, 1) => {
                 if self.shape[1] != other.shape[0] {
                     return Err(MlError::TensorError(
@@ -352,18 +374,17 @@ impl Tensor {
                 }
                 let m = self.shape[0];
                 let k = self.shape[1];
-                let mut result = vec![0.0; m];
+                let mut result = vec![T::zero(); m];
 
                 for i in 0..m {
-                    let mut sum = 0.0;
+                    let mut sum = T::Accum::default();
                     for j in 0..k {
-                        sum += self.data[i * k + j] * other.data[j];
+                        sum = sum + left[i * k + j].to_accum() * right[j].to_accum();
                     }
-                    result[i] = sum;
+                    result[i] = T::from_accum(sum);
                 }
                 Tensor::from_vec(result, &[m], self.get_backend())
             }
-
             (1, 2) => {
                 if self.shape[0] != other.shape[0] {
                     return Err(MlError::TensorError(
@@ -375,21 +396,18 @@ impl Tensor {
                 }
                 let k = self.shape[0];
                 let n = other.shape[1];
-                let mut result = vec![0.0; n];
+                let mut result = vec![T::zero(); n];
 
                 for j in 0..n {
-                    let mut sum = 0.0;
+                    let mut sum = T::Accum::default();
                     for i in 0..k {
-                        sum += self.data[i] * other.data[i * n + j];
+                        sum = sum + left[i].to_accum() * right[i * n + j].to_accum();
                     }
-                    result[j] = sum;
+                    result[j] = T::from_accum(sum);
                 }
                 Tensor::from_vec(result, &[n], self.get_backend())
             }
-
-            // Case 3: Higher dimensional tensor multiplication
             (a, b) => {
-                // Get batch dimensions
                 let batch_size = if a > 2 {
                     self.shape[..a - 2].iter().product()
                 } else {
@@ -408,7 +426,6 @@ impl Tensor {
                     ));
                 }
 
-                // Handle broadcasting for batch dimensions
                 let other_batch_size = if b > 2 {
                     other.shape[..b - 2].iter().product()
                 } else {
@@ -430,7 +447,7 @@ impl Tensor {
                     ));
                 };
 
-                let mut result = vec![0.0; output_batch_size * m * n];
+                let mut result = vec![T::zero(); output_batch_size * m * n];
 
                 for batch in 0..output_batch_size {
                     let batch1 = if batch_size == 1 { 0 } else { batch };
@@ -442,17 +459,17 @@ impl Tensor {
 
                     for i in 0..m {
                         for j in 0..n {
-                            let mut sum = 0.0;
+                            let mut sum = T::Accum::default();
                             for l in 0..k {
-                                sum +=
-                                    self.data[start1 + i * k + l] * other.data[start2 + l * n + j];
+                                sum = sum
+                                    + left[start1 + i * k + l].to_accum()
+                                        * right[start2 + l * n + j].to_accum();
                             }
-                            result[result_start + i * n + j] = sum;
+                            result[result_start + i * n + j] = T::from_accum(sum);
                         }
                     }
                 }
 
-                // Construct output shape
                 let mut output_shape = Vec::new();
                 if a > 2 || b > 2 {
                     if batch_size > 1 {
@@ -469,31 +486,48 @@ impl Tensor {
         }
     }
 
-    /// Compares each element in the tensor to a scalar and returns a new tensor with the result
+    /// Compares each element to a scalar.
     ///
     /// # Arguments
-    /// * `scalar` - The scalar value to compare each element to
+    /// * `scalar` - Scalar value to compare against.
     ///
     /// # Returns
-    /// A new tensor with each element being 1.0 if tensor_element == scalar, otherwise 0.0
-    pub fn eq_scalar(&self, scalar: f32) -> MlResult<Tensor> {
-        let data: Vec<f32> = self
+    /// A tensor with 1.0 where elements are equal to `scalar`, otherwise 0.0.
+    pub fn eq_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: PartialEq,
+    {
+        let scalar = T::accum_from_f32(scalar);
+        let data: Vec<T> = self
             .data
             .iter()
-            .map(|&x| (x == scalar) as i32 as f32)
+            .map(|&x| {
+                if x.to_accum() == scalar {
+                    T::one()
+                } else {
+                    T::zero()
+                }
+            })
             .collect();
         Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
-    /// Returns the k largest elements of the tensor along the last dimension.
+    /// Returns the k largest elements along the last dimension.
     ///
     /// # Arguments
-    /// * `k` - Number of top elements to return
-    /// * `sorted` - Whether to return the elements in sorted order
+    /// * `k` - Number of top elements to return.
+    /// * `sorted` - Whether to return the elements in sorted order.
     ///
     /// # Returns
-    /// A tuple of two tensors (values, indices) containing the top k values and their indices
-    pub fn topk(&self, k: usize, sorted: bool) -> MlResult<(Tensor, Tensor)> {
+    /// A tuple of two tensors (values, indices) containing the top k values and their indices.
+    ///
+    /// # Errors
+    /// Returns an error if `k` is 0 or larger than the last dimension.
+    pub fn topk(&self, k: usize, sorted: bool) -> MlResult<(Tensor<T>, Tensor<f32>)>
+    where
+        T::Accum: PartialOrd + Copy,
+    {
         if k == 0 {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "topk",
@@ -529,11 +563,11 @@ impl Tensor {
             let slice_data = &self.data[start_idx..end_idx];
 
             // Create (value, index) pairs for sorting
-            let mut pairs: Vec<(f32, usize)> = slice_data
+            let mut pairs: Vec<(T::Accum, usize, T)> = slice_data
                 .iter()
                 .copied()
                 .enumerate()
-                .map(|(i, v)| (v, i))
+                .map(|(i, v)| (v.to_accum(), i, v))
                 .collect();
 
             // Sort by value in descending order
@@ -549,7 +583,7 @@ impl Tensor {
             }
 
             // Split into values and indices (convert indices to f32)
-            values.extend(selected.iter().map(|pair| pair.0));
+            values.extend(selected.iter().map(|pair| pair.2));
             indices.extend(selected.iter().map(|pair| pair.1 as f32));
         }
 
@@ -559,11 +593,11 @@ impl Tensor {
 
         Ok((
             Tensor::from_vec(values, &new_shape, self.get_backend())?,
-            Tensor::from_vec(indices, &new_shape, self.get_backend())?,
+            Tensor::<f32>::from_vec(indices, &new_shape, self.get_backend())?,
         ))
     }
 
-    /// Computes the absolute value of each element in the tensor.
+    /// Computes the absolute value of each element.
     ///
     /// # Returns
     /// A new tensor with the absolute values of each element
@@ -576,22 +610,27 @@ impl Tensor {
     /// let b = a.abs().unwrap();
     /// assert_eq!(b.data(), &[1.0, 2.0, 3.0]);
     /// ```
-    pub fn abs(&self) -> MlResult<Tensor> {
-        let data: Vec<f32> = self.data.iter().map(|&x| x.abs()).collect();
+    pub fn abs(&self) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+    {
+        let data = self.map_unary(|x| T::abs(x));
         Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
-    /// Returns the maximum value of all elements in the input tensor.
-    /// If dim is specified, returns the maximum values along the given dimension.
+    /// Returns the maximum value of all elements in the tensor.
+    /// If `dim` is specified, returns maximum values along the given dimension.
     ///
     /// # Arguments
-    /// * `dim` - Optional dimension along which to find the maximum values
-    /// * `keepdim` - Whether the output tensor has dim retained or not
+    /// * `dim` - Optional dimension along which to find maximum values.
+    /// * `keepdim` - Whether to retain the reduced dimension.
     ///
     /// # Returns
-    /// If dim is None, returns a tensor with a single element containing the maximum value.
-    /// If dim is specified, returns a tuple of two tensors (values, indices) containing the
-    /// maximum values and their indices along the specified dimension.
+    /// If `dim` is None, returns a tensor with a single maximum value.
+    /// If `dim` is specified, returns a tuple of (values, indices).
+    ///
+    /// # Errors
+    /// Returns an error if the tensor is empty or if `dim` is out of range.
     ///
     /// # Example
     /// ```
@@ -607,11 +646,30 @@ impl Tensor {
     /// let (max_dim0, indices) = a.mat_max(Some(0), true).unwrap();
     /// assert_eq!(max_dim0.shape(), &[1, 3]);
     /// ```
-    pub fn mat_max(&self, dim: Option<i32>, keepdim: bool) -> MlResult<(Tensor, Option<Tensor>)> {
+    pub fn mat_max(
+        &self,
+        dim: Option<i32>,
+        keepdim: bool,
+    ) -> MlResult<(Tensor<T>, Option<Tensor<f32>>)>
+    where
+        T::Accum: PartialOrd + Copy,
+    {
         match dim {
             None => {
                 // Find global maximum
-                let max_val = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let (first, rest) = self
+                    .data
+                    .split_first()
+                    .ok_or(MlError::TensorError(TensorError::EmptyTensor))?;
+                let mut max_val = *first;
+                let mut max_acc = first.to_accum();
+                for &val in rest {
+                    let acc = val.to_accum();
+                    if acc > max_acc {
+                        max_acc = acc;
+                        max_val = val;
+                    }
+                }
                 Ok((
                     Tensor::from_vec(vec![max_val], &[1], self.get_backend())?,
                     None,
@@ -643,18 +701,26 @@ impl Tensor {
                 let outer_dims: usize = self.shape[..dim].iter().product();
                 let dim_size = self.shape[dim];
 
+                if dim_size == 0 {
+                    return Err(MlError::TensorError(TensorError::EmptyTensor));
+                }
+
                 let mut max_values = Vec::with_capacity(self.data.len() / dim_size);
                 let mut max_indices = Vec::with_capacity(self.data.len() / dim_size);
 
                 for i in 0..outer_dims {
                     for j in 0..stride {
-                        let mut max_val = f32::NEG_INFINITY;
+                        let idx0 = i * outer_stride + j;
+                        let mut max_val = self.data[idx0];
+                        let mut max_acc = max_val.to_accum();
                         let mut max_idx = 0;
 
-                        for k in 0..dim_size {
+                        for k in 1..dim_size {
                             let idx = i * outer_stride + k * stride + j;
                             let val = self.data[idx];
-                            if val > max_val {
+                            let acc = val.to_accum();
+                            if acc > max_acc {
+                                max_acc = acc;
                                 max_val = val;
                                 max_idx = k;
                             }
@@ -667,7 +733,7 @@ impl Tensor {
 
                 Ok((
                     Tensor::from_vec(max_values, &new_shape, self.get_backend())?,
-                    Some(Tensor::from_vec(
+                    Some(Tensor::<f32>::from_vec(
                         max_indices,
                         &new_shape,
                         self.get_backend(),
