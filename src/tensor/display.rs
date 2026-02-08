@@ -1,8 +1,8 @@
 use std::fmt;
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorElement};
 
-impl fmt::Display for Tensor {
+impl<T: TensorElement + fmt::Display> fmt::Display for Tensor<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Shape: {:?}", self.shape())?;
         writeln!(f, "Data:")?;
@@ -14,7 +14,7 @@ impl fmt::Display for Tensor {
                 write!(f, "[")?;
                 for j in 0..cols {
                     let idx = i * cols + j;
-                    write!(f, "{:8.4}", self.data()[idx])?;
+                    write!(f, "{}", self.data()[idx])?;
                     if j < cols - 1 {
                         write!(f, ", ")?;
                     }
@@ -22,7 +22,14 @@ impl fmt::Display for Tensor {
                 writeln!(f, " ]")?;
             }
         } else {
-            writeln!(f, "{:?}", self.data())?;
+            write!(f, "[")?;
+            for (i, value) in self.data().iter().enumerate() {
+                write!(f, "{}", value)?;
+                if i + 1 < self.data().len() {
+                    write!(f, ", ")?;
+                }
+            }
+            writeln!(f, "]")?;
         }
 
         Ok(())

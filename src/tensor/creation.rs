@@ -1,15 +1,15 @@
 use super::*;
 
-impl Tensor {
-    /// Creates a tensor filled with zeros
+impl<T: TensorElement> Tensor<T> {
+    /// Creates a tensor filled with zeros.
     ///
-    /// Args:
-    ///     shape: A slice containing the dimensions of the output tensor
+    /// # Arguments
+    /// * `shape` - Dimensions of the output tensor.
     ///
-    /// Returns:
-    ///     A tensor filled with zeros of the specified shape
+    /// # Errors
+    /// Returns an error if the default backend cannot be initialized.
     ///
-    /// Example:
+    /// # Examples
     /// ```
     /// use cetana::tensor::Tensor;
     ///
@@ -20,19 +20,19 @@ impl Tensor {
     /// ```
     pub fn zeros(shape: &[usize]) -> MlResult<Self> {
         let size: usize = shape.iter().product();
-        let data = vec![0.0; size];
+        let data = vec![T::zero(); size];
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
-    /// Creates a tensor filled with zeros with the same shape as the input tensor
+    /// Creates a tensor of zeros with the same shape as `self`.
     ///
-    /// Returns:
-    ///     A tensor filled with zeros with the same shape as self
+    /// # Errors
+    /// Returns an error if the default backend cannot be initialized.
     ///
-    /// Example:
+    /// # Examples
     /// ```
     /// use cetana::tensor::Tensor;
     ///
@@ -45,15 +45,15 @@ impl Tensor {
         Self::zeros(&self.shape)
     }
 
-    /// Creates a tensor filled with ones
+    /// Creates a tensor filled with ones.
     ///
-    /// Args:
-    ///     shape: A slice containing the dimensions of the output tensor
+    /// # Arguments
+    /// * `shape` - Dimensions of the output tensor.
     ///
-    /// Returns:
-    ///     A tensor filled with ones of the specified shape
+    /// # Errors
+    /// Returns an error if the default backend cannot be initialized.
     ///
-    /// Example:
+    /// # Examples
     /// ```
     /// use cetana::tensor::Tensor;
     ///
@@ -63,19 +63,19 @@ impl Tensor {
     /// ```
     pub fn ones(shape: &[usize]) -> MlResult<Self> {
         let size: usize = shape.iter().product();
-        let data = vec![1.0; size];
+        let data = vec![T::one(); size];
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
 
         Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
-    /// Creates a tensor filled with ones with the same shape as the input tensor
+    /// Creates a tensor of ones with the same shape as `self`.
     ///
-    /// Returns:
-    ///     A tensor filled with ones with the same shape as self
+    /// # Errors
+    /// Returns an error if the default backend cannot be initialized.
     ///
-    /// Example:
+    /// # Examples
     /// ```
     /// use cetana::tensor::Tensor;
     ///
@@ -88,14 +88,18 @@ impl Tensor {
         Self::ones(&self.shape)
     }
 
-    /// Creates a tensor with elements sampled from a normal distribution
+    /// Creates a tensor with values drawn from a standard normal distribution.
     ///
     /// # Arguments
-    /// * `shape` - The shape of the tensor to create
+    /// * `shape` - Dimensions of the output tensor.
     ///
-    /// # Returns
-    /// A new tensor with elements sampled from a normal distribution
-    pub fn randn(shape: &[usize]) -> MlResult<Self> {
+    /// # Errors
+    /// Returns an error if any dimension is zero or if the default backend
+    /// cannot be initialized.
+    pub fn randn(shape: &[usize]) -> MlResult<Self>
+    where
+        T: FloatElement,
+    {
         let size: usize = shape.iter().product();
         if size == 0 {
             return Err(MlError::TensorError(TensorError::InvalidShape {
@@ -119,9 +123,9 @@ impl Tensor {
             let r = (-2.0 * u1.ln()).sqrt();
             let theta = 2.0 * std::f32::consts::PI * u2;
 
-            data.push(r * theta.cos());
+            data.push(T::from_accum(T::accum_from_f32(r * theta.cos())));
             if data.len() < size {
-                data.push(r * theta.sin());
+                data.push(T::from_accum(T::accum_from_f32(r * theta.sin())));
             }
         }
 
@@ -131,43 +135,52 @@ impl Tensor {
         Ok(Self::from_parts(data, shape.to_vec(), backend))
     }
 
-    /// Creates a tensor with elements sampled from a normal distribution with the same shape as the input tensor
+    /// Creates a tensor with values drawn from a standard normal distribution
+    /// with the same shape as `self`.
     ///
-    /// # Arguments
-    /// * `self` - The tensor to sample from
-    ///
-    /// # Returns
-    /// A new tensor with elements sampled from a normal distribution
-    pub fn randn_like(&self) -> MlResult<Self> {
+    /// # Errors
+    /// Returns an error if any dimension is zero or if the default backend
+    /// cannot be initialized.
+    pub fn randn_like(&self) -> MlResult<Self>
+    where
+        T: FloatElement,
+    {
         Self::randn(self.shape())
     }
 
-    /// Creates a tensor with all elements set to a specified value
+    /// Creates a tensor filled with the provided value.
     ///
     /// # Arguments
-    /// * `size` - The shape of the tensor to create
-    /// * `fill_value` - The value to fill the tensor with
+    /// * `size` - Dimensions of the output tensor.
+    /// * `fill_value` - Value to assign to each element.
     ///
-    /// # Returns
-    /// A new tensor with all elements set to the specified value
-    pub fn full(size: &[usize], fill_value: f32) -> MlResult<Self> {
+    /// # Errors
+    /// Returns an error if the default backend cannot be initialized.
+    pub fn full(size: &[usize], fill_value: T) -> MlResult<Self> {
         let total_size: usize = size.iter().product();
         let data = vec![fill_value; total_size];
 
         Tensor::new_from_vec(data, size)
     }
 
-    /// Creates a 1-D tensor of size ⌈(end - start) / step⌉ with values from the interval [start, end)
-    /// taken with common difference step beginning from start.
+    /// Creates a 1-D tensor with values in the half-open interval [start, end)
+    /// spaced by `step`.
+    ///
+    /// If the range is empty (for example, start >= end with a positive step),
+    /// the result has length 0.
     ///
     /// # Arguments
-    /// * `start` - the starting value for the set of points (default: 0)
-    /// * `end` - the ending value for the set of points
-    /// * `step` - the gap between each pair of adjacent points (default: 1)
+    /// * `start` - Starting value (defaults to 0.0).
+    /// * `end` - End value (exclusive).
+    /// * `step` - Spacing between values (defaults to 1.0).
     ///
-    /// # Returns
-    /// A new 1-D tensor with the specified range of values
-    pub fn arange(start: Option<f32>, end: f32, step: Option<f32>) -> MlResult<Self> {
+    /// # Errors
+    /// Returns an error if `step` is 0.0 or if the default backend cannot be
+    /// initialized.
+    pub fn arange(start: Option<f32>, end: f32, step: Option<f32>) -> MlResult<Self>
+    where
+        T: FloatElement,
+    {
         let start = start.unwrap_or(0.0);
         let step = step.unwrap_or(1.0);
 
@@ -179,7 +192,12 @@ impl Tensor {
         }
 
         // Calculate size using ceiling division
-        let size = ((end - start) / step).ceil() as usize;
+        let steps = (end - start) / step;
+        let size = if steps > 0.0 {
+            steps.ceil() as usize
+        } else {
+            0
+        };
 
         // Generate the sequence
         let mut data = Vec::with_capacity(size);
@@ -188,12 +206,12 @@ impl Tensor {
         // Handle both positive and negative steps
         if step > 0.0 {
             while current < end {
-                data.push(current);
+                data.push(T::from_accum(T::accum_from_f32(current)));
                 current += step;
             }
         } else {
             while current > end {
-                data.push(current);
+                data.push(T::from_accum(T::accum_from_f32(current)));
                 current += step;
             }
         }
