@@ -1,3 +1,5 @@
+//! Element-wise and linear algebra ops: add, sub, mul, div, matmul, exp, etc.
+
 use super::*;
 
 impl<T: TensorElement> Tensor<T> {
@@ -942,8 +944,8 @@ mod tests {
     #[test]
     fn test_matmul_empty() -> MlResult<()> {
         // Case 9: Empty Matrix Multiplication
-        let a = Tensor::new_from_vec(vec![], &[0, 2])?;
-        let b = Tensor::new_from_vec(vec![], &[2, 0])?;
+        let a: Tensor<f32> = Tensor::new_from_vec(vec![], &[0, 2])?;
+        let b: Tensor<f32> = Tensor::new_from_vec(vec![], &[2, 0])?;
 
         // This should return an error for empty tensors
         assert!(a.matmul(&b).is_err());

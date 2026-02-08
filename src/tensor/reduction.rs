@@ -1,3 +1,5 @@
+//! Reductions: sum, mean, var, norm, max, min, and related aggregations.
+
 use super::shape;
 use super::*;
 

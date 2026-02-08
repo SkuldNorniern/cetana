@@ -1,3 +1,5 @@
+//! Human-readable display for tensors (shape and data, 2D as rows).
+
 use std::fmt;
 
 use crate::tensor::{Tensor, TensorElement};

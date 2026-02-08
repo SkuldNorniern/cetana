@@ -1,3 +1,5 @@
+//! Shape and layout manipulation: transpose, reshape, slice, view, expand, chunk, cat, etc.
+
 use super::shape;
 use super::*;
 use std::sync::Arc;

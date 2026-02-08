@@ -1,3 +1,5 @@
+//! Serialization and deserialization of tensors (shape + dtype + raw bytes).
+
 use super::*;
 use numina::dtype::{DTypeCandidate, DTypeValue};
 

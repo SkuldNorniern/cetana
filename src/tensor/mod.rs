@@ -1,3 +1,15 @@
+//! Tensor types, operations, and the op DAG for scheduling.
+//!
+//! This module provides:
+//! - **[`Tensor`]**: Eager multi-dimensional array with a backend (CPU/CUDA/Vulkan/MPS),
+//!   optional autodiff via `grad` and `grad_fn`, and element type generic over [`TensorElement`].
+//! - **[`TensorGraph`]**: A directed acyclic graph of tensor ops used by backends to schedule work
+//!   in parallel; build with [`TensorGraph::add_input`] and [`TensorGraph::add_node`], then use
+//!   [`TensorGraph::parallel_levels`] for execution waves.
+//!
+//! Creation, element-wise ops, reductions, shape/manipulation, and serialization are split into
+//! submodules; the main API is on `Tensor` and the DAG types are re-exported here.
+
 use std::fmt::Display;
 use std::ops::Range;
 
@@ -6,6 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 // mod builder;
 mod creation;
+mod dag;
 mod display;
 mod manipulation;
 mod ops;
@@ -15,6 +28,8 @@ mod serialization;
 mod shape;
 
 // pub use builder::*;
+
+pub use dag::{Graph as TensorGraph, Node, NodeId, Op, TensorDesc, TensorRef};
 
 use numina::dtype::{DTypeElement, DTypeValue};
 pub use numina::{
@@ -39,32 +54,44 @@ use crate::{MlError, MlResult};
 use aporia::{RandomBackend, backend::XorShift};
 use log::{debug, info, warn};
 
+/// Errors produced by tensor operations and the tensor op DAG.
 #[derive(Debug, Clone)]
 pub enum TensorError {
+    /// Shape did not match the operation's requirements.
     InvalidShape {
         expected: Vec<usize>,
         got: Vec<usize>,
     },
+    /// Data length did not match the product of shape dimensions.
     InvalidDataLength {
         expected: usize,
         got: usize,
     },
+    /// Operation-specific failure (e.g. empty input, invalid args).
     InvalidOperation {
         op: &'static str,
         reason: String,
     },
+    /// Axis index out of range for the tensor's rank.
     InvalidAxis {
         axis: usize,
         shape: Vec<usize>,
     },
+    /// Matrix multiplication dimensions incompatible.
     MatrixMultiplicationError {
         left_shape: Vec<usize>,
         right_shape: Vec<usize>,
     },
+    /// Operation does not support empty tensors.
     EmptyTensor,
+    /// Requested backend is not available or failed to initialize.
     InvalidBackend {
         backend: DeviceType,
     },
+    /// A cycle was detected in a [`TensorGraph`] (invalid).
+    DagCycle,
+    /// A node in a [`TensorGraph`] referenced a non-existent input or node.
+    DagInvalidRef { node_id: usize, input_index: usize },
 }
 
 impl std::error::Error for TensorError {}
@@ -99,6 +126,10 @@ impl Display for TensorError {
             }
             TensorError::EmptyTensor => {
                 write!(f, "Empty tensor")
+            }
+            TensorError::DagCycle => write!(f, "DAG cycle detected"),
+            TensorError::DagInvalidRef { node_id, input_index } => {
+                write!(f, "DAG invalid tensor ref at node {} input {}", node_id, input_index)
             }
         }
     }
@@ -410,6 +441,12 @@ impl<T: TensorElement> std::fmt::Debug for GradFn<T> {
     }
 }
 
+/// Eager multi-dimensional array with backend placement and optional autodiff.
+///
+/// Data is stored as a flat `Arc<[T]>` with a `shape`; the backend (CPU, CUDA, etc.) is chosen
+/// at creation and shared by tensors created from this one. For a DAG of ops used for parallel
+/// scheduling, use [`TensorGraph`] instead; this type is for immediate execution and gradient
+/// tracking via `grad` and `grad_fn`.
 #[derive(Debug, Clone)]
 pub struct Tensor<T: TensorElement = f32> {
     data: Arc<[T]>,
@@ -651,13 +688,15 @@ impl<T: TensorElement> Tensor<T> {
             .collect()
     }
 
-    /// Computes the gradients of current tensor w.r.t. graph leaves.
+    /// Computes gradients of this tensor w.r.t. leaves of the autodiff graph (the chain of
+    /// tensors linked by `grad_fn`). For a DAG of ops used for parallel scheduling, use
+    /// [`TensorGraph`] instead.
     ///
     /// # Arguments
-    /// * `gradient` - Optional gradient to start backpropagation with. If None, defaults to a tensor of ones.
+    /// * `gradient` - Optional gradient to start backpropagation with; if `None`, uses ones.
     ///
-    /// # Returns
-    /// Result indicating success or containing an error
+    /// # Errors
+    /// Fails if this tensor does not have `requires_grad` set or if a shape mismatch occurs.
     pub fn backward(&mut self, gradient: Option<&Tensor<T>>) -> MlResult<()>
     where
         T::Accum: std::ops::Add<Output = T::Accum>,
@@ -871,8 +910,8 @@ mod tests {
         let a = Tensor::new(vec![vec![1.0, 2.0]])?;
         let b = a.exp()?;
         assert_eq!(b.shape(), &[1, 2]);
-        assert!((b.data()[0] - 2.718281828).abs() < 1e-6);
-        assert!((b.data()[1] - 7.389056099).abs() < 1e-6);
+        assert!((b.data()[0] - 2.718281828_f32).abs() < 1e-6);
+        assert!((b.data()[1] - 7.389056099_f32).abs() < 1e-6);
         Ok(())
     }
 
@@ -932,20 +971,20 @@ mod tests {
     #[test]
     fn test_randn() -> MlResult<()> {
         // Test 1: Basic shape
-        let t = Tensor::randn(&[1000])?;
+        let t: Tensor<f32> = Tensor::randn(&[1000])?;
         assert_eq!(t.shape(), &[1000]);
         assert_eq!(t.data().len(), 1000);
 
         // Test 2: Multi-dimensional shape
-        let t = Tensor::randn(&[2, 3, 4])?;
+        let t: Tensor<f32> = Tensor::randn(&[2, 3, 4])?;
         assert_eq!(t.shape(), &[2, 3, 4]);
         assert_eq!(t.data().len(), 24);
 
         // Test 3: Empty shape should error
-        assert!(Tensor::randn(&[0]).is_err());
+        assert!(Tensor::<f32>::randn(&[0]).is_err());
 
         // Test 4: Statistical properties
-        let t = Tensor::randn(&[10000])?;
+        let t: Tensor<f32> = Tensor::randn(&[10000])?;
         let mean = t.data().iter().sum::<f32>() / 10000.0;
         let std_dev = (t.data().iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / 10000.0).sqrt();
 
@@ -1037,7 +1076,7 @@ mod tests {
         );
 
         // Test 4: Mask creation
-        let mask = Tensor::tril_mask(3, 0)?;
+        let mask: Tensor<f32> = Tensor::tril_mask(3, 0)?;
         assert_eq!(mask.data(), &[1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0,]);
 
         Ok(())
@@ -1048,7 +1087,7 @@ mod tests {
         // Test basic functionality
         let t = Tensor::full(&[2, 3], 3.14)?;
         assert_eq!(t.shape(), &[2, 3]);
-        assert!(t.data().iter().all(|&x| (x - 3.14).abs() < 1e-6));
+        assert!(t.data().iter().all(|&x| (x - 3.14_f32).abs() < 1e-6));
 
         // Test empty shape
         let t = Tensor::full(&[], 1.0)?;
@@ -1059,7 +1098,7 @@ mod tests {
         let t = Tensor::full(&[5], 2.5)?;
         assert_eq!(t.shape(), &[5]);
         assert_eq!(t.data().len(), 5);
-        assert!(t.data().iter().all(|&x| (x - 2.5).abs() < 1e-6));
+        assert!(t.data().iter().all(|&x| (x - 2.5_f32).abs() < 1e-6));
 
         Ok(())
     }
@@ -1091,13 +1130,19 @@ mod tests {
         let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
         let mask = Tensor::new_from_vec(vec![1.0, 0.0, 0.0, 1.0], &[2, 2])?;
         let filled = tensor.masked_fill(&mask, 9.9)?;
-        assert_eq!(filled.data(), &[9.9, 2.0, 3.0, 9.9]);
+        assert_eq!(filled.data()[1], 2.0);
+        assert_eq!(filled.data()[2], 3.0);
+        assert!((filled.data()[0] - 9.9_f32).abs() < 1e-5);
+        assert!((filled.data()[3] - 9.9_f32).abs() < 1e-5);
 
         // Test 2: Broadcasting mask
         let tensor = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
         let mask = Tensor::new_from_vec(vec![1.0, 0.0], &[2, 1])?;
         let filled = tensor.masked_fill(&mask, 9.9)?;
-        assert_eq!(filled.data(), &[9.9, 9.9, 3.0, 4.0]);
+        assert!((filled.data()[0] - 9.9_f32).abs() < 1e-5);
+        assert!((filled.data()[1] - 9.9_f32).abs() < 1e-5);
+        assert_eq!(filled.data()[2], 3.0);
+        assert_eq!(filled.data()[3], 4.0);
 
         Ok(())
     }
@@ -1108,7 +1153,7 @@ mod tests {
         let t = Tensor::new_from_vec(vec![1.0, 2.0, 3.0], &[3])?;
         let v = t.var(&[0], false)?;
         assert_eq!(v.shape(), &[1]);
-        assert!((v.data()[0] - 0.6666667).abs() < 1e-6);
+        assert!((v.data()[0] - 0.6666667_f32).abs() < 1e-6);
 
         // Test 2: 2D variance along different axes
         let t = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])?;
@@ -1116,15 +1161,15 @@ mod tests {
         // Variance along rows (dim 0)
         let v1 = t.var(&[0], true)?;
         assert_eq!(v1.shape(), &[1, 3]);
-        assert!((v1.data()[0] - 2.25).abs() < 1e-6);
-        assert!((v1.data()[1] - 2.25).abs() < 1e-6);
-        assert!((v1.data()[2] - 2.25).abs() < 1e-6);
+        assert!((v1.data()[0] - 2.25_f32).abs() < 1e-6);
+        assert!((v1.data()[1] - 2.25_f32).abs() < 1e-6);
+        assert!((v1.data()[2] - 2.25_f32).abs() < 1e-6);
 
         // Variance along columns (dim 1)
         let v2 = t.var(&[1], true)?;
         assert_eq!(v2.shape(), &[2, 1]);
-        assert!((v2.data()[0] - 0.6666667).abs() < 1e-6);
-        assert!((v2.data()[1] - 0.6666667).abs() < 1e-6);
+        assert!((v2.data()[0] - 0.6666667_f32).abs() < 1e-6);
+        assert!((v2.data()[1] - 0.6666667_f32).abs() < 1e-6);
 
         // Test 3: Multiple reduction dimensions
         let t = Tensor::new_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[2, 2, 2])?;
@@ -1156,27 +1201,27 @@ mod tests {
     #[test]
     fn test_arange() -> MlResult<()> {
         // Test basic range
-        let t = Tensor::arange(Some(0.0), 5.0, Some(1.0))?;
+        let t: Tensor<f32> = Tensor::arange(Some(0.0), 5.0, Some(1.0))?;
         assert_eq!(t.shape(), &[5]);
         assert_eq!(t.data(), &[0.0, 1.0, 2.0, 3.0, 4.0]);
 
         // Test with start and end
-        let t = Tensor::arange(Some(1.0), 4.0, Some(1.0))?;
+        let t: Tensor<f32> = Tensor::arange(Some(1.0), 4.0, Some(1.0))?;
         assert_eq!(t.shape(), &[3]);
         assert_eq!(t.data(), &[1.0, 2.0, 3.0]);
 
         // Test with step size
-        let t = Tensor::arange(Some(1.0), 2.5, Some(0.5))?;
+        let t: Tensor<f32> = Tensor::arange(Some(1.0), 2.5, Some(0.5))?;
         assert_eq!(t.shape(), &[3]);
         assert_eq!(t.data(), &[1.0, 1.5, 2.0]);
 
         // Test with negative step
-        let t = Tensor::arange(Some(2.0), -1.0, Some(-1.0))?;
+        let t: Tensor<f32> = Tensor::arange(Some(2.0), -1.0, Some(-1.0))?;
         assert_eq!(t.shape(), &[3]);
         assert_eq!(t.data(), &[2.0, 1.0, 0.0]);
 
         // Test zero step error
-        assert!(Tensor::arange(Some(0.0), 1.0, Some(0.0)).is_err());
+        assert!(Tensor::<f32>::arange(Some(0.0), 1.0, Some(0.0)).is_err());
 
         Ok(())
     }
@@ -1212,36 +1257,36 @@ mod tests {
     #[test]
     fn test_zeros() -> MlResult<()> {
         // Test basic shape
-        let t = Tensor::zeros(&[2, 3])?;
+        let t: Tensor<f32> = Tensor::zeros(&[2, 3])?;
         assert_eq!(t.shape(), &[2, 3]);
         assert_eq!(t.data().len(), 6);
-        assert!(t.data().iter().all(|&x| x == 0.0));
+        assert!(t.data().iter().all(|&x: &f32| x == 0.0));
 
         // Test empty shape
-        let t = Tensor::zeros(&[])?;
+        let t: Tensor<f32> = Tensor::zeros(&[])?;
 
         assert_eq!(t.data().len(), 1);
         assert_eq!(t.data()[0], 0.0);
 
         // Test single dimension
-        let t = Tensor::zeros(&[5])?;
+        let t: Tensor<f32> = Tensor::zeros(&[5])?;
         assert_eq!(t.shape(), &[5]);
         assert_eq!(t.data().len(), 5);
-        assert!(t.data().iter().all(|&x| x == 0.0));
+        assert!(t.data().iter().all(|&x: &f32| x == 0.0));
 
         Ok(())
     }
 
     #[test]
     fn test_zeros_like() -> MlResult<()> {
-        let original = Tensor::randn(&[2, 3, 4])?;
+        let original: Tensor<f32> = Tensor::randn(&[2, 3, 4])?;
         let zeros = original.zeros_like()?;
 
         // Check shapes match
         assert_eq!(zeros.shape(), original.shape());
 
         // Check all values are zero
-        assert!(zeros.data().iter().all(|&x| x == 0.0));
+        assert!(zeros.data().iter().all(|&x: &f32| x == 0.0));
 
         Ok(())
     }
@@ -1255,9 +1300,9 @@ mod tests {
         assert_eq!(b.shape(), a.shape());
 
         // Test with zeros
-        let a = Tensor::zeros(&[2, 2])?;
+        let a: Tensor<f32> = Tensor::zeros(&[2, 2])?;
         let b = a.square()?;
-        assert!(b.data().iter().all(|&x| x == 0.0));
+        assert!(b.data().iter().all(|&x: &f32| x == 0.0));
 
         // Test with larger values
         let a = Tensor::new(vec![vec![3.0, -4.0], vec![5.0, -6.0]])?;
@@ -1270,35 +1315,35 @@ mod tests {
     #[test]
     fn test_ones() -> MlResult<()> {
         // Test basic shape
-        let t = Tensor::ones(&[2, 3])?;
+        let t: Tensor<f32> = Tensor::ones(&[2, 3])?;
         assert_eq!(t.shape(), &[2, 3]);
         assert_eq!(t.data().len(), 6);
-        assert!(t.data().iter().all(|&x| x == 1.0));
+        assert!(t.data().iter().all(|&x: &f32| x == 1.0));
 
         // Test empty shape
-        let t = Tensor::ones(&[])?;
+        let t: Tensor<f32> = Tensor::ones(&[])?;
         assert_eq!(t.data().len(), 1);
         assert_eq!(t.data()[0], 1.0);
 
         // Test single dimension
-        let t = Tensor::ones(&[5])?;
+        let t: Tensor<f32> = Tensor::ones(&[5])?;
         assert_eq!(t.shape(), &[5]);
         assert_eq!(t.data().len(), 5);
-        assert!(t.data().iter().all(|&x| x == 1.0));
+        assert!(t.data().iter().all(|&x: &f32| x == 1.0));
 
         Ok(())
     }
 
     #[test]
     fn test_ones_like() -> MlResult<()> {
-        let original = Tensor::randn(&[2, 3, 4])?;
+        let original: Tensor<f32> = Tensor::randn(&[2, 3, 4])?;
         let ones = original.ones_like()?;
 
         // Check shapes match
         assert_eq!(ones.shape(), original.shape());
 
         // Check all values are one
-        assert!(ones.data().iter().all(|&x| x == 1.0));
+        assert!(ones.data().iter().all(|&x: &f32| x == 1.0));
 
         Ok(())
     }
@@ -1339,19 +1384,19 @@ mod tests {
         // Test vector norm
         let a = Tensor::new(vec![vec![3.0, -4.0]])?;
         let norm_2 = a.norm(2.0, None, false)?;
-        assert!((norm_2.data()[0] - 5.0).abs() < 1e-6);
+        assert!((norm_2.data()[0] - 5.0_f32).abs() < 1e-6);
 
         // Test Frobenius norm (same as 2-norm for vectors)
         let norm_fro = a.norm(2.0, None, false)?;
-        assert!((norm_fro.data()[0] - 5.0).abs() < 1e-6);
+        assert!((norm_fro.data()[0] - 5.0_f32).abs() < 1e-6);
 
         // Test infinity norm
         let norm_inf = a.norm(f32::INFINITY, None, false)?;
-        assert!((norm_inf.data()[0] - 4.0).abs() < 1e-6);
+        assert!((norm_inf.data()[0] - 4.0_f32).abs() < 1e-6);
 
         // Test 1-norm
         let norm_1 = a.norm(1.0, None, false)?;
-        assert!((norm_1.data()[0] - 7.0).abs() < 1e-6);
+        assert!((norm_1.data()[0] - 7.0_f32).abs() < 1e-6);
 
         // Test norm along dimension
         let b = Tensor::new(vec![vec![1.0, 2.0, 3.0], vec![-1.0, 1.0, 4.0]])?;

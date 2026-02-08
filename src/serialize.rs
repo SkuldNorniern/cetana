@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_tensor_serialization_edge_cases() {
         // Test empty tensor
-        let empty_tensor =
+        let empty_tensor: Tensor<f32> =
             Tensor::new_from_vec(vec![], &[0]).expect("Failed to create empty tensor");
         let serialized = empty_tensor.serialize();
         let deserialized =

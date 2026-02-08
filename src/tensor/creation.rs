@@ -1,3 +1,5 @@
+//! Tensor creation: zeros, ones, full, arange, randn, and related constructors.
+
 use super::*;
 
 impl<T: TensorElement> Tensor<T> {

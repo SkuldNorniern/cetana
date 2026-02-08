@@ -1,3 +1,5 @@
+//! Random sampling: randn, randn_like, multinomial, and related.
+
 use super::*;
 use aporia::{Rng, backend::Xoshiro256StarStar};
 use std::time::{SystemTime, UNIX_EPOCH};

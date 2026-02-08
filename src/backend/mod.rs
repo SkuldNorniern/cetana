@@ -1,3 +1,10 @@
+//! Device backends and execution of the tensor op graph.
+//!
+//! Each backend implements [`Backend`] (add, multiply, matmul, etc.). Use
+//! [`execute_graph`] to run a [`crate::tensor::TensorGraph`] on any backend:
+//! it schedules nodes by the graph's parallel levels and dispatches to the
+//! backend's primitives.
+
 use std::fmt::{Debug, Display, Formatter};
 
 #[cfg(feature = "cpu")]
@@ -16,8 +23,10 @@ mod vulkan;
 mod buffer;
 mod device;
 mod feature;
+mod graph;
 
 pub use device::{Device, DeviceManager, DeviceType};
+pub use graph::execute_graph;
 pub use feature::DeviceFeatures;
 
 #[cfg(feature = "cpu")]

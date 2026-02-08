@@ -1,7 +1,10 @@
+//! Shape and dimension helpers: normalize axes, compute strides, infer -1 dimensions.
+
 use crate::{MlError, MlResult};
 
 use super::TensorError;
 
+/// Normalizes dimension indices (negative = from end), dedupes, and checks bounds.
 pub(super) fn normalize_dims(dims: &[i32], shape: &[usize]) -> MlResult<Vec<usize>> {
     let rank = shape.len();
     let mut positive_dims: Vec<usize> = dims
@@ -21,6 +24,7 @@ pub(super) fn normalize_dims(dims: &[i32], shape: &[usize]) -> MlResult<Vec<usiz
     Ok(positive_dims)
 }
 
+/// Row-major strides for the given shape (last dim stride 1).
 pub(super) fn compute_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1usize; rank];
@@ -34,6 +38,7 @@ pub(super) fn compute_strides(shape: &[usize]) -> Vec<usize> {
     strides
 }
 
+/// Resolves a shape that may contain -1 (infer one dimension) against total element count.
 pub(super) fn infer_shape(
     shape: &[isize],
     total_elements: usize,
