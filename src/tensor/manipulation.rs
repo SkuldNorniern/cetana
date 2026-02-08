@@ -1,16 +1,18 @@
 use super::shape;
 use super::*;
+use std::sync::Arc;
 
-impl Tensor {
-    /// Transposes the tensor across the specified dimensions
+impl<T: TensorElement> Tensor<T> {
+    /// Swaps two dimensions of the tensor.
     ///
     /// # Arguments
-    /// * `dim0` - The first dimension to transpose
-    /// * `dim1` - The second dimension to transpose
+    /// * `dim0` - First dimension to swap (negative values count from the end).
+    /// * `dim1` - Second dimension to swap (negative values count from the end).
     ///
-    /// # Returns
-    /// A new tensor with the specified dimensions transposed
-    pub fn transpose(&self, dim0: i32, dim1: i32) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if the tensor has fewer than two dimensions or if a
+    /// dimension is out of range.
+    pub fn transpose(&self, dim0: i32, dim1: i32) -> MlResult<Tensor<T>> {
         let rank = self.shape.len();
         if rank < 2 {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -38,7 +40,7 @@ impl Tensor {
         let strides = shape::compute_strides(&self.shape);
 
         // Create transposed data
-        let mut result = vec![0.0; self.data.len()];
+        let mut result = vec![T::zero(); self.data.len()];
         let mut coords = vec![0usize; rank];
 
         for i in 0..self.data.len() {
@@ -66,28 +68,31 @@ impl Tensor {
         Tensor::from_vec(result, &new_shape, self.get_backend())
     }
 
-    /// Reshapes the tensor to the specified shape
+    /// Reshapes the tensor to the requested shape.
     ///
     /// # Arguments
-    /// * `shape` - The desired shape of the tensor
+    /// * `shape` - Target shape. Use -1 to infer one dimension.
     ///
-    /// # Returns
-    /// A new tensor with the specified shape
-    pub fn reshape(&self, shape: &[isize]) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if the new shape is incompatible with the number of
+    /// elements or if more than one dimension is -1.
+    pub fn reshape(&self, shape: &[isize]) -> MlResult<Tensor<T>> {
         let total_elements = self.data.len();
         let new_shape = shape::infer_shape(shape, total_elements, &self.shape, "reshape")?;
 
         Ok(self.from_parts_with_backend(self.data.clone(), new_shape))
     }
 
-    /// Returns a new view of the tensor with singleton dimensions expanded to a larger size.
+    /// Expands singleton dimensions to the requested sizes.
     ///
     /// # Arguments
-    /// * `sizes` - The desired expanded size. -1 indicates that dimension is unchanged.
+    /// * `sizes` - Target shape. If `sizes` has more dimensions than the tensor,
+    ///   leading dimensions are treated as size 1.
     ///
-    /// # Returns
-    /// A new tensor view with expanded dimensions
-    pub fn expand(&self, sizes: &[usize]) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if `sizes` has fewer dimensions than the tensor or if
+    /// a non-singleton dimension would need to change.
+    pub fn expand(&self, sizes: &[usize]) -> MlResult<Tensor<T>> {
         // Validate expansion
         if sizes.len() < self.shape.len() {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -142,19 +147,17 @@ impl Tensor {
         Ok(self.from_parts_with_backend(expanded_data, sizes.to_vec()))
     }
 
-    /// Returns a new tensor with the same data but different shape.
-    /// The returned tensor shares the same underlying data with the original tensor.
+    /// Returns a view of the tensor with a new shape.
+    ///
+    /// The returned tensor shares the same underlying data with the original.
     ///
     /// # Arguments
-    /// * `shape` - The desired shape. One dimension can be -1, which will be inferred from other dimensions
-    ///
-    /// # Returns
-    /// A new tensor with the requested shape
+    /// * `shape` - Target shape. One dimension can be -1, which will be inferred
+    ///   from the other dimensions.
     ///
     /// # Errors
-    /// * If the new shape is not compatible with the original number of elements
-    /// * If more than one dimension is specified as -1
-    /// * If the new shape would require reordering of elements
+    /// Returns an error if the new shape is incompatible with the number of
+    /// elements or if more than one dimension is -1.
     ///
     /// # Example
     /// ```
@@ -171,16 +174,18 @@ impl Tensor {
         Ok(self.from_parts_with_backend(self.data.clone(), new_shape))
     }
 
-    /// Attempts to split a tensor into the specified number of chunks along the given dimension.
-    /// Each chunk is a view of the input tensor.
+    /// Splits a tensor into up to `chunks` pieces along a dimension.
     ///
     /// # Arguments
-    /// * `chunks` - number of chunks to return
-    /// * `dim` - dimension along which to split the tensor (default: 0)
+    /// * `chunks` - Maximum number of chunks to return.
+    /// * `dim` - Dimension along which to split (negative values count from the end).
     ///
     /// # Returns
-    /// A vector of tensors that are views of the input tensor
-    pub fn chunk(&self, chunks: usize, dim: i32) -> MlResult<Vec<Tensor>> {
+    /// A vector of tensors containing the split data.
+    ///
+    /// # Errors
+    /// Returns an error if `chunks` is 0 or `dim` is out of range.
+    pub fn chunk(&self, chunks: usize, dim: i32) -> MlResult<Vec<Tensor<T>>> {
         if chunks == 0 {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "chunk",
@@ -247,14 +252,16 @@ impl Tensor {
         Ok(result)
     }
 
-    /// Slices the tensor along multiple dimensions
+    /// Slices the tensor along multiple dimensions.
     ///
     /// # Arguments
-    /// * `ranges` - A slice of ranges for each dimension. Use `..` for full range
+    /// * `ranges` - One entry per dimension. Use an empty slice (`&[]`) for the
+    ///   full range of that dimension.
     ///
-    /// # Returns
-    /// A new tensor containing the sliced data
-    pub fn slice(&self, ranges: &[&[Range<usize>]]) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if the number of range sets does not match the tensor
+    /// rank or if any range is out of bounds.
+    pub fn slice(&self, ranges: &[&[Range<usize>]]) -> MlResult<Tensor<T>> {
         // Validate number of dimensions
         if ranges.len() != self.shape.len() {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
@@ -303,15 +310,15 @@ impl Tensor {
         let mut new_data = Vec::with_capacity(new_size);
 
         // Helper function to recursively generate indices
-        fn generate_indices(
+        fn generate_indices<T: Copy>(
             current_dim: usize,
             max_dims: usize,
             current_indices: &mut Vec<usize>,
             ranges: &[&[Range<usize>]],
             shape: &[usize],
             strides: &[usize],
-            input_data: &[f32],
-            output_data: &mut Vec<f32>,
+            input_data: &[T],
+            output_data: &mut Vec<T>,
         ) {
             if current_dim == max_dims {
                 // Calculate input index
@@ -376,67 +383,79 @@ impl Tensor {
         Tensor::from_vec(new_data, &new_shape, self.get_backend())
     }
 
-    /// Clamps all elements in input into the range [min, max].
+    /// Clamps values into the range [min, max].
     ///
     /// # Arguments
-    /// * `min` - Optional lower-bound of the range to be clamped to
-    /// * `max` - Optional upper-bound of the range to be clamped to
+    /// * `min` - Optional lower bound.
+    /// * `max` - Optional upper bound.
     ///
     /// # Returns
-    /// A new tensor with values clamped between min and max
-    pub fn clamp_full(&self, min: Option<f32>, max: Option<f32>) -> MlResult<Tensor> {
-        let data: Vec<f32> = self
-            .data
-            .iter()
-            .map(|&x| {
-                let mut val = x;
-                if let Some(min_val) = min {
-                    val = val.max(min_val);
+    /// A new tensor with values clamped between the provided bounds.
+    pub fn clamp_full(&self, min: Option<f32>, max: Option<f32>) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: PartialOrd + Copy,
+    {
+        let min = min.map(T::accum_from_f32);
+        let max = max.map(T::accum_from_f32);
+        let data = self.map_unary(|mut x| {
+            if let Some(min_val) = min {
+                if x < min_val {
+                    x = min_val;
                 }
-                if let Some(max_val) = max {
-                    val = val.min(max_val);
+            }
+            if let Some(max_val) = max {
+                if x > max_val {
+                    x = max_val;
                 }
-                val
-            })
-            .collect();
+            }
+            x
+        });
 
         Tensor::from_vec(data, &self.shape, self.get_backend())
     }
 
-    /// Clamps all elements in input to be larger than min.
+    /// Clamps values to be at least `min`.
     ///
     /// # Arguments
-    /// * `min` - Minimum value for the output tensor
+    /// * `min` - Minimum value for the output tensor.
     ///
     /// # Returns
-    /// A new tensor with values clamped to minimum value
-    pub fn clamp_min(&self, min: f32) -> MlResult<Tensor> {
+    /// A new tensor with values clamped to the minimum value.
+    pub fn clamp_min(&self, min: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: PartialOrd + Copy,
+    {
         self.clamp_full(Some(min), None)
     }
 
-    /// Clamps all elements in input to be smaller than max.
+    /// Clamps values to be at most `max`.
     ///
     /// # Arguments
-    /// * `max` - Maximum value for the output tensor
+    /// * `max` - Maximum value for the output tensor.
     ///
     /// # Returns
-    /// A new tensor with values clamped to maximum value
-    pub fn clamp_max(&self, max: f32) -> MlResult<Tensor> {
+    /// A new tensor with values clamped to the maximum value.
+    pub fn clamp_max(&self, max: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: PartialOrd + Copy,
+    {
         self.clamp_full(None, Some(max))
     }
 
-    /// Returns the lower triangular part of the matrix (2-D tensor) or batch of matrices.
-    /// The other elements of the result tensor are set to 0.
+    /// Returns the lower triangular part of each matrix in the tensor.
+    ///
+    /// Elements above the selected diagonal are set to 0.
     ///
     /// # Arguments
-    /// * `diagonal` - the diagonal to consider (default: 0)
-    ///   - 0: main diagonal
-    ///   - positive: diagonals above main diagonal
-    ///   - negative: diagonals below main diagonal
+    /// * `diagonal` - Diagonal offset (0 is the main diagonal, positive is above,
+    ///   negative is below).
     ///
-    /// # Returns
-    /// A new tensor containing the lower triangular part of the input tensor
-    pub fn tril(&self, diagonal: i32) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if the tensor has fewer than two dimensions.
+    pub fn tril(&self, diagonal: i32) -> MlResult<Tensor<T>> {
         if self.shape.len() < 2 {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "tril",
@@ -448,7 +467,7 @@ impl Tensor {
         let cols = self.shape[self.shape.len() - 1];
         let batch_size: usize = self.shape[..self.shape.len() - 2].iter().product();
 
-        let mut result = vec![0.0; self.data.len()];
+        let mut result = vec![T::zero(); self.data.len()];
         let matrix_size = rows * cols;
 
         for batch in 0..batch_size {
@@ -466,24 +485,22 @@ impl Tensor {
         Ok(self.from_parts_with_backend(result, self.shape.clone()))
     }
 
-    /// Creates a lower triangular mask matrix'
+    /// Creates a lower triangular mask matrix.
     ///
     /// # Arguments
-    /// * `size` - The size of the square matrix
-    /// * `diagonal` - The diagonal to consider (default: 0)
-    ///   - 0: main diagonal
-    ///   - positive: diagonals above main diagonal
-    ///   - negative: diagonals below main diagonal
+    /// * `size` - Size of the square matrix.
+    /// * `diagonal` - Diagonal offset (0 is the main diagonal, positive is above,
+    ///   negative is below).
     ///
     /// # Returns
-    /// A new tensor containing the lower triangular mask matrix
-    pub fn tril_mask(size: usize, diagonal: i32) -> MlResult<Tensor> {
-        let mut data = vec![0.0; size * size];
+    /// A new tensor containing the lower triangular mask matrix.
+    pub fn tril_mask(size: usize, diagonal: i32) -> MlResult<Tensor<T>> {
+        let mut data = vec![T::zero(); size * size];
 
         for i in 0..size {
             for j in 0..size {
                 if (j as i32) <= (i as i32) + diagonal {
-                    data[i * size + j] = 1.0;
+                    data[i * size + j] = T::one();
                 }
             }
         }
@@ -491,18 +508,29 @@ impl Tensor {
         Tensor::new_from_vec(data, &[size, size])
     }
 
-    /// Fills elements of self tensor with value where mask is True.
-    /// The shape of mask must be broadcastable with the shape of the underlying tensor.
+    /// Replaces values where the mask is 1.
+    ///
+    /// The mask must contain only 0s and 1s and be broadcastable to the input.
     ///
     /// # Arguments
-    /// * `mask` - the boolean mask
-    /// * `value` - the value to fill in with
+    /// * `mask` - Mask tensor with values 0 or 1.
+    /// * `value` - Value to write where the mask is 1.
     ///
-    /// # Returns
-    /// A new tensor with the masked fill applied
-    pub fn masked_fill(&self, mask: &Tensor, value: f32) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if the mask contains values other than 0 or 1.
+    pub fn masked_fill(&self, mask: &Tensor<T>, value: f32) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: PartialEq + Copy,
+    {
+        let zero = T::accum_from_f32(0.0);
+        let one = T::accum_from_f32(1.0);
+        let fill_value = T::from_accum(T::accum_from_f32(value));
         // Verify mask contains only 0s and 1s
-        if !mask.data.iter().all(|&x| x == 0.0 || x == 1.0) {
+        if !mask.data.iter().all(|&x| {
+            let acc = x.to_accum();
+            acc == zero || acc == one
+        }) {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "masked_fill",
                 reason: "Mask tensor must contain only 0s and 1s".to_string(),
@@ -510,13 +538,13 @@ impl Tensor {
         }
 
         // Create output tensor
-        let mut result = self.data.clone();
+        let mut result = self.data.as_ref().to_vec();
 
         if self.shape == mask.shape {
             // Direct application for same shapes
             for (i, &mask_val) in mask.data.iter().enumerate() {
-                if mask_val == 1.0 {
-                    result[i] = value;
+                if mask_val.to_accum() == one {
+                    result[i] = fill_value;
                 }
             }
         } else {
@@ -554,8 +582,8 @@ impl Tensor {
                     self_idx += coord * self_strides[d];
                 }
 
-                if mask.data[mask_idx % mask.data.len()] == 1.0 {
-                    result[self_idx] = value;
+                if mask.data[mask_idx % mask.data.len()].to_accum() == one {
+                    result[self_idx] = fill_value;
                 }
             }
         }
@@ -564,7 +592,7 @@ impl Tensor {
     }
 
     // Helper method to check if tensor is broadcastable with another tensor
-    fn is_broadcastable_with(&self, other: &Tensor) -> bool {
+    fn is_broadcastable_with(&self, other: &Tensor<T>) -> bool {
         let self_rank = self.shape.len();
         let other_rank = other.shape.len();
         let max_rank = self_rank.max(other_rank);
@@ -589,7 +617,7 @@ impl Tensor {
     }
 
     // Helper method to get broadcast shape
-    fn get_broadcast_shape(&self, other: &Tensor) -> MlResult<Vec<usize>> {
+    fn get_broadcast_shape(&self, other: &Tensor<T>) -> MlResult<Vec<usize>> {
         let self_padded = self.pad_shape(self.shape.len().max(other.shape.len()));
         let other_padded = other.pad_shape(self.shape.len().max(other.shape.len()));
 
@@ -620,16 +648,17 @@ impl Tensor {
         Ok(idx)
     }
 
-    /// Writes all values from src into self at indices specified in the index tensor.
+    /// Writes values from `src` into `self` at indices from `index` along `dim`.
     ///
     /// # Arguments
-    /// * `index` - The indices where to scatter the values from src
-    /// * `src` - The source values to scatter
-    /// * `dim` - The axis along which to index
+    /// * `index` - Index tensor. Values must be non-negative integers within bounds.
+    /// * `src` - Values to scatter. Must have the same number of elements as `index`.
+    /// * `dim` - Dimension along which to index (negative values count from the end).
     ///
-    /// # Returns
-    /// Result containing the modified tensor
-    pub fn scatter(&mut self, index: &Tensor, src: &Tensor, dim: i32) -> MlResult<()> {
+    /// # Errors
+    /// Returns an error if `dim` is out of range, if indices are invalid, or if
+    /// `index` and `src` lengths do not match.
+    pub fn scatter(&mut self, index: &Tensor<f32>, src: &Tensor<T>, dim: i32) -> MlResult<()> {
         let ndim = self.shape.len();
         let dim = if dim < 0 { dim + ndim as i32 } else { dim } as usize;
 
@@ -641,12 +670,28 @@ impl Tensor {
             }));
         }
 
+        if index.data().len() != src.data().len() {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "scatter",
+                reason: "index and src must have the same number of elements".to_string(),
+            }));
+        }
+
         // Calculate strides for the output tensor
         let strides = shape::compute_strides(&self.shape);
 
         // Iterate through the index tensor
+        let data = Arc::make_mut(&mut self.data);
         for i in 0..index.data().len() {
-            let target_idx = index.data()[i] as usize;
+            let raw_index = index.data()[i];
+            if !raw_index.is_finite() || raw_index.fract() != 0.0 || raw_index < 0.0 {
+                return Err(MlError::TensorError(TensorError::InvalidOperation {
+                    op: "scatter",
+                    reason: "index tensor must contain non-negative integers".to_string(),
+                }));
+            }
+
+            let target_idx = raw_index as usize;
             if target_idx >= self.shape[dim] {
                 return Err(MlError::TensorError(TensorError::InvalidOperation {
                     op: "scatter",
@@ -675,21 +720,22 @@ impl Tensor {
                 }
             }
 
-            self.data[base_idx] = src.data()[i];
+            data[base_idx] = src.data()[i];
         }
 
         Ok(())
     }
 
-    /// Concatenates a sequence of tensors along a given dimension
+    /// Concatenates tensors along a dimension.
     ///
     /// # Arguments
-    /// * `tensors` - Sequence of tensors to concatenate
-    /// * `dim` - The dimension along which to concatenate
+    /// * `tensors` - Tensors to concatenate.
+    /// * `dim` - Dimension along which to concatenate (negative values count from the end).
     ///
-    /// # Returns
-    /// A new tensor containing the concatenated tensors
-    pub fn cat(tensors: &[&Tensor], dim: i32) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if the tensor list is empty, if `dim` is out of range,
+    /// or if shapes are incompatible.
+    pub fn cat(tensors: &[&Tensor<T>], dim: i32) -> MlResult<Tensor<T>> {
         if tensors.is_empty() {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "cat",
@@ -767,15 +813,18 @@ impl Tensor {
         Tensor::from_vec(result, &new_shape, tensors[0].get_backend())
     }
 
-    /// Splits the tensor into chunks of specified size along a given dimension.
+    /// Splits the tensor into chunks of `split_size` along a dimension.
     ///
     /// # Arguments
-    /// * `split_size` - Size of each chunk (except for the last chunk which might be smaller)
-    /// * `dim` - Dimension along which to split the tensor (default: 0)
+    /// * `split_size` - Size of each chunk (the last chunk may be smaller).
+    /// * `dim` - Dimension along which to split (negative values count from the end).
     ///
     /// # Returns
-    /// A vector of tensors that are views of the input tensor
-    pub fn split(&self, split_size: usize, dim: i32) -> MlResult<Vec<Tensor>> {
+    /// A vector of tensors containing the split data.
+    ///
+    /// # Errors
+    /// Returns an error if `split_size` is 0 or `dim` is out of range.
+    pub fn split(&self, split_size: usize, dim: i32) -> MlResult<Vec<Tensor<T>>> {
         let ndim = self.shape.len();
         let dim = if dim < 0 {
             (dim + ndim as i32) as usize

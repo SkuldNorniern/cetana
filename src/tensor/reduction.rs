@@ -1,16 +1,19 @@
 use super::shape;
 use super::*;
 
-impl Tensor {
-    /// Sums the elements of the tensor across the specified dimensions
+impl<T: TensorElement> Tensor<T> {
+    /// Sums elements across the specified dimensions.
     ///
     /// # Arguments
-    /// * `dims` - The dimensions to sum across
-    /// * `keepdim` - Whether to keep the reduced dimensions
+    /// * `dims` - Dimensions to reduce.
+    /// * `keepdim` - Whether to keep the reduced dimensions.
     ///
-    /// # Returns
-    /// A new tensor with the sum of the specified dimensions
-    pub fn sum(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if any dimension is out of range.
+    pub fn sum(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor<T>>
+    where
+        T::Accum: std::ops::Add<Output = T::Accum> + Copy + Default,
+    {
         let rank = self.shape.len();
         let positive_dims = shape::normalize_dims(dims, &self.shape)?;
 
@@ -44,7 +47,7 @@ impl Tensor {
         let num_sums = self.data.len() / elements_per_sum;
 
         // Compute sums
-        let mut result = vec![0.0; num_sums];
+        let mut result = vec![T::Accum::default(); num_sums];
         let mut coords = vec![0usize; rank];
 
         for (i, &val) in self.data.iter().enumerate() {
@@ -74,13 +77,27 @@ impl Tensor {
                 }
             }
 
-            result[target_idx] += val;
+            result[target_idx] = result[target_idx] + val.to_accum();
         }
 
-        Tensor::from_vec(result, &new_shape, self.get_backend())
+        let data: Vec<T> = result.into_iter().map(T::from_accum).collect();
+        Tensor::from_vec(data, &new_shape, self.get_backend())
     }
 
-    pub fn mean(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor> {
+    /// Computes the mean across the specified dimensions.
+    ///
+    /// # Arguments
+    /// * `dims` - Dimensions to reduce.
+    /// * `keepdim` - Whether to keep the reduced dimensions.
+    ///
+    /// # Errors
+    /// Returns an error if any dimension is out of range.
+    pub fn mean(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum:
+            std::ops::Add<Output = T::Accum> + std::ops::Div<Output = T::Accum> + Copy + Default,
+    {
         let rank = self.shape.len();
         let positive_dims = shape::normalize_dims(dims, &self.shape)?;
 
@@ -114,7 +131,7 @@ impl Tensor {
         let num_means = self.data.len() / elements_per_mean;
 
         // Compute means
-        let mut result = vec![0.0; num_means];
+        let mut result = vec![T::Accum::default(); num_means];
         let mut coords = vec![0usize; rank];
 
         for (i, &val) in self.data.iter().enumerate() {
@@ -144,21 +161,35 @@ impl Tensor {
                 }
             }
 
-            result[target_idx] += val / elements_per_mean as f32;
+            result[target_idx] = result[target_idx] + val.to_accum();
         }
 
-        Tensor::from_vec(result, &new_shape, self.get_backend())
+        let denom = T::accum_from_f32(elements_per_mean as f32);
+        let data: Vec<T> = result
+            .into_iter()
+            .map(|acc| T::from_accum(acc / denom))
+            .collect();
+        Tensor::from_vec(data, &new_shape, self.get_backend())
     }
 
-    /// Calculates the variance of the tensor across the specified dimensions
+    /// Calculates the variance across the specified dimensions.
     ///
     /// # Arguments
-    /// * `dims` - The dimensions to calculate variance across
-    /// * `keepdim` - Whether to keep the reduced dimensions
+    /// * `dims` - Dimensions to reduce.
+    /// * `keepdim` - Whether to keep the reduced dimensions.
     ///
-    /// # Returns
-    /// A new tensor with the calculated variance
-    pub fn var(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if any dimension is out of range.
+    pub fn var(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Add<Output = T::Accum>
+            + std::ops::Sub<Output = T::Accum>
+            + std::ops::Mul<Output = T::Accum>
+            + std::ops::Div<Output = T::Accum>
+            + Copy
+            + Default,
+    {
         // First calculate the mean
         let mean = self.mean(dims, true)?;
 
@@ -173,41 +204,78 @@ impl Tensor {
         Ok(variance)
     }
 
-    /// Calculates the matrix norm or vector norm of a given tensor.
+    /// Calculates the p-norm of the tensor.
+    ///
+    /// For `dim = None`, this reduces across all elements (Frobenius norm when
+    /// `p` is 2.0). For `dim = Some`, it reduces across the given dimensions.
     ///
     /// # Arguments
-    /// * `p` - The order of norm. Can be a number or 'fro' for Frobenius norm
-    /// * `dim` - Optional dimensions to calculate norm across
-    /// * `keepdim` - Whether to keep the reduced dimensions
+    /// * `p` - Norm order (for example 1.0, 2.0, or `f32::INFINITY`).
+    /// * `dim` - Optional dimensions to reduce.
+    /// * `keepdim` - Whether to keep the reduced dimensions.
     ///
-    /// # Returns
-    /// A new tensor with the calculated norm
-    pub fn norm(&self, p: f32, dim: Option<&[i32]>, keepdim: bool) -> MlResult<Tensor> {
+    /// # Errors
+    /// Returns an error if any dimension is out of range.
+    pub fn norm(&self, p: f32, dim: Option<&[i32]>, keepdim: bool) -> MlResult<Tensor<T>>
+    where
+        T: FloatElement,
+        T::Accum: std::ops::Add<Output = T::Accum>
+            + std::ops::Mul<Output = T::Accum>
+            + std::ops::Div<Output = T::Accum>
+            + PartialOrd
+            + Copy
+            + Default,
+    {
+        let p_is_pos_inf = p == f32::INFINITY;
+        let p_is_neg_inf = p == f32::NEG_INFINITY;
+        let p_is_two = (p - 2.0).abs() < f32::EPSILON;
+
+        let compute_norm = |slice: &[T]| -> T::Accum {
+            if p_is_pos_inf {
+                let mut max = T::accum_from_f32(f32::NEG_INFINITY);
+                for &x in slice {
+                    let val = T::abs(x.to_accum());
+                    if val > max {
+                        max = val;
+                    }
+                }
+                return max;
+            }
+
+            if p_is_neg_inf {
+                let mut min = T::accum_from_f32(f32::INFINITY);
+                for &x in slice {
+                    let val = T::abs(x.to_accum());
+                    if val < min {
+                        min = val;
+                    }
+                }
+                return min;
+            }
+
+            if p_is_two {
+                let mut sum = T::Accum::default();
+                for &x in slice {
+                    let acc = x.to_accum();
+                    sum = sum + acc * acc;
+                }
+                return T::sqrt(sum);
+            }
+
+            let mut sum = T::Accum::default();
+            for &x in slice {
+                sum = sum + T::powf(T::abs(x.to_accum()), p);
+            }
+            T::powf(sum, 1.0 / p)
+        };
+
         match dim {
             None => {
                 // Calculate norm across all dimensions
-                let result = match p {
-                    p if p == f32::INFINITY => self
-                        .data
-                        .iter()
-                        .fold(f32::NEG_INFINITY, |max, &x| max.max(x.abs())),
-                    p if p == f32::NEG_INFINITY => self
-                        .data
-                        .iter()
-                        .fold(f32::INFINITY, |min, &x| min.min(x.abs())),
-                    // Frobenius norm is equivalent to p=2 for vectors
-                    p if (p - 2.0).abs() < f32::EPSILON => {
-                        self.data.iter().map(|x| x.powi(2)).sum::<f32>().sqrt()
-                    }
-                    _ => {
-                        let sum = self.data.iter().map(|x| x.abs().powf(p)).sum::<f32>();
-                        sum.powf(1.0 / p)
-                    }
-                };
-                Tensor::from_vec(vec![result], &[1], self.get_backend())
+                let result = compute_norm(self.data.as_ref());
+                Tensor::from_vec(vec![T::from_accum(result)], &[1], self.get_backend())
             }
             Some(dims) => {
-                let rank = self.shape.len();
                 let positive_dims = shape::normalize_dims(dims, &self.shape)?;
 
                 // Calculate new shape
@@ -234,41 +302,33 @@ impl Tensor {
                 let elements_per_norm: usize =
                     positive_dims.iter().map(|&d| self.shape[d]).product();
                 let num_norms = self.data.len() / elements_per_norm;
-                let mut result = vec![0.0; num_norms];
+                let mut result = vec![T::Accum::default(); num_norms];
 
                 // Compute norms
                 for (i, val) in result.iter_mut().enumerate() {
                     let start = i * elements_per_norm;
                     let end = start + elements_per_norm;
                     let slice = &self.data[start..end];
-
-                    *val = match p {
-                        p if p == f32::INFINITY => slice
-                            .iter()
-                            .fold(f32::NEG_INFINITY, |max, &x| max.max(x.abs())),
-                        p if p == f32::NEG_INFINITY => {
-                            slice.iter().fold(f32::INFINITY, |min, &x| min.min(x.abs()))
-                        }
-                        p if (p - 2.0).abs() < f32::EPSILON => {
-                            slice.iter().map(|x| x.powi(2)).sum::<f32>().sqrt()
-                        }
-                        _ => {
-                            let sum = slice.iter().map(|x| x.abs().powf(p)).sum::<f32>();
-                            sum.powf(1.0 / p)
-                        }
-                    };
+                    *val = compute_norm(slice);
                 }
 
-                Tensor::from_vec(result, &new_shape, self.get_backend())
+                let data: Vec<T> = result.into_iter().map(T::from_accum).collect();
+                Tensor::from_vec(data, &new_shape, self.get_backend())
             }
         }
     }
 
-    /// Sums all elements in the tensor
+    /// Sums all elements in the tensor.
     ///
     /// # Returns
-    /// The sum of all elements in the tensor
-    pub fn sum_all(&self) -> MlResult<f32> {
-        Ok(self.backend.sum(&self.data))
+    /// The sum of all elements using the accumulator type.
+    pub fn sum_all(&self) -> MlResult<T::Accum>
+    where
+        T::Accum: std::ops::Add<Output = T::Accum> + Copy + Default,
+    {
+        Ok(self
+            .data
+            .iter()
+            .fold(T::Accum::default(), |acc, &x| acc + x.to_accum()))
     }
 }
