@@ -39,7 +39,7 @@ fn find_host_compiler() -> String {
             }
         }
     }
-    
+
     // Default location if we can't find it
     "/usr/bin/g++".to_string()
 }
@@ -269,16 +269,16 @@ fn main() {
 
             fs::write(".clangd", clangd_content).expect("Failed to write .clangd file");
         }
-        
+
         // Create a direct CMakeLists.txt file with CUDA host compiler flags
         let cuda_dir = PathBuf::from("cuda");
-        
+
         // Create stub header to avoid GCC 13 C23 float type issues
         let stub_header = r#"// Simple stub header to prevent problematic GCC 13 headers
 #pragma once
 // Nothing needed here - this header will be included instead of the problematic ones
 "#;
-        
+
         fs::write(cuda_dir.join("bits_floatn.h"), stub_header)
             .expect("Failed to write bits_floatn.h file");
         fs::write(cuda_dir.join("bits_floatn_common.h"), stub_header)
@@ -328,10 +328,10 @@ target_include_directories(cuda_init PRIVATE ${CUDA_INCLUDE_DIRS})
 # Install
 install(TARGETS cuda_kernels cuda_init DESTINATION lib)
 "#;
-        
+
         fs::write(cuda_dir.join("CMakeLists.txt"), cmake_content)
             .expect("Failed to write cuda/CMakeLists.txt");
-            
+
         // Run the build through CMake with improved environment variables
         let dst = cmake::Config::new("cuda")
             .define("CMAKE_BUILD_TYPE", "Release")
@@ -343,7 +343,7 @@ install(TARGETS cuda_kernels cuda_init DESTINATION lib)
             .env("CUDAHOSTCXX", "/usr/bin/g++")
             .no_build_target(true)
             .build();
-            
+
         // Search paths - include both lib and lib64
         println!("cargo:rustc-link-search={}/build", dst.display());
         println!("cargo:rustc-link-search={}/build/lib", dst.display());
@@ -354,7 +354,7 @@ install(TARGETS cuda_kernels cuda_init DESTINATION lib)
         // CUDA runtime linking - essential libraries
         println!("cargo:rustc-link-lib=cudart");
         println!("cargo:rustc-link-lib=cuda");
-        
+
         // Link our static libraries
         println!("cargo:rustc-link-lib=static=cuda_kernels");
         println!("cargo:rustc-link-lib=static=cuda_init");
