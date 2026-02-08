@@ -9,6 +9,7 @@ pub(super) fn normalize_dims(dims: &[i32], shape: &[usize]) -> MlResult<Vec<usiz
         .map(|&d| if d < 0 { rank as i32 + d } else { d } as usize)
         .collect();
     positive_dims.sort_unstable();
+    positive_dims.dedup();
 
     if let Some(&dim) = positive_dims.iter().find(|&&d| d >= rank) {
         return Err(MlError::TensorError(TensorError::InvalidAxis {
