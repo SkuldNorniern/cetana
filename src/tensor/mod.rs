@@ -16,7 +16,10 @@ mod shape;
 
 // pub use builder::*;
 
-pub use numina::{BFloat8, BFloat16, DType, DTypeId, DTypeInfo, Float16, QuantizedI4, QuantizedU8};
+use numina::dtype::{DTypeElement, DTypeValue};
+pub use numina::{
+    BFloat8, BFloat16, DType, DTypeId, DTypeInfo, Float16, Float32, QuantizedI4, QuantizedU8,
+};
 
 #[cfg(feature = "cpu")]
 use crate::backend::CpuBackend;
@@ -101,57 +104,346 @@ impl Display for TensorError {
     }
 }
 
-#[derive(Clone)]
-struct GradFn(Arc<dyn Fn(&Tensor) -> MlResult<()>>);
+/// Core scalar element type for `Tensor` storage.
+///
+/// `Accum` is the accumulator type used for intermediate math.
+pub trait TensorElement: DTypeElement {
+    type Accum: Copy + Default + Send + Sync + 'static;
+    fn zero() -> Self;
+    fn one() -> Self;
+    fn to_accum(self) -> Self::Accum;
+    fn from_accum(acc: Self::Accum) -> Self;
+}
 
-impl std::fmt::Debug for GradFn {
+/// Float-like element operations used by higher-level math.
+pub trait FloatElement: TensorElement {
+    fn exp(acc: Self::Accum) -> Self::Accum;
+    fn ln(acc: Self::Accum) -> Self::Accum;
+    fn sqrt(acc: Self::Accum) -> Self::Accum;
+    fn abs(acc: Self::Accum) -> Self::Accum;
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum;
+    fn accum_from_f32(value: f32) -> Self::Accum;
+}
+
+impl TensorElement for f32 {
+    type Accum = f32;
+
+    fn zero() -> Self {
+        0.0
+    }
+
+    fn one() -> Self {
+        1.0
+    }
+
+    fn to_accum(self) -> Self::Accum {
+        self
+    }
+
+    fn from_accum(acc: Self::Accum) -> Self {
+        acc
+    }
+}
+
+impl FloatElement for f32 {
+    fn exp(acc: Self::Accum) -> Self::Accum {
+        acc.exp()
+    }
+
+    fn ln(acc: Self::Accum) -> Self::Accum {
+        acc.ln()
+    }
+
+    fn sqrt(acc: Self::Accum) -> Self::Accum {
+        acc.sqrt()
+    }
+
+    fn abs(acc: Self::Accum) -> Self::Accum {
+        acc.abs()
+    }
+
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum {
+        acc.powf(power)
+    }
+
+    fn accum_from_f32(value: f32) -> Self::Accum {
+        value
+    }
+}
+
+impl TensorElement for Float32 {
+    type Accum = f32;
+
+    fn zero() -> Self {
+        Float32::from_f32(0.0)
+    }
+
+    fn one() -> Self {
+        Float32::from_f32(1.0)
+    }
+
+    fn to_accum(self) -> Self::Accum {
+        self.to_f32()
+    }
+
+    fn from_accum(acc: Self::Accum) -> Self {
+        Float32::from_f32(acc)
+    }
+}
+
+impl FloatElement for Float32 {
+    fn exp(acc: Self::Accum) -> Self::Accum {
+        acc.exp()
+    }
+
+    fn ln(acc: Self::Accum) -> Self::Accum {
+        acc.ln()
+    }
+
+    fn sqrt(acc: Self::Accum) -> Self::Accum {
+        acc.sqrt()
+    }
+
+    fn abs(acc: Self::Accum) -> Self::Accum {
+        acc.abs()
+    }
+
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum {
+        acc.powf(power)
+    }
+
+    fn accum_from_f32(value: f32) -> Self::Accum {
+        value
+    }
+}
+
+impl TensorElement for f64 {
+    type Accum = f64;
+
+    fn zero() -> Self {
+        0.0
+    }
+
+    fn one() -> Self {
+        1.0
+    }
+
+    fn to_accum(self) -> Self::Accum {
+        self
+    }
+
+    fn from_accum(acc: Self::Accum) -> Self {
+        acc
+    }
+}
+
+impl FloatElement for f64 {
+    fn exp(acc: Self::Accum) -> Self::Accum {
+        acc.exp()
+    }
+
+    fn ln(acc: Self::Accum) -> Self::Accum {
+        acc.ln()
+    }
+
+    fn sqrt(acc: Self::Accum) -> Self::Accum {
+        acc.sqrt()
+    }
+
+    fn abs(acc: Self::Accum) -> Self::Accum {
+        acc.abs()
+    }
+
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum {
+        acc.powf(power as f64)
+    }
+
+    fn accum_from_f32(value: f32) -> Self::Accum {
+        value as f64
+    }
+}
+
+impl TensorElement for Float16 {
+    type Accum = f32;
+
+    fn zero() -> Self {
+        Float16::from_f32(0.0)
+    }
+
+    fn one() -> Self {
+        Float16::from_f32(1.0)
+    }
+
+    fn to_accum(self) -> Self::Accum {
+        self.to_f32()
+    }
+
+    fn from_accum(acc: Self::Accum) -> Self {
+        Float16::from_f32(acc)
+    }
+}
+
+impl FloatElement for Float16 {
+    fn exp(acc: Self::Accum) -> Self::Accum {
+        acc.exp()
+    }
+
+    fn ln(acc: Self::Accum) -> Self::Accum {
+        acc.ln()
+    }
+
+    fn sqrt(acc: Self::Accum) -> Self::Accum {
+        acc.sqrt()
+    }
+
+    fn abs(acc: Self::Accum) -> Self::Accum {
+        acc.abs()
+    }
+
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum {
+        acc.powf(power)
+    }
+
+    fn accum_from_f32(value: f32) -> Self::Accum {
+        value
+    }
+}
+
+impl TensorElement for BFloat16 {
+    type Accum = f32;
+
+    fn zero() -> Self {
+        BFloat16::from_f32(0.0)
+    }
+
+    fn one() -> Self {
+        BFloat16::from_f32(1.0)
+    }
+
+    fn to_accum(self) -> Self::Accum {
+        self.to_f32()
+    }
+
+    fn from_accum(acc: Self::Accum) -> Self {
+        BFloat16::from_f32(acc)
+    }
+}
+
+impl FloatElement for BFloat16 {
+    fn exp(acc: Self::Accum) -> Self::Accum {
+        acc.exp()
+    }
+
+    fn ln(acc: Self::Accum) -> Self::Accum {
+        acc.ln()
+    }
+
+    fn sqrt(acc: Self::Accum) -> Self::Accum {
+        acc.sqrt()
+    }
+
+    fn abs(acc: Self::Accum) -> Self::Accum {
+        acc.abs()
+    }
+
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum {
+        acc.powf(power)
+    }
+
+    fn accum_from_f32(value: f32) -> Self::Accum {
+        value
+    }
+}
+
+impl TensorElement for BFloat8 {
+    type Accum = f32;
+
+    fn zero() -> Self {
+        BFloat8::from_f32(0.0)
+    }
+
+    fn one() -> Self {
+        BFloat8::from_f32(1.0)
+    }
+
+    fn to_accum(self) -> Self::Accum {
+        self.to_f32()
+    }
+
+    fn from_accum(acc: Self::Accum) -> Self {
+        BFloat8::from_f32(acc)
+    }
+}
+
+impl FloatElement for BFloat8 {
+    fn exp(acc: Self::Accum) -> Self::Accum {
+        acc.exp()
+    }
+
+    fn ln(acc: Self::Accum) -> Self::Accum {
+        acc.ln()
+    }
+
+    fn sqrt(acc: Self::Accum) -> Self::Accum {
+        acc.sqrt()
+    }
+
+    fn abs(acc: Self::Accum) -> Self::Accum {
+        acc.abs()
+    }
+
+    fn powf(acc: Self::Accum, power: f32) -> Self::Accum {
+        acc.powf(power)
+    }
+
+    fn accum_from_f32(value: f32) -> Self::Accum {
+        value
+    }
+}
+
+#[derive(Clone)]
+struct GradFn<T: TensorElement>(Arc<dyn Fn(&Tensor<T>) -> MlResult<()>>);
+
+impl<T: TensorElement> std::fmt::Debug for GradFn<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "GradFn")
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Tensor {
-    data: Vec<f32>,
+pub struct Tensor<T: TensorElement = f32> {
+    data: Arc<[T]>,
     shape: Vec<usize>,
     backend: Arc<dyn Backend>,
-    grad: Option<Box<Tensor>>,
+    grad: Option<Box<Tensor<T>>>,
     requires_grad: bool,
-    grad_fn: Option<GradFn>,
+    grad_fn: Option<GradFn<T>>,
 }
 
-impl PartialEq for Tensor {
-    /// Two tensors are equal if they have the same data and shape
+impl<T: TensorElement + PartialEq> PartialEq for Tensor<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.data == other.data && self.shape == other.shape
+        self.data.as_ref() == other.data.as_ref() && self.shape == other.shape
     }
 }
 
-// Implementing Eq indicates that equality is reflexive, symmetric and transitive
-// Since we're using == on f32 vectors and usize vectors which satisfy these properties,
-// we can safely implement Eq
-impl Eq for Tensor {}
+impl<T: TensorElement + Eq> Eq for Tensor<T> {}
 
-impl PartialOrd for Tensor {
-    /// Defines partial ordering based on the underlying data
-    /// Returns None if any pair of elements can't be compared (e.g., NaN)
+impl<T: TensorElement + PartialOrd> PartialOrd for Tensor<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.data.partial_cmp(&other.data)
+        self.data.as_ref().partial_cmp(other.data.as_ref())
     }
 }
 
-impl Ord for Tensor {
-    /// Defines total ordering based on the underlying data
-    /// Note: This implementation uses partial_cmp and defaults to Equal if comparison fails
+impl<T: TensorElement + Ord> Ord for Tensor<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
-impl Tensor {
-    fn from_parts(data: Vec<f32>, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Self {
+impl<T: TensorElement> Tensor<T> {
+    fn from_parts(data: Vec<T>, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Self {
         Self {
-            data,
+            data: Arc::from(data),
             shape,
             backend,
             grad: None,
@@ -160,17 +452,15 @@ impl Tensor {
         }
     }
 
-    fn from_parts_with_backend(&self, data: Vec<f32>, shape: Vec<usize>) -> Self {
-        Self::from_parts(data, shape, self.backend.clone())
-    }
-
-    /// Creates a new tensor from a 2D vector of `f32` values using the default backend.
+    /// Creates a tensor from a 2D vector using the default backend.
     ///
-    /// The input must be a non-empty matrix with consistent row lengths. The resulting tensor will have shape `[rows, columns]`.
+    /// The outer vector must contain at least one row, and all rows must have
+    /// the same length.
     ///
     /// # Errors
     ///
-    /// Returns an error if the default backend cannot be determined.
+    /// Returns an error if the input is empty, if row lengths differ, or if the
+    /// default backend cannot be initialized.
     ///
     /// # Examples
     ///
@@ -179,9 +469,24 @@ impl Tensor {
     /// let tensor = Tensor::new(data).unwrap();
     /// assert_eq!(tensor.shape(), &[2, 2]);
     /// ```
-    pub fn new(data: Vec<Vec<f32>>) -> MlResult<Self> {
-        let shape = vec![data.len(), data[0].len()];
-        let flat_data: Vec<f32> = data.into_iter().flatten().collect();
+    pub fn new(data: Vec<Vec<T>>) -> MlResult<Self> {
+        if data.is_empty() {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "new",
+                reason: "input must contain at least one row".to_string(),
+            }));
+        }
+
+        let cols = data[0].len();
+        if data.iter().any(|row| row.len() != cols) {
+            return Err(MlError::TensorError(TensorError::InvalidOperation {
+                op: "new",
+                reason: "all rows must have the same length".to_string(),
+            }));
+        }
+
+        let shape = vec![data.len(), cols];
+        let flat_data: Vec<T> = data.into_iter().flatten().collect();
 
         let backend: Arc<dyn Backend> = Self::get_default_backend()?;
         debug!("Backend: {:?}", backend.device());
@@ -247,7 +552,7 @@ impl Tensor {
         Ok(backend)
     }
 
-    pub fn from_vec(data: Vec<f32>, shape: &[usize], backend: Arc<dyn Backend>) -> MlResult<Self> {
+    pub fn from_vec(data: Vec<T>, shape: &[usize], backend: Arc<dyn Backend>) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
             return Err(MlError::TensorError(TensorError::InvalidDataLength {
@@ -272,7 +577,7 @@ impl Tensor {
     /// assert_eq!(tensor.shape(), &[2, 2]);
     /// assert_eq!(tensor.data(), &[1.0, 2.0, 3.0, 4.0]);
     /// ```
-    pub fn new_from_vec(data: Vec<f32>, shape: &[usize]) -> MlResult<Self> {
+    pub fn new_from_vec(data: Vec<T>, shape: &[usize]) -> MlResult<Self> {
         let expected_len: usize = shape.iter().product();
         if data.len() != expected_len {
             return Err(MlError::TensorError(TensorError::InvalidDataLength {
@@ -290,8 +595,60 @@ impl Tensor {
         &self.shape
     }
 
-    pub fn data(&self) -> &[f32] {
-        &self.data
+    pub fn data(&self) -> &[T] {
+        self.data.as_ref()
+    }
+
+    pub fn dtype(&self) -> DType {
+        <T as DTypeValue>::DTYPE
+    }
+
+    /// Returns the tensor data serialized with its dtype layout.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut bytes =
+            Vec::with_capacity(self.data.len() * <T as DTypeValue>::DTYPE.info().byte_size);
+        for value in self.data.as_ref() {
+            (*value).write_bytes(&mut bytes);
+        }
+        bytes
+    }
+
+    /// Builds a tensor that shares this tensor's backend.
+    fn from_parts_with_backend<D>(&self, data: D, shape: Vec<usize>) -> Tensor<T>
+    where
+        D: Into<Arc<[T]>>,
+    {
+        Self {
+            data: data.into(),
+            shape,
+            backend: self.get_backend(),
+            grad: None,
+            requires_grad: false,
+            grad_fn: None,
+        }
+    }
+
+    fn map_unary<F>(&self, f: F) -> Vec<T>
+    where
+        F: Fn(T::Accum) -> T::Accum,
+    {
+        self.data
+            .as_ref()
+            .iter()
+            .map(|&x| T::from_accum(f(x.to_accum())))
+            .collect()
+    }
+
+    fn map_binary<F>(&self, other: &Tensor<T>, f: F) -> Vec<T>
+    where
+        F: Fn(T::Accum, T::Accum) -> T::Accum,
+    {
+        self.data
+            .as_ref()
+            .iter()
+            .zip(other.data.as_ref().iter())
+            .map(|(&a, &b)| T::from_accum(f(a.to_accum(), b.to_accum())))
+            .collect()
     }
 
     /// Computes the gradients of current tensor w.r.t. graph leaves.
@@ -301,7 +658,10 @@ impl Tensor {
     ///
     /// # Returns
     /// Result indicating success or containing an error
-    pub fn backward(&mut self, gradient: Option<&Tensor>) -> MlResult<()> {
+    pub fn backward(&mut self, gradient: Option<&Tensor<T>>) -> MlResult<()>
+    where
+        T::Accum: std::ops::Add<Output = T::Accum>,
+    {
         if !self.requires_grad {
             return Err(MlError::TensorError(TensorError::InvalidOperation {
                 op: "backward",
@@ -344,13 +704,13 @@ impl Tensor {
     /// Sets the gradient function for the tensor
     pub fn set_grad_fn<F>(&mut self, grad_fn: F)
     where
-        F: Fn(&Tensor) -> MlResult<()> + 'static,
+        F: Fn(&Tensor<T>) -> MlResult<()> + 'static,
     {
         self.grad_fn = Some(GradFn(Arc::new(grad_fn)));
     }
 
     /// Returns the gradient of the tensor
-    pub fn grad(&self) -> Option<&Tensor> {
+    pub fn grad(&self) -> Option<&Tensor<T>> {
         self.grad.as_ref().map(|g| g.as_ref())
     }
 
