@@ -54,12 +54,83 @@ pub struct Node {
     pub output: TensorDesc,
 }
 
+/// Trait for a graph that can be executed by the backend (raw [`Graph`] or validated [`CompiledGraph`]).
+pub trait ExecutableGraph {
+    fn input_count(&self) -> usize;
+    fn nodes(&self) -> &[Node];
+    fn parallel_levels(&self) -> Vec<Vec<NodeId>>;
+    fn node(&self, id: NodeId) -> Option<&Node>;
+}
+
 /// Directed acyclic graph of tensor ops. Built by adding inputs then nodes; refs may only
 /// point to existing inputs or earlier nodes so the graph stays acyclic and ordered.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Graph {
     pub input_count: usize,
     pub nodes: Vec<Node>,
+}
+
+impl ExecutableGraph for Graph {
+    fn input_count(&self) -> usize {
+        self.input_count
+    }
+    fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+    fn parallel_levels(&self) -> Vec<Vec<NodeId>> {
+        Graph::parallel_levels(self)
+    }
+    fn node(&self, id: NodeId) -> Option<&Node> {
+        Graph::node(self, id)
+    }
+}
+
+/// Validated, executable form of a [`Graph`]. Use as input to backend execution;
+/// flow is "build graph → compile_for_execution → run". No IR lowering is done yet.
+#[derive(Debug, Clone)]
+pub struct CompiledGraph {
+    inner: Graph,
+}
+
+impl CompiledGraph {
+    pub fn input_count(&self) -> usize {
+        self.inner.input_count
+    }
+    pub fn nodes(&self) -> &[Node] {
+        &self.inner.nodes
+    }
+    pub fn parallel_levels(&self) -> Vec<Vec<NodeId>> {
+        self.inner.parallel_levels()
+    }
+    pub fn node(&self, id: NodeId) -> Option<&Node> {
+        self.inner.node(id)
+    }
+}
+
+impl ExecutableGraph for CompiledGraph {
+    fn input_count(&self) -> usize {
+        self.inner.input_count
+    }
+    fn nodes(&self) -> &[Node] {
+        &self.inner.nodes
+    }
+    fn parallel_levels(&self) -> Vec<Vec<NodeId>> {
+        self.inner.parallel_levels()
+    }
+    fn node(&self, id: NodeId) -> Option<&Node> {
+        self.inner.node(id)
+    }
+}
+
+/// Validates the graph (no cycles) and returns an executable form for the backend.
+/// Run this before [`crate::backend::execute_graph`]; does not lower to any IR yet.
+pub fn compile_for_execution(graph: &Graph) -> MlResult<CompiledGraph> {
+    if graph.has_cycle() {
+        return Err(MlError::TensorError(TensorError::DagCycle));
+    }
+    Ok(CompiledGraph {
+        inner: graph.clone(),
+    })
 }
 
 impl Graph {

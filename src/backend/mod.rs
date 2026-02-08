@@ -1,9 +1,11 @@
 //! Device backends and execution of the tensor op graph.
 //!
 //! Each backend implements [`Backend`] (add, multiply, matmul, etc.). Use
-//! [`execute_graph`] to run a [`crate::tensor::TensorGraph`] on any backend:
-//! it schedules nodes by the graph's parallel levels and dispatches to the
-//! backend's primitives.
+//! [`execute_graph`] to run a validated graph ([`crate::tensor::CompiledGraph`]) on any backend:
+//! it schedules nodes by the graph's parallel levels and dispatches to the backend's primitives.
+//!
+//! **Replacement plan:** This backend will be replaced by Laminax. See `src/backend/plan.md`
+//! and `laminax/plan.md` for the roadmap.
 
 use std::fmt::{Debug, Display, Formatter};
 
@@ -26,7 +28,7 @@ mod feature;
 mod graph;
 
 pub use device::{Device, DeviceManager, DeviceType};
-pub use graph::execute_graph;
+pub use graph::{execute_graph, execute_graph_parallel};
 pub use feature::DeviceFeatures;
 
 #[cfg(feature = "cpu")]

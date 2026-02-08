@@ -29,7 +29,10 @@ mod shape;
 
 // pub use builder::*;
 
-pub use dag::{Graph as TensorGraph, Node, NodeId, Op, TensorDesc, TensorRef};
+pub use dag::{
+    compile_for_execution, CompiledGraph, ExecutableGraph, Graph as TensorGraph, Node, NodeId, Op,
+    TensorDesc, TensorRef,
+};
 
 use numina::dtype::{DTypeElement, DTypeValue};
 pub use numina::{
