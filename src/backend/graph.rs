@@ -9,7 +9,7 @@
 use crate::backend::Backend;
 use crate::tensor::{ExecutableGraph, Node, NodeId, Op, TensorRef};
 use crate::{MlError, MlResult};
-use numina::DTypeId;
+use laminax_types::DTypeId;
 use std::sync::Arc;
 
 fn buffer_index(input_count: usize, r: TensorRef) -> usize {
