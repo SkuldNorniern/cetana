@@ -85,6 +85,9 @@ fn execute_one_node(
             }
             input_buffers[0].clone()
         }
+        // NOTE: laminax_types::Op (the migrated graph op set) currently only carries
+        // Add/Sub/Mul/Div/MatMul/Sum/Reshape/Copy. Unary math (exp/log/sqrt/pow) exists on
+        // the `Backend` trait but has no graph-op variant yet, so it cannot appear here.
         Op::Sum { .. } | Op::Reshape { .. } => {
             return Err(MlError::StringError(format!(
                 "op {:?} not yet supported in graph execution",
