@@ -216,6 +216,46 @@ impl Backend for RocmBackend {
         self.store(tensor)
     }
 
+    fn dev_copy(&self, x: u64) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .copy_dev(&residents[&x])
+                .expect("ZenEngine::copy_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_scale(&self, x: u64, scale: f32) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .scale_dev(&residents[&x], scale)
+                .expect("ZenEngine::scale_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_transpose2d(&self, x: u64, rows: usize, cols: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .transpose2d_dev(&residents[&x], rows, cols)
+                .expect("ZenEngine::transpose2d_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_transpose_last2(&self, x: u64, batch: usize, rows: usize, cols: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .transpose_last2_dev(&residents[&x], batch, rows, cols)
+                .expect("ZenEngine::transpose_last2_dev")
+        };
+        self.store(tensor)
+    }
+
     fn dev_div(&self, a: u64, b: u64) -> u64 {
         let tensor = {
             let residents = self.residents.lock().unwrap();

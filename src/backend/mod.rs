@@ -117,6 +117,18 @@ pub trait Backend: Debug + Send + Sync {
     fn dev_mul(&self, _a: u64, _b: u64) -> u64 {
         unreachable!()
     }
+    fn dev_copy(&self, _x: u64) -> u64 {
+        unreachable!()
+    }
+    fn dev_scale(&self, _x: u64, _scale: f32) -> u64 {
+        unreachable!()
+    }
+    fn dev_transpose2d(&self, _x: u64, _rows: usize, _cols: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_transpose_last2(&self, _x: u64, _batch: usize, _rows: usize, _cols: usize) -> u64 {
+        unreachable!()
+    }
     fn dev_div(&self, _a: u64, _b: u64) -> u64 {
         unreachable!()
     }

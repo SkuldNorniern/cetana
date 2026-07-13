@@ -154,9 +154,28 @@ fn transpose_fast(t: &Tensor, d0: i32, d1: i32) -> MlResult<Tensor> {
     Tensor::new_from_vec(out, &out_shape)
 }
 
-type BackwardFn = dyn Fn(&Tensor, &[Var]) -> MlResult<Vec<Tensor>>;
+type BackwardFn = dyn Fn(&Val, &[Var]) -> MlResult<Vec<Val>>;
 
 enum Val {
+    Host(Tensor),
+    Dev {
+        id: u64,
+        shape: Vec<usize>,
+        backend: Arc<dyn Backend>,
+    },
+}
+
+impl Drop for Val {
+    fn drop(&mut self) {
+        if let Val::Dev { id, backend, .. } = self {
+            backend.dev_free(*id);
+        }
+    }
+}
+
+/// Non-owning access to a Var value. A device ID in this view is borrowed from
+/// the Var and must never be freed by the caller.
+enum ValView {
     Host(Tensor),
     Dev {
         id: u64,
@@ -180,20 +199,35 @@ fn val_to_host(value: &Val) -> Tensor {
     }
 }
 
+fn val_copy(value: &Val) -> Val {
+    match value {
+        Val::Host(tensor) => Val::Host(tensor.clone()),
+        Val::Dev { id, shape, backend } => {
+            resident_val(backend.dev_copy(*id), shape.clone(), backend.clone())
+        }
+    }
+}
+
+fn val_scale(value: &Val, scale: f32) -> MlResult<Val> {
+    match value {
+        Val::Host(tensor) => Ok(Val::Host(Tensor::new_from_vec(
+            map1(tensor.data(), |x| x * scale),
+            tensor.shape(),
+        )?)),
+        Val::Dev { id, shape, backend } => Ok(resident_val(
+            backend.dev_scale(*id, scale),
+            shape.clone(),
+            backend.clone(),
+        )),
+    }
+}
+
 struct VarInner {
     value: RefCell<Val>,
-    grad: RefCell<Option<Tensor>>,
+    grad: RefCell<Option<Val>>,
     requires_grad: bool,
     parents: Vec<Var>,
     backward: Option<Box<BackwardFn>>,
-}
-
-impl Drop for VarInner {
-    fn drop(&mut self) {
-        if let Val::Dev { id, backend, .. } = self.value.get_mut() {
-            backend.dev_free(*id);
-        }
-    }
 }
 
 /// A node on the autograd tape: an `f32` tensor value plus the recipe to backprop through it.
@@ -241,6 +275,17 @@ impl Var {
         val_to_host(&self.0.value.borrow())
     }
 
+    fn value_val(&self) -> ValView {
+        match &*self.0.value.borrow() {
+            Val::Host(tensor) => ValView::Host(tensor.clone()),
+            Val::Dev { id, shape, backend } => ValView::Dev {
+                id: *id,
+                shape: shape.clone(),
+                backend: backend.clone(),
+            },
+        }
+    }
+
     pub fn shape(&self) -> Vec<usize> {
         val_shape(&self.0.value.borrow())
     }
@@ -251,15 +296,12 @@ impl Var {
 
     /// The accumulated gradient after [`Var::backward`], if any.
     pub fn grad(&self) -> Option<Tensor> {
-        self.0.grad.borrow().clone()
+        self.0.grad.borrow().as_ref().map(val_to_host)
     }
 
     /// Overwrite the stored value (used by optimizers to apply an update in place).
     pub fn set_value(&self, value: Tensor) {
-        let old = self.0.value.replace(Val::Host(value));
-        if let Val::Dev { id, backend, .. } = old {
-            backend.dev_free(id);
-        }
+        self.0.value.replace(Val::Host(value));
     }
 
     /// Clear the accumulated gradient.
@@ -270,13 +312,43 @@ impl Var {
     /// Overwrite the gradient (e.g. injecting an externally averaged gradient
     /// before an optimizer step in data-parallel training).
     pub fn set_grad(&self, grad: Tensor) {
+        self.set_grad_val(Val::Host(grad));
+    }
+
+    fn set_grad_val(&self, grad: Val) {
         *self.0.grad.borrow_mut() = Some(grad);
     }
 
-    fn accumulate(&self, g: Tensor) -> MlResult<()> {
+    fn accumulate(&self, g: Val) -> MlResult<()> {
         let mut slot = self.0.grad.borrow_mut();
         *slot = Some(match slot.take() {
-            Some(existing) => ew2(&existing, &g, |a, b| a + b)?,
+            Some(existing) => {
+                match (&existing, &g) {
+                    (
+                        Val::Dev {
+                            id: a,
+                            shape,
+                            backend,
+                        },
+                        Val::Dev {
+                            id: b,
+                            shape: bshape,
+                            backend: bbackend,
+                        },
+                    ) if Arc::ptr_eq(backend, bbackend) => {
+                        assert_eq!(shape, bshape, "gradient shape mismatch");
+                        let id = backend.dev_add(*a, *b);
+                        // `existing` and `g` drop after this arm and free both
+                        // consumed inputs; the result owns only the new ID.
+                        resident_val(id, shape.clone(), backend.clone())
+                    }
+                    _ => {
+                        let a = val_to_host(&existing);
+                        let b = val_to_host(&g);
+                        Val::Host(ew2(&a, &b, |x, y| x + y)?)
+                    }
+                }
+            }
             None => g,
         });
         Ok(())
@@ -297,13 +369,13 @@ impl Var {
         }
         build(self, &mut visited, &mut topo);
 
-        self.accumulate(Tensor::ones(&self.shape())?)?;
+        self.accumulate(Val::Host(Tensor::ones(&self.shape())?))?;
 
         for v in topo.iter().rev() {
             let Some(backward) = &v.0.backward else {
                 continue;
             };
-            let g_out = match v.0.grad.borrow().clone() {
+            let g_out = match v.0.grad.borrow_mut().take() {
                 Some(g) => g,
                 None => continue,
             };
@@ -412,6 +484,50 @@ fn as_dev(v: &Var, backend: &Arc<dyn Backend>) -> (DevRef, Vec<usize>) {
     }
 }
 
+fn val_as_dev(value: &Val, backend: &Arc<dyn Backend>) -> (DevRef, Vec<usize>) {
+    match value {
+        Val::Dev {
+            id,
+            shape,
+            backend: resident_backend,
+        } if Arc::ptr_eq(resident_backend, backend) => (DevRef::Borrowed(*id), shape.clone()),
+        Val::Host(tensor) => (
+            DevRef::Owned(backend.dev_upload(tensor.data())),
+            tensor.shape().to_vec(),
+        ),
+        Val::Dev {
+            id,
+            shape,
+            backend: resident_backend,
+        } => (
+            DevRef::Owned(backend.dev_upload(&resident_backend.dev_download(*id))),
+            shape.clone(),
+        ),
+    }
+}
+
+fn view_as_dev(value: ValView, backend: &Arc<dyn Backend>) -> (DevRef, Vec<usize>) {
+    match value {
+        ValView::Dev {
+            id,
+            shape,
+            backend: resident_backend,
+        } if Arc::ptr_eq(&resident_backend, backend) => (DevRef::Borrowed(id), shape),
+        ValView::Host(tensor) => (
+            DevRef::Owned(backend.dev_upload(tensor.data())),
+            tensor.shape().to_vec(),
+        ),
+        ValView::Dev {
+            id,
+            shape,
+            backend: resident_backend,
+        } => (
+            DevRef::Owned(backend.dev_upload(&resident_backend.dev_download(id))),
+            shape,
+        ),
+    }
+}
+
 fn resident_val(id: u64, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Val {
     debug_assert_eq!(backend.dev_len(id), numel(&shape));
     Val::Dev { id, shape, backend }
@@ -490,17 +606,35 @@ impl Var {
             let id = backend.dev_add(a.id(), b.id());
             a.free_temp(&backend);
             b.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
             return Ok(Var::from_op_val(
                 resident_val(id, shape, backend),
                 vec![self.clone(), other.clone()],
-                Box::new(|g, _p| Ok(vec![g.clone(), g.clone()])),
+                Box::new(move |g, _p| {
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let out = vec![
+                        resident_val(
+                            backward_backend.dev_copy(gd.id()),
+                            backward_shape.clone(),
+                            backward_backend.clone(),
+                        ),
+                        resident_val(
+                            backward_backend.dev_copy(gd.id()),
+                            backward_shape.clone(),
+                            backward_backend.clone(),
+                        ),
+                    ];
+                    gd.free_temp(&backward_backend);
+                    Ok(out)
+                }),
             ));
         }
         let value = ew2(&self.value(), &other.value(), |a, b| a + b)?;
         Ok(Var::from_op(
             value,
             vec![self.clone(), other.clone()],
-            Box::new(|g, _p| Ok(vec![g.clone(), g.clone()])),
+            Box::new(|g, _p| Ok(vec![val_copy(g), val_copy(g)])),
         ))
     }
 
@@ -514,12 +648,27 @@ impl Var {
             let id = backend.dev_sub(a.id(), b.id());
             a.free_temp(&backend);
             b.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
             return Ok(Var::from_op_val(
                 resident_val(id, shape, backend),
                 vec![self.clone(), other.clone()],
-                Box::new(|g, _p| {
-                    let neg = Tensor::new_from_vec(map1(g.data(), |x| -x), g.shape())?;
-                    Ok(vec![g.clone(), neg])
+                Box::new(move |g, _p| {
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let out = vec![
+                        resident_val(
+                            backward_backend.dev_copy(gd.id()),
+                            backward_shape.clone(),
+                            backward_backend.clone(),
+                        ),
+                        resident_val(
+                            backward_backend.dev_scale(gd.id(), -1.0),
+                            backward_shape.clone(),
+                            backward_backend.clone(),
+                        ),
+                    ];
+                    gd.free_temp(&backward_backend);
+                    Ok(out)
                 }),
             ));
         }
@@ -527,10 +676,7 @@ impl Var {
         Ok(Var::from_op(
             value,
             vec![self.clone(), other.clone()],
-            Box::new(|g, _p| {
-                let neg = Tensor::new_from_vec(map1(g.data(), |x| -x), g.shape())?;
-                Ok(vec![g.clone(), neg])
-            }),
+            Box::new(|g, _p| Ok(vec![val_copy(g), val_scale(g, -1.0)?])),
         ))
     }
 
@@ -544,13 +690,31 @@ impl Var {
             let id = backend.dev_mul(a.id(), b.id());
             a.free_temp(&backend);
             b.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
             return Ok(Var::from_op_val(
                 resident_val(id, shape, backend),
                 vec![self.clone(), other.clone()],
-                Box::new(|g, p| {
-                    let a = p[0].value();
-                    let b = p[1].value();
-                    Ok(vec![ew2(g, &b, |x, y| x * y)?, ew2(g, &a, |x, y| x * y)?])
+                Box::new(move |g, p| {
+                    let (a, _) = view_as_dev(p[0].value_val(), &backward_backend);
+                    let (b, _) = view_as_dev(p[1].value_val(), &backward_backend);
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let out = vec![
+                        resident_val(
+                            backward_backend.dev_mul(gd.id(), b.id()),
+                            backward_shape.clone(),
+                            backward_backend.clone(),
+                        ),
+                        resident_val(
+                            backward_backend.dev_mul(gd.id(), a.id()),
+                            backward_shape.clone(),
+                            backward_backend.clone(),
+                        ),
+                    ];
+                    a.free_temp(&backward_backend);
+                    b.free_temp(&backward_backend);
+                    gd.free_temp(&backward_backend);
+                    Ok(out)
                 }),
             ));
         }
@@ -561,24 +725,45 @@ impl Var {
             Box::new(|g, p| {
                 let a = p[0].value();
                 let b = p[1].value();
-                Ok(vec![ew2(g, &b, |x, y| x * y)?, ew2(g, &a, |x, y| x * y)?])
+                let gh = val_to_host(g);
+                Ok(vec![
+                    Val::Host(ew2(&gh, &b, |x, y| x * y)?),
+                    Val::Host(ew2(&gh, &a, |x, y| x * y)?),
+                ])
             }),
         ))
     }
 
     /// Multiply by a constant scalar.
     pub fn mul_scalar(&self, s: f32) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (x, shape) = as_dev(self, &backend);
+            let id = backend.dev_scale(x.id(), s);
+            x.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
+            return Ok(Var::from_op_val(
+                resident_val(id, shape, backend),
+                vec![self.clone()],
+                Box::new(move |g, _p| {
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let out = resident_val(
+                        backward_backend.dev_scale(gd.id(), s),
+                        backward_shape.clone(),
+                        backward_backend.clone(),
+                    );
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![out])
+                }),
+            ));
+        }
         let v = self.value();
         let value = Tensor::new_from_vec(map1(v.data(), |x| x * s), v.shape())?;
         Ok(Var::from_op(
             value,
             vec![self.clone()],
-            Box::new(move |g, _p| {
-                Ok(vec![Tensor::new_from_vec(
-                    map1(g.data(), |x| x * s),
-                    g.shape(),
-                )?])
-            }),
+            Box::new(move |g, _p| Ok(vec![val_scale(g, s)?])),
         ))
     }
 
@@ -596,15 +781,29 @@ impl Var {
             let id = backend.dev_matmul(a.id(), b.id(), m, n, k);
             a.free_temp(&backend);
             b.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let ashape = as_.clone();
+            let bshape = bs.clone();
             return Ok(Var::from_op_val(
                 resident_val(id, vec![m, n], backend),
                 vec![self.clone(), other.clone()],
-                Box::new(|g, p| {
-                    let a = p[0].value();
-                    let b = p[1].value();
-                    let da = matmul(g, &transpose_fast(&b, 0, 1)?)?;
-                    let db = matmul(&transpose_fast(&a, 0, 1)?, g)?;
-                    Ok(vec![da, db])
+                Box::new(move |g, p| {
+                    let (a, _) = view_as_dev(p[0].value_val(), &backward_backend);
+                    let (b, _) = view_as_dev(p[1].value_val(), &backward_backend);
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let bt = backward_backend.dev_transpose2d(b.id(), k, n);
+                    let at = backward_backend.dev_transpose2d(a.id(), m, k);
+                    let da = backward_backend.dev_matmul(gd.id(), bt, m, k, n);
+                    let db = backward_backend.dev_matmul(at, gd.id(), k, n, m);
+                    backward_backend.dev_free(bt);
+                    backward_backend.dev_free(at);
+                    a.free_temp(&backward_backend);
+                    b.free_temp(&backward_backend);
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![
+                        resident_val(da, ashape.clone(), backward_backend.clone()),
+                        resident_val(db, bshape.clone(), backward_backend.clone()),
+                    ])
                 }),
             ));
         }
@@ -615,10 +814,11 @@ impl Var {
             Box::new(|g, p| {
                 let a = p[0].value();
                 let b = p[1].value();
+                let g = val_to_host(g);
                 // dA = g @ B^T ; dB = A^T @ g
-                let da = matmul(g, &transpose_fast(&b, 0, 1)?)?;
-                let db = matmul(&transpose_fast(&a, 0, 1)?, g)?;
-                Ok(vec![da, db])
+                let da = matmul(&g, &transpose_fast(&b, 0, 1)?)?;
+                let db = matmul(&transpose_fast(&a, 0, 1)?, &g)?;
+                Ok(vec![Val::Host(da), Val::Host(db)])
             }),
         ))
     }
@@ -634,11 +834,12 @@ impl Var {
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
+                let g = val_to_host(g);
                 let gv = g.data()[0] / n;
-                Ok(vec![Tensor::new_from_vec(
+                Ok(vec![Val::Host(Tensor::new_from_vec(
                     vec![gv; shape.iter().product()],
                     &shape,
-                )?])
+                )?)])
             }),
         ))
     }
@@ -757,8 +958,9 @@ impl Var {
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
+                let g = val_to_host(g);
                 let back: Vec<isize> = in_shape.iter().map(|&d| d as isize).collect();
-                Ok(vec![g.reshape(&back)?])
+                Ok(vec![Val::Host(g.reshape(&back)?)])
             }),
         ))
     }
@@ -769,7 +971,7 @@ impl Var {
         Ok(Var::from_op(
             value,
             vec![self.clone()],
-            Box::new(move |g, _p| Ok(vec![transpose_fast(g, d0, d1)?])),
+            Box::new(move |g, _p| Ok(vec![Val::Host(transpose_fast(&val_to_host(g), d0, d1)?)])),
         ))
     }
 
@@ -791,13 +993,14 @@ impl Var {
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
+                let g = val_to_host(g);
                 let gd = g.data();
                 let mut dx = vec![0.0f32; r * c];
                 for i in 0..r {
                     dx[i * c + start..i * c + start + len]
                         .copy_from_slice(&gd[i * len..(i + 1) * len]);
                 }
-                Ok(vec![Tensor::new_from_vec(dx, &[r, c])?])
+                Ok(vec![Val::Host(Tensor::new_from_vec(dx, &[r, c])?)])
             }),
         ))
     }
@@ -815,8 +1018,9 @@ impl Var {
             value,
             vec![self.clone(), bias.clone()],
             Box::new(move |g, _p| {
-                let db = sum_to(g.data(), &xs, &bs);
-                Ok(vec![g.clone(), Tensor::new_from_vec(db, &bs)?])
+                let gh = val_to_host(g);
+                let db = sum_to(gh.data(), &xs, &bs);
+                Ok(vec![val_copy(g), Val::Host(Tensor::new_from_vec(db, &bs)?)])
             }),
         ))
     }
@@ -831,7 +1035,7 @@ impl Var {
         Ok(Var::from_op(
             value,
             vec![self.clone()],
-            Box::new(move |g, _p| Ok(vec![g.clone()])),
+            Box::new(move |g, _p| Ok(vec![Val::Host(val_to_host(g))])),
         ))
     }
 
@@ -857,15 +1061,29 @@ impl Var {
                 let mut shape = as_[..ar - 2].to_vec();
                 shape.push(m);
                 shape.push(n);
+                let backward_backend = backend.clone();
+                let ashape = as_.clone();
+                let bshape = bs.clone();
                 return Ok(Var::from_op_val(
                     resident_val(id, shape, backend),
                     vec![self.clone(), other.clone()],
-                    Box::new(|g, p| {
-                        let a = p[0].value();
-                        let b = p[1].value();
-                        let da = bmm(g, &transpose_fast(&b, -2, -1)?)?;
-                        let db = bmm(&transpose_fast(&a, -2, -1)?, g)?;
-                        Ok(vec![da, db])
+                    Box::new(move |g, p| {
+                        let (a, _) = view_as_dev(p[0].value_val(), &backward_backend);
+                        let (b, _) = view_as_dev(p[1].value_val(), &backward_backend);
+                        let (gd, _) = val_as_dev(g, &backward_backend);
+                        let bt = backward_backend.dev_transpose_last2(b.id(), batch, k, n);
+                        let at = backward_backend.dev_transpose_last2(a.id(), batch, m, k);
+                        let da = backward_backend.dev_matmul_batched(gd.id(), bt, batch, m, k, n);
+                        let db = backward_backend.dev_matmul_batched(at, gd.id(), batch, k, n, m);
+                        backward_backend.dev_free(bt);
+                        backward_backend.dev_free(at);
+                        a.free_temp(&backward_backend);
+                        b.free_temp(&backward_backend);
+                        gd.free_temp(&backward_backend);
+                        Ok(vec![
+                            resident_val(da, ashape.clone(), backward_backend.clone()),
+                            resident_val(db, bshape.clone(), backward_backend.clone()),
+                        ])
                     }),
                 ));
             }
@@ -877,9 +1095,10 @@ impl Var {
             Box::new(|g, p| {
                 let a = p[0].value();
                 let b = p[1].value();
-                let da = bmm(g, &transpose_fast(&b, -2, -1)?)?;
-                let db = bmm(&transpose_fast(&a, -2, -1)?, g)?;
-                Ok(vec![da, db])
+                let g = val_to_host(g);
+                let da = bmm(&g, &transpose_fast(&b, -2, -1)?)?;
+                let db = bmm(&transpose_fast(&a, -2, -1)?, &g)?;
+                Ok(vec![Val::Host(da), Val::Host(db)])
             }),
         ))
     }
@@ -900,19 +1119,20 @@ impl Var {
                 resident_val(y, shape, backend),
                 vec![self.clone()],
                 Box::new(move |g, _p| {
-                    let gd = backward_backend.dev_upload(g.data());
-                    let dx = backward_backend.dev_softmax_bwd(y, gd, rows, d);
-                    backward_backend.dev_free(gd);
-                    let out = backward_backend.dev_download(dx);
-                    backward_backend.dev_free(dx);
-                    Ok(vec![Tensor::new_from_vec(out, &backward_shape)?])
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let dx = backward_backend.dev_softmax_bwd(y, gd.id(), rows, d);
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![resident_val(
+                        dx,
+                        backward_shape.clone(),
+                        backward_backend.clone(),
+                    )])
                 }),
             ));
         }
         let x = self.value();
         let shape = x.shape().to_vec();
         let d = *shape.last().unwrap();
-        let rows = numel(&shape) / d;
         let data = x.data();
         let mut y = vec![0.0f32; data.len()];
         for_rows(&mut y, d, |r, row| {
@@ -933,6 +1153,7 @@ impl Var {
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
+                let g = val_to_host(g);
                 let gd = g.data();
                 let mut dx = vec![0.0f32; gd.len()];
                 for_rows(&mut dx, d, |r, row| {
@@ -943,7 +1164,7 @@ impl Var {
                         row[j] = yr[j] * (gr[j] - dot);
                     }
                 });
-                Ok(vec![Tensor::new_from_vec(dx, &shape)?])
+                Ok(vec![Val::Host(Tensor::new_from_vec(dx, &shape)?)])
             }),
         ))
     }
@@ -965,12 +1186,14 @@ impl Var {
                 resident_val(y, shape, backend),
                 vec![self.clone()],
                 Box::new(move |g, _p| {
-                    let gd = backward_backend.dev_upload(g.data());
-                    let dx = backward_backend.dev_gelu_bwd(saved_x.id(), gd, n);
-                    backward_backend.dev_free(gd);
-                    let out = backward_backend.dev_download(dx);
-                    backward_backend.dev_free(dx);
-                    Ok(vec![Tensor::new_from_vec(out, &backward_shape)?])
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let dx = backward_backend.dev_gelu_bwd(saved_x.id(), gd.id(), n);
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![resident_val(
+                        dx,
+                        backward_shape.clone(),
+                        backward_backend.clone(),
+                    )])
                 }),
             ));
         }
@@ -983,6 +1206,7 @@ impl Var {
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
+                let g = val_to_host(g);
                 let dx = map2(g.data(), &xin, |gi, v| {
                     let inner = C * (v + A * v * v * v);
                     let t = inner.tanh();
@@ -990,7 +1214,7 @@ impl Var {
                     let dt = (1.0 - t * t) * dinner;
                     gi * (0.5 * (1.0 + t) + 0.5 * v * dt)
                 });
-                Ok(vec![Tensor::new_from_vec(dx, &shape)?])
+                Ok(vec![Val::Host(Tensor::new_from_vec(dx, &shape)?)])
             }),
         ))
     }
@@ -1022,26 +1246,14 @@ impl Var {
                 vec![self.clone(), gamma.clone(), beta.clone()],
                 Box::new(move |grad, _p| {
                     let (xhat, invstd, gamma) = saved.ids();
-                    let gd = backward_backend.dev_upload(grad.data());
-                    let (dx, dgamma, dbeta) = backward_backend.dev_layernorm_bwd(
-                        gd,
-                        xhat,
-                        invstd,
-                        gamma,
-                        rows,
-                        d,
-                    );
-                    backward_backend.dev_free(gd);
-                    let dx_host = backward_backend.dev_download(dx);
-                    let dgamma_host = backward_backend.dev_download(dgamma);
-                    let dbeta_host = backward_backend.dev_download(dbeta);
-                    backward_backend.dev_free(dx);
-                    backward_backend.dev_free(dgamma);
-                    backward_backend.dev_free(dbeta);
+                    let (gd, _) = val_as_dev(grad, &backward_backend);
+                    let (dx, dgamma, dbeta) =
+                        backward_backend.dev_layernorm_bwd(gd.id(), xhat, invstd, gamma, rows, d);
+                    gd.free_temp(&backward_backend);
                     Ok(vec![
-                        Tensor::new_from_vec(dx_host, &backward_shape)?,
-                        Tensor::new_from_vec(dgamma_host, &[d])?,
-                        Tensor::new_from_vec(dbeta_host, &[d])?,
+                        resident_val(dx, backward_shape.clone(), backward_backend.clone()),
+                        resident_val(dgamma, vec![d], backward_backend.clone()),
+                        resident_val(dbeta, vec![d], backward_backend.clone()),
                     ])
                 }),
             ));
@@ -1089,6 +1301,7 @@ impl Var {
             value,
             vec![self.clone(), gamma.clone(), beta.clone()],
             Box::new(move |grad, _p| {
+                let grad = val_to_host(grad);
                 let go = grad.data();
                 let mut dx = vec![0.0f32; go.len()];
                 // dx: row-parallel.
@@ -1116,9 +1329,9 @@ impl Var {
                     }
                 }
                 Ok(vec![
-                    Tensor::new_from_vec(dx, &shape)?,
-                    Tensor::new_from_vec(dgamma, &cshape)?,
-                    Tensor::new_from_vec(dbeta, &cshape)?,
+                    Val::Host(Tensor::new_from_vec(dx, &shape)?),
+                    Val::Host(Tensor::new_from_vec(dgamma, &cshape)?),
+                    Val::Host(Tensor::new_from_vec(dbeta, &cshape)?),
                 ])
             }),
         ))
@@ -1143,6 +1356,7 @@ pub fn embedding(weight: &Var, idx: &[usize]) -> MlResult<Var> {
         value,
         vec![weight.clone()],
         Box::new(move |g, _p| {
+            let g = val_to_host(g);
             let gd = g.data();
             let mut dw = vec![0.0f32; v * c];
             for (i, &row) in idx_owned.iter().enumerate() {
@@ -1150,7 +1364,7 @@ pub fn embedding(weight: &Var, idx: &[usize]) -> MlResult<Var> {
                     dw[row * c + j] += gd[i * c + j];
                 }
             }
-            Ok(vec![Tensor::new_from_vec(dw, &[v, c])?])
+            Ok(vec![Val::Host(Tensor::new_from_vec(dw, &[v, c])?)])
         }),
     ))
 }
@@ -1186,6 +1400,7 @@ pub fn cross_entropy(logits: &Var, targets: &[usize]) -> MlResult<Var> {
         value,
         vec![logits.clone()],
         Box::new(move |g, _p| {
+            let g = val_to_host(g);
             let scale = g.data()[0] / n as f32;
             let mut dl = vec![0.0f32; n * v];
             for_rows(&mut dl, v, |r, row| {
@@ -1196,7 +1411,7 @@ pub fn cross_entropy(logits: &Var, targets: &[usize]) -> MlResult<Var> {
                     row[j] = (pr[j] - delta) * scale;
                 }
             });
-            Ok(vec![Tensor::new_from_vec(dl, &shape)?])
+            Ok(vec![Val::Host(Tensor::new_from_vec(dl, &shape)?)])
         }),
     ))
 }
