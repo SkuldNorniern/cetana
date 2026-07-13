@@ -248,6 +248,31 @@ impl Var {
     }
 }
 
+/// Batched matmul `[.., m, k] @ [.., k, n]` with equal leading dims, offloaded to the
+/// backend's batched GEMM when it is not the CPU; otherwise `Tensor::matmul` (host).
+pub fn bmm(a: &Tensor, b: &Tensor) -> MlResult<Tensor> {
+    let (as_, bs) = (a.shape().to_vec(), b.shape().to_vec());
+    let ar = as_.len();
+    let br = bs.len();
+    if ar < 3 || ar != br || as_[..ar - 2] != bs[..br - 2] {
+        return a.matmul(b); // fall back for anything but the equal-batch case
+    }
+    let batch: usize = as_[..ar - 2].iter().product();
+    let (m, k) = (as_[ar - 2], as_[ar - 1]);
+    let n = bs[br - 1];
+    assert_eq!(bs[br - 2], k, "bmm inner dim mismatch");
+    let backend = a.get_backend();
+    if backend.device() != DeviceType::Cpu {
+        let out = backend.matmul_batched(a.data(), b.data(), batch, m, n, k);
+        let mut shape = as_[..ar - 2].to_vec();
+        shape.push(m);
+        shape.push(n);
+        Tensor::new_from_vec(out, &shape)
+    } else {
+        a.matmul(b)
+    }
+}
+
 // ─────────────────────────── shape / broadcast helpers ─────────────────────
 
 fn numel(shape: &[usize]) -> usize {
@@ -370,17 +395,18 @@ impl Var {
         ))
     }
 
-    /// Batched matmul over the last two dims: `[.., m, k] @ [.., k, n] -> [.., m, n]`.
+    /// Batched matmul over the last two dims: `[.., m, k] @ [.., k, n] -> [.., m, n]`
+    /// (GPU-routed via [`bmm`]).
     pub fn bmm(&self, other: &Var) -> MlResult<Var> {
-        let value = self.value().matmul(&other.value())?;
+        let value = bmm(&self.value(), &other.value())?;
         Ok(Var::from_op(
             value,
             vec![self.clone(), other.clone()],
             Box::new(|g, p| {
                 let a = p[0].value();
                 let b = p[1].value();
-                let da = g.matmul(&b.transpose(-2, -1)?)?;
-                let db = a.transpose(-2, -1)?.matmul(g)?;
+                let da = bmm(g, &b.transpose(-2, -1)?)?;
+                let db = bmm(&a.transpose(-2, -1)?, g)?;
                 Ok(vec![da, db])
             }),
         ))
