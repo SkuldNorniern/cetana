@@ -13,10 +13,12 @@ fn main() -> cetana::MlResult<()> {
         (16, 32, 32, 64),
         (4, 64, 128, 65), // lm-head-ish
     ] {
-        let a: Vec<f32> =
-            (0..batch * m * k).map(|i| ((i * 37 % 19) as f32 - 9.0) * 0.1).collect();
-        let b: Vec<f32> =
-            (0..batch * k * n).map(|i| ((i * 53 % 23) as f32 - 11.0) * 0.1).collect();
+        let a: Vec<f32> = (0..batch * m * k)
+            .map(|i| ((i * 37 % 19) as f32 - 9.0) * 0.1)
+            .collect();
+        let b: Vec<f32> = (0..batch * k * n)
+            .map(|i| ((i * 53 % 23) as f32 - 11.0) * 0.1)
+            .collect();
 
         // Naive reference
         let mut reference = vec![0.0f32; batch * m * n];

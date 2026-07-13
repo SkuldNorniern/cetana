@@ -10,10 +10,13 @@
 //! Creation, element-wise ops, reductions, shape/manipulation, and serialization are split into
 //! submodules; the main API is on `Tensor` and the DAG types are re-exported here.
 
-use std::fmt::Display;
-use std::ops::Range;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::ops::{Add, Range};
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // mod builder;
@@ -30,8 +33,8 @@ mod shape;
 // pub use builder::*;
 
 pub use dag::{
-    compile_for_execution, CompiledGraph, ExecutableGraph, Graph as TensorGraph, Node, NodeId, Op,
-    TensorDesc, TensorRef,
+    CompiledGraph, ExecutableGraph, Graph as TensorGraph, Node, NodeId, Op, TensorDesc, TensorRef,
+    compile_for_execution,
 };
 
 use numina::dtype::{DTypeElement, DTypeValue};
@@ -74,20 +77,11 @@ pub enum TensorError {
         got: Vec<usize>,
     },
     /// Data length did not match the product of shape dimensions.
-    InvalidDataLength {
-        expected: usize,
-        got: usize,
-    },
+    InvalidDataLength { expected: usize, got: usize },
     /// Operation-specific failure (e.g. empty input, invalid args).
-    InvalidOperation {
-        op: &'static str,
-        reason: String,
-    },
+    InvalidOperation { op: &'static str, reason: String },
     /// Axis index out of range for the tensor's rank.
-    InvalidAxis {
-        axis: usize,
-        shape: Vec<usize>,
-    },
+    InvalidAxis { axis: usize, shape: Vec<usize> },
     /// Matrix multiplication dimensions incompatible.
     MatrixMultiplicationError {
         left_shape: Vec<usize>,
@@ -96,19 +90,17 @@ pub enum TensorError {
     /// Operation does not support empty tensors.
     EmptyTensor,
     /// Requested backend is not available or failed to initialize.
-    InvalidBackend {
-        backend: DeviceType,
-    },
+    InvalidBackend { backend: DeviceType },
     /// A cycle was detected in a [`TensorGraph`] (invalid).
     DagCycle,
     /// A node in a [`TensorGraph`] referenced a non-existent input or node.
     DagInvalidRef { node_id: usize, input_index: usize },
 }
 
-impl std::error::Error for TensorError {}
+impl Error for TensorError {}
 
 impl Display for TensorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             TensorError::InvalidShape { expected, got } => {
                 write!(f, "Invalid shape: expected {:?}, got {:?}", expected, got)
@@ -139,8 +131,15 @@ impl Display for TensorError {
                 write!(f, "Empty tensor")
             }
             TensorError::DagCycle => write!(f, "DAG cycle detected"),
-            TensorError::DagInvalidRef { node_id, input_index } => {
-                write!(f, "DAG invalid tensor ref at node {} input {}", node_id, input_index)
+            TensorError::DagInvalidRef {
+                node_id,
+                input_index,
+            } => {
+                write!(
+                    f,
+                    "DAG invalid tensor ref at node {} input {}",
+                    node_id, input_index
+                )
             }
         }
     }
@@ -446,8 +445,8 @@ impl FloatElement for BFloat8 {
 #[derive(Clone)]
 struct GradFn<T: TensorElement>(Arc<dyn Fn(&Tensor<T>) -> MlResult<()>>);
 
-impl<T: TensorElement> std::fmt::Debug for GradFn<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: TensorElement> Debug for GradFn<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "GradFn")
     }
 }
@@ -477,14 +476,14 @@ impl<T: TensorElement + PartialEq> PartialEq for Tensor<T> {
 impl<T: TensorElement + Eq> Eq for Tensor<T> {}
 
 impl<T: TensorElement + PartialOrd> PartialOrd for Tensor<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.data.as_ref().partial_cmp(other.data.as_ref())
     }
 }
 
 impl<T: TensorElement + Ord> Ord for Tensor<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
 }
 
@@ -547,9 +546,8 @@ impl<T: TensorElement> Tensor<T> {
     /// per tensor is both slow and log-spammy — so every tensor for a given device type shares
     /// one `Arc<dyn Backend>`.
     fn get_default_backend() -> MlResult<Arc<dyn Backend>> {
-        static CACHE: std::sync::OnceLock<Mutex<std::collections::HashMap<DeviceType, Arc<dyn Backend>>>> =
-            std::sync::OnceLock::new();
-        let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        static CACHE: OnceLock<Mutex<HashMap<DeviceType, Arc<dyn Backend>>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
         let device_type = DeviceManager::get_default_device();
         if let Some(backend) = cache.lock().unwrap().get(&device_type) {
@@ -614,7 +612,10 @@ impl<T: TensorElement> Tensor<T> {
                 debug!("Attempting to create RocmBackend (ZenGPU/laminax)...");
                 match RocmBackend::new() {
                     Ok(backend) => {
-                        info!("Successfully created RocmBackend on {}", backend.device_name());
+                        info!(
+                            "Successfully created RocmBackend on {}",
+                            backend.device_name()
+                        );
                         Arc::new(backend)
                     }
                     Err(e) => {
@@ -742,7 +743,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Fails if this tensor does not have `requires_grad` set or if a shape mismatch occurs.
     pub fn backward(&mut self, gradient: Option<&Tensor<T>>) -> MlResult<()>
     where
-        T::Accum: std::ops::Add<Output = T::Accum>,
+        T::Accum: Add<Output = T::Accum>,
     {
         if !self.requires_grad {
             return Err(MlError::TensorError(TensorError::InvalidOperation {

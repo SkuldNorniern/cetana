@@ -2,9 +2,11 @@
 ///
 /// This trait now uses an associated error type which allows each backend
 /// to plug its own error domain while keeping a uniform interface.
+use std::{error::Error, fmt::Debug};
+
 #[allow(dead_code)]
-pub trait Buffer: std::fmt::Debug {
-    type Error: std::error::Error;
+pub trait Buffer: Debug {
+    type Error: Error;
 
     /// Allocates a new buffer on the device.
     fn new(size: usize) -> Result<Self, Self::Error>

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::backend::{DeviceFeatures, DeviceType};
 use crate::tensor::Tensor;
 
@@ -27,7 +29,7 @@ impl CpuCore {
         let b = Tensor::new_from_vec(vec![2.0; elements], &[size, size]).unwrap();
 
         // Measure matrix multiplication time (more compute intensive than addition)
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let _c = a.matmul(&b).unwrap();
         let duration = start.elapsed();
 

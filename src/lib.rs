@@ -1,4 +1,5 @@
-use std::fmt::{Display, Formatter};
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 pub mod autograd;
 pub mod backend;
@@ -26,7 +27,7 @@ pub enum MlError {
 }
 
 impl Display for MlError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             MlError::TensorError(e) => write!(f, "Tensor error: {}", e),
             MlError::LossError(e) => write!(f, "Loss error: {}", e),
@@ -37,7 +38,7 @@ impl Display for MlError {
     }
 }
 
-impl std::error::Error for MlError {}
+impl Error for MlError {}
 
 impl From<TensorError> for MlError {
     fn from(error: TensorError) -> Self {

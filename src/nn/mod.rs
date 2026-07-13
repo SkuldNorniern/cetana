@@ -6,6 +6,7 @@ pub mod layernorm;
 pub mod linear;
 pub mod pooling;
 
+use crate::{MlResult, tensor::Tensor};
 pub use activation::{Activation, ReLU, Sigmoid, Swish, Tanh};
 pub use conv::{Conv2d, PaddingMode};
 pub use dropout::Dropout;
@@ -26,20 +27,20 @@ pub use pooling::{Pooling, PoolingType};
 //     ///
 //     /// # Returns
 //     /// * `MlResult<Tensor>` - The processed output tensor, or an error if the operation fails
-//     fn forward(&self, input: &crate::tensor::Tensor) -> crate::MlResult<crate::tensor::Tensor>;
+//     fn forward(&self, input: &Tensor) -> MlResult<Tensor>;
 // }
 
 pub trait Layer {
     /// Performs a forward pass through the layer.
-    fn forward(&self, input: &crate::tensor::Tensor) -> crate::MlResult<crate::tensor::Tensor>;
+    fn forward(&self, input: &Tensor) -> MlResult<Tensor>;
 
     /// Performs a backward pass through the layer.
     fn backward(
         &mut self,
-        input: &crate::tensor::Tensor,
-        grad_output: &crate::tensor::Tensor,
+        input: &Tensor,
+        grad_output: &Tensor,
         learning_rate: f32,
-    ) -> crate::MlResult<crate::tensor::Tensor>;
+    ) -> MlResult<Tensor>;
 
     // Returns the parameters of the layer.
     // fn parameters(&self) -> Vec<Parameter>;

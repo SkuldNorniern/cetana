@@ -1,4 +1,5 @@
-use std::fmt::{Display, Formatter};
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use crate::{MlResult, tensor::Tensor};
 
@@ -15,10 +16,10 @@ pub enum LossError {
         reason: String,
     },
 }
-impl std::error::Error for LossError {}
+impl Error for LossError {}
 
 impl Display for LossError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             LossError::InvalidShape { expected, got } => {
                 write!(f, "Invalid shape: expected {:?}, got {:?}", expected, got)

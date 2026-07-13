@@ -1,6 +1,10 @@
 //! Element-wise and linear algebra ops: add, sub, mul, div, matmul, exp, etc.
 
 use super::*;
+use std::{
+    cmp::Ordering,
+    ops::{Add, Div, Mul, Neg, Sub},
+};
 
 impl<T: TensorElement> Tensor<T> {
     /// Checks whether two tensors have the same shape.
@@ -31,7 +35,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Returns an error if shapes are incompatible.
     pub fn add(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
     where
-        T::Accum: std::ops::Add<Output = T::Accum>,
+        T::Accum: Add<Output = T::Accum>,
     {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
             // Special case for matrix + vector broadcasting
@@ -67,7 +71,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn add_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Add<Output = T::Accum>,
+        T::Accum: Add<Output = T::Accum>,
     {
         let scalar = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| x + scalar);
@@ -85,7 +89,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Returns an error if shapes are incompatible.
     pub fn sub(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
     where
-        T::Accum: std::ops::Sub<Output = T::Accum>,
+        T::Accum: Sub<Output = T::Accum>,
     {
         if self.shape.len() == 2 && other.shape.len() == 1 && self.shape[1] == other.shape[0] {
             let mut result = Vec::with_capacity(self.data.len());
@@ -120,7 +124,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn sub_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Sub<Output = T::Accum>,
+        T::Accum: Sub<Output = T::Accum>,
     {
         let scalar = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| x - scalar);
@@ -134,7 +138,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn scalar_sub(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Sub<Output = T::Accum>,
+        T::Accum: Sub<Output = T::Accum>,
     {
         let scalar = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| scalar - x);
@@ -150,7 +154,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Returns an error if shapes are incompatible.
     pub fn mul(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
     where
-        T::Accum: std::ops::Mul<Output = T::Accum>,
+        T::Accum: Mul<Output = T::Accum>,
     {
         match self.chk_shape(other) {
             Err(e) => Err(e),
@@ -169,7 +173,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn mul_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Mul<Output = T::Accum>,
+        T::Accum: Mul<Output = T::Accum>,
     {
         let scalar = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| x * scalar);
@@ -185,7 +189,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Returns an error if shapes are incompatible.
     pub fn div(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
     where
-        T::Accum: std::ops::Div<Output = T::Accum>,
+        T::Accum: Div<Output = T::Accum>,
     {
         match self.chk_shape(other) {
             Err(e) => Err(e),
@@ -204,7 +208,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn div_scalar(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Div<Output = T::Accum>,
+        T::Accum: Div<Output = T::Accum>,
     {
         let scalar = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| x / scalar);
@@ -218,7 +222,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn scalar_div(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Div<Output = T::Accum>,
+        T::Accum: Div<Output = T::Accum>,
     {
         let scalar = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| scalar / x);
@@ -229,7 +233,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn neg(&self) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Neg<Output = T::Accum>,
+        T::Accum: Neg<Output = T::Accum>,
     {
         let result = self.map_unary(|x| -x);
         Tensor::from_vec(result, &self.shape, self.get_backend())
@@ -275,7 +279,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn scalar_pow(&self, scalar: f32) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Mul<Output = T::Accum> + PartialEq + Default,
+        T::Accum: Mul<Output = T::Accum> + PartialEq + Default,
     {
         let base = T::accum_from_f32(scalar);
         let result = self.map_unary(|x| {
@@ -314,7 +318,7 @@ impl<T: TensorElement> Tensor<T> {
     /// ```
     pub fn square(&self) -> MlResult<Self>
     where
-        T::Accum: std::ops::Mul<Output = T::Accum>,
+        T::Accum: Mul<Output = T::Accum>,
     {
         let result = self.map_unary(|x| x * x);
         Self::from_vec(result, &self.shape, self.get_backend())
@@ -341,8 +345,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Returns an error if the shapes are incompatible or if either tensor is empty.
     pub fn matmul(&self, other: &Tensor<T>) -> MlResult<Tensor<T>>
     where
-        T::Accum:
-            std::ops::Add<Output = T::Accum> + std::ops::Mul<Output = T::Accum> + Default + Copy,
+        T::Accum: Add<Output = T::Accum> + Mul<Output = T::Accum> + Default + Copy,
     {
         let left = self.data.as_ref();
         let right = other.data.as_ref();
@@ -573,7 +576,7 @@ impl<T: TensorElement> Tensor<T> {
                 .collect();
 
             // Sort by value in descending order
-            pairs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            pairs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
 
             // Take top k elements
             let top_k = &pairs[..k];

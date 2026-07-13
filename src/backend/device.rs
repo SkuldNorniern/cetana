@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::{Mutex, OnceLock};
 
 use log::info;
@@ -31,7 +31,7 @@ pub enum DeviceType {
 }
 
 impl Display for DeviceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{:?}", self)
     }
 }
@@ -182,7 +182,12 @@ impl DeviceManager {
                         DeviceType::Cpu
                     }
                 }
-                #[cfg(all(feature = "mps", not(feature = "vulkan"), not(feature = "cuda"), not(feature = "gpu")))]
+                #[cfg(all(
+                    feature = "mps",
+                    not(feature = "vulkan"),
+                    not(feature = "cuda"),
+                    not(feature = "gpu")
+                ))]
                 {
                     if manager.available_devices.contains(&DeviceType::Mps) {
                         DeviceType::Mps
@@ -190,7 +195,12 @@ impl DeviceManager {
                         DeviceType::Cpu
                     }
                 }
-                #[cfg(not(any(feature = "cuda", feature = "vulkan", feature = "mps", feature = "gpu")))]
+                #[cfg(not(any(
+                    feature = "cuda",
+                    feature = "vulkan",
+                    feature = "mps",
+                    feature = "gpu"
+                )))]
                 {
                     DeviceType::Cpu
                 }

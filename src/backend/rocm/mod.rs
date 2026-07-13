@@ -1,24 +1,26 @@
 use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
+use std::error::Error;
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use laminax_runtime::ZenEngine;
+use laminax_runtime::{ZenEngine, zen};
+use zen::DevTensor;
 
 use crate::backend::{Backend, DeviceType};
 
 pub fn zen_prof_report() -> String {
-    laminax_runtime::zen::prof_report()
+    zen::prof_report()
 }
 
 pub struct RocmBackend {
     engine: ZenEngine,
-    residents: Mutex<HashMap<u64, laminax_runtime::zen::DevTensor>>,
+    residents: Mutex<HashMap<u64, DevTensor>>,
     next_id: AtomicU64,
 }
 
 impl RocmBackend {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             engine: ZenEngine::new()?,
             residents: Mutex::new(HashMap::new()),
@@ -28,7 +30,7 @@ impl RocmBackend {
 
     /// Backend bound to the `index`-th GPU adapter (multi-GPU: one backend per device,
     /// driven from separate threads).
-    pub fn with_device(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn with_device(index: usize) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             engine: ZenEngine::with_adapter(index)?,
             residents: Mutex::new(HashMap::new()),
@@ -46,7 +48,7 @@ impl RocmBackend {
         self.engine.device_name()
     }
 
-    fn store(&self, tensor: laminax_runtime::zen::DevTensor) -> u64 {
+    fn store(&self, tensor: DevTensor) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.residents.lock().unwrap().insert(id, tensor);
         id
@@ -54,7 +56,7 @@ impl RocmBackend {
 }
 
 impl Debug for RocmBackend {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("RocmBackend").finish()
     }
 }

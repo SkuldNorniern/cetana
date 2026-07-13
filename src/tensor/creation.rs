@@ -1,6 +1,7 @@
 //! Tensor creation: zeros, ones, full, arange, randn, and related constructors.
 
 use super::*;
+use std::f32::consts::PI;
 
 impl<T: TensorElement> Tensor<T> {
     /// Creates a tensor filled with zeros.
@@ -123,7 +124,7 @@ impl<T: TensorElement> Tensor<T> {
             let u2: f32 = rng.next_f64() as f32;
 
             let r = (-2.0 * u1.ln()).sqrt();
-            let theta = 2.0 * std::f32::consts::PI * u2;
+            let theta = 2.0 * PI * u2;
 
             data.push(T::from_accum(T::accum_from_f32(r * theta.cos())));
             if data.len() < size {

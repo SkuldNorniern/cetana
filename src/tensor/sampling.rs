@@ -2,15 +2,12 @@
 
 use super::*;
 use aporia::{Rng, backend::Xoshiro256StarStar};
+use std::ops::{Add, Sub};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl<T: FloatElement> Tensor<T>
 where
-    T::Accum: std::ops::Add<Output = T::Accum>
-        + std::ops::Sub<Output = T::Accum>
-        + PartialOrd
-        + Default
-        + Copy,
+    T::Accum: Add<Output = T::Accum> + Sub<Output = T::Accum> + PartialOrd + Default + Copy,
 {
     /// Draws samples from a multinomial distribution.
     ///

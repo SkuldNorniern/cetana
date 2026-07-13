@@ -11,6 +11,7 @@ use crate::tensor::{ExecutableGraph, Node, NodeId, Op, TensorRef};
 use crate::{MlError, MlResult};
 use laminax_types::DTypeId;
 use std::sync::Arc;
+use std::thread;
 
 fn buffer_index(input_count: usize, r: TensorRef) -> usize {
     match r {
@@ -61,9 +62,7 @@ fn execute_one_node(
                 return Err(MlError::StringError("MatMul expects 2 inputs".to_string()));
             }
             if input_shapes[0].len() != 2 || input_shapes[1].len() != 2 {
-                return Err(MlError::StringError(
-                    "MatMul expects 2D inputs".to_string(),
-                ));
+                return Err(MlError::StringError("MatMul expects 2D inputs".to_string()));
             }
             let (m, n) = (input_shapes[0][0], input_shapes[0][1]);
             let k = input_shapes[1][1];
@@ -73,11 +72,7 @@ fn execute_one_node(
                     input_shapes[0], input_shapes[1]
                 )));
             }
-            backend.matmul(
-                &input_buffers[0],
-                &input_buffers[1],
-                m, n, k,
-            )
+            backend.matmul(&input_buffers[0], &input_buffers[1], m, n, k)
         }
         Op::Copy => {
             if node.inputs.len() != 1 {
@@ -127,7 +122,10 @@ pub fn execute_graph<G: ExecutableGraph + ?Sized>(
         if data.len() != expected {
             return Err(MlError::StringError(format!(
                 "input {} length {} does not match shape {:?} ({} elements)",
-                i, data.len(), shape, expected
+                i,
+                data.len(),
+                shape,
+                expected
             )));
         }
     }
@@ -149,9 +147,9 @@ pub fn execute_graph<G: ExecutableGraph + ?Sized>(
 
     for level in graph.parallel_levels() {
         for node_id in level {
-            let node = graph.node(node_id).ok_or_else(|| {
-                MlError::StringError("node missing in graph".to_string())
-            })?;
+            let node = graph
+                .node(node_id)
+                .ok_or_else(|| MlError::StringError("node missing in graph".to_string()))?;
             let out_idx = input_count + node_id.0;
             let input_buffers: Vec<Vec<f32>> = node
                 .inputs
@@ -163,8 +161,7 @@ pub fn execute_graph<G: ExecutableGraph + ?Sized>(
                 .iter()
                 .map(|r| shapes[buffer_index(input_count, *r)].clone())
                 .collect();
-            let result =
-                execute_one_node(backend, node, &input_buffers, &input_shapes_for_node)?;
+            let result = execute_one_node(backend, node, &input_buffers, &input_shapes_for_node)?;
             buffers[out_idx].copy_from_slice(&result);
         }
     }
@@ -197,7 +194,10 @@ pub fn execute_graph_parallel<G: ExecutableGraph + ?Sized>(
         if data.len() != expected {
             return Err(MlError::StringError(format!(
                 "input {} length {} does not match shape {:?} ({} elements)",
-                i, data.len(), shape, expected
+                i,
+                data.len(),
+                shape,
+                expected
             )));
         }
     }
@@ -220,9 +220,9 @@ pub fn execute_graph_parallel<G: ExecutableGraph + ?Sized>(
     for level in graph.parallel_levels() {
         if level.len() <= 1 {
             for node_id in level {
-                let node = graph.node(node_id).ok_or_else(|| {
-                    MlError::StringError("node missing in graph".to_string())
-                })?;
+                let node = graph
+                    .node(node_id)
+                    .ok_or_else(|| MlError::StringError("node missing in graph".to_string()))?;
                 let out_idx = input_count + node_id.0;
                 let input_buffers: Vec<Vec<f32>> = node
                     .inputs
@@ -243,7 +243,7 @@ pub fn execute_graph_parallel<G: ExecutableGraph + ?Sized>(
                 buffers[out_idx].copy_from_slice(&result);
             }
         } else {
-            let results: Vec<(NodeId, MlResult<Vec<f32>>)> = std::thread::scope(|s| {
+            let results: Vec<(NodeId, MlResult<Vec<f32>>)> = thread::scope(|s| {
                 let mut handles = Vec::with_capacity(level.len());
                 for &node_id in level.iter() {
                     let node = graph.node(node_id).expect("node in level").clone();
@@ -290,7 +290,7 @@ pub fn execute_graph_parallel<G: ExecutableGraph + ?Sized>(
 #[cfg(all(test, feature = "cpu"))]
 mod tests {
     use super::*;
-    use crate::backend::{Device, CpuBackend};
+    use crate::backend::{CpuBackend, Device};
     use crate::tensor::{Op, TensorDesc, TensorGraph, TensorRef};
     use numina::DTypeId;
 
@@ -317,10 +317,8 @@ mod tests {
             },
         )?;
 
-        let input_data: Vec<Vec<f32>> = vec![
-            vec![1.0, 2.0, 3.0, 4.0],
-            vec![10.0, 20.0, 30.0, 40.0],
-        ];
+        let input_data: Vec<Vec<f32>> =
+            vec![vec![1.0, 2.0, 3.0, 4.0], vec![10.0, 20.0, 30.0, 40.0]];
         let input_shapes: Vec<Vec<usize>> = vec![vec![2, 2], vec![2, 2]];
 
         let outputs = execute_graph(&backend, &graph, &input_data, &input_shapes)?;
@@ -367,8 +365,7 @@ mod tests {
             vec![vec![1.0, 2.0, 3.0, 4.0], vec![10.0, 20.0, 30.0, 40.0]];
         let input_shapes: Vec<Vec<usize>> = vec![vec![4], vec![4]];
 
-        let outputs =
-            execute_graph_parallel(backend, &graph, &input_data, &input_shapes)?;
+        let outputs = execute_graph_parallel(backend, &graph, &input_data, &input_shapes)?;
         assert_eq!(outputs.len(), 3);
         assert_eq!(outputs[0], &[11.0, 22.0, 33.0, 44.0]);
         assert_eq!(outputs[1], &[-9.0, -18.0, -27.0, -36.0]);

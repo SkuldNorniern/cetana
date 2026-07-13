@@ -2,6 +2,7 @@
 
 use super::shape;
 use super::*;
+use std::ops::{Add, Div, Mul, Sub};
 
 impl<T: TensorElement> Tensor<T> {
     /// Sums elements across the specified dimensions.
@@ -14,7 +15,7 @@ impl<T: TensorElement> Tensor<T> {
     /// Returns an error if any dimension is out of range.
     pub fn sum(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor<T>>
     where
-        T::Accum: std::ops::Add<Output = T::Accum> + Copy + Default,
+        T::Accum: Add<Output = T::Accum> + Copy + Default,
     {
         let rank = self.shape.len();
         let positive_dims = shape::normalize_dims(dims, &self.shape)?;
@@ -97,8 +98,7 @@ impl<T: TensorElement> Tensor<T> {
     pub fn mean(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum:
-            std::ops::Add<Output = T::Accum> + std::ops::Div<Output = T::Accum> + Copy + Default,
+        T::Accum: Add<Output = T::Accum> + Div<Output = T::Accum> + Copy + Default,
     {
         let rank = self.shape.len();
         let positive_dims = shape::normalize_dims(dims, &self.shape)?;
@@ -185,10 +185,10 @@ impl<T: TensorElement> Tensor<T> {
     pub fn var(&self, dims: &[i32], keepdim: bool) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Add<Output = T::Accum>
-            + std::ops::Sub<Output = T::Accum>
-            + std::ops::Mul<Output = T::Accum>
-            + std::ops::Div<Output = T::Accum>
+        T::Accum: Add<Output = T::Accum>
+            + Sub<Output = T::Accum>
+            + Mul<Output = T::Accum>
+            + Div<Output = T::Accum>
             + Copy
             + Default,
     {
@@ -221,9 +221,9 @@ impl<T: TensorElement> Tensor<T> {
     pub fn norm(&self, p: f32, dim: Option<&[i32]>, keepdim: bool) -> MlResult<Tensor<T>>
     where
         T: FloatElement,
-        T::Accum: std::ops::Add<Output = T::Accum>
-            + std::ops::Mul<Output = T::Accum>
-            + std::ops::Div<Output = T::Accum>
+        T::Accum: Add<Output = T::Accum>
+            + Mul<Output = T::Accum>
+            + Div<Output = T::Accum>
             + PartialOrd
             + Copy
             + Default,
@@ -326,7 +326,7 @@ impl<T: TensorElement> Tensor<T> {
     /// The sum of all elements using the accumulator type.
     pub fn sum_all(&self) -> MlResult<T::Accum>
     where
-        T::Accum: std::ops::Add<Output = T::Accum> + Copy + Default,
+        T::Accum: Add<Output = T::Accum> + Copy + Default,
     {
         Ok(self
             .data

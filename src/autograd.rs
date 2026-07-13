@@ -11,8 +11,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::mem;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::thread;
 
 use crate::MlResult;
 use crate::backend::{Backend, DeviceType};
@@ -32,7 +34,7 @@ fn worker_count(len: usize) -> usize {
     if len < PAR_MIN {
         return 1;
     }
-    let hw = std::thread::available_parallelism()
+    let hw = thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
     hw.min(len / (PAR_MIN / 2)).max(1)
@@ -49,7 +51,7 @@ fn for_rows(out: &mut [f32], d: usize, f: impl Fn(usize, &mut [f32]) + Sync) {
         return;
     }
     let rows_per = rows.div_ceil(workers);
-    std::thread::scope(|scope| {
+    thread::scope(|scope| {
         for (w, block) in out.chunks_mut(rows_per * d).enumerate() {
             let f = &f;
             scope.spawn(move || {
@@ -69,7 +71,7 @@ fn map1(a: &[f32], f: impl Fn(f32) -> f32 + Sync) -> Vec<f32> {
     }
     let mut out = vec![0.0f32; a.len()];
     let chunk = a.len().div_ceil(workers);
-    std::thread::scope(|scope| {
+    thread::scope(|scope| {
         for (dst, src) in out.chunks_mut(chunk).zip(a.chunks(chunk)) {
             let f = &f;
             scope.spawn(move || {
@@ -91,7 +93,7 @@ fn map2(a: &[f32], b: &[f32], f: impl Fn(f32, f32) -> f32 + Sync) -> Vec<f32> {
     }
     let mut out = vec![0.0f32; a.len()];
     let chunk = a.len().div_ceil(workers);
-    std::thread::scope(|scope| {
+    thread::scope(|scope| {
         for ((dst, sa), sb) in out
             .chunks_mut(chunk)
             .zip(a.chunks(chunk))
@@ -127,7 +129,7 @@ fn transpose_fast(t: &Tensor, d0: i32, d1: i32) -> MlResult<Tensor> {
         return Ok(t.clone());
     }
     if p > q {
-        std::mem::swap(&mut p, &mut q);
+        mem::swap(&mut p, &mut q);
     }
     let outer: usize = shape[..p].iter().product();
     let a = shape[p];
@@ -394,12 +396,12 @@ thread_local! {
     /// Per-thread backend override for autograd's GPU-routed ops. Lets multi-GPU
     /// data-parallel workers pin their graph to a specific device even though
     /// tensors are created against the process-wide default backend.
-    static THREAD_BACKEND: RefCell<Option<std::sync::Arc<dyn crate::backend::Backend>>> =
+    static THREAD_BACKEND: RefCell<Option<Arc<dyn Backend>>> =
         const { RefCell::new(None) };
 }
 
 /// Pin autograd's GPU-routed ops on the current thread to `backend`.
-pub fn set_thread_backend(backend: std::sync::Arc<dyn crate::backend::Backend>) {
+pub fn set_thread_backend(backend: Arc<dyn Backend>) {
     THREAD_BACKEND.with(|b| *b.borrow_mut() = Some(backend));
 }
 
@@ -408,7 +410,7 @@ pub fn clear_thread_backend() {
     THREAD_BACKEND.with(|b| *b.borrow_mut() = None);
 }
 
-fn active_backend(t: &Tensor) -> std::sync::Arc<dyn crate::backend::Backend> {
+fn active_backend(t: &Tensor) -> Arc<dyn Backend> {
     THREAD_BACKEND
         .with(|b| b.borrow().clone())
         .unwrap_or_else(|| t.get_backend())
@@ -1618,7 +1620,7 @@ impl Adam {
             let (b1, b2, lr, eps, wd) = (self.b1, self.b2, self.lr, self.eps, self.weight_decay);
             let workers = worker_count(w.len());
             let chunk = w.len().div_ceil(workers);
-            std::thread::scope(|scope| {
+            thread::scope(|scope| {
                 for (((wc, mc), vc), gc) in w
                     .chunks_mut(chunk)
                     .zip(m.chunks_mut(chunk))

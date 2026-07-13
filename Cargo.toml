@@ -8,6 +8,15 @@ categories = ["science"]
 build = "build.rs"
 authors = ["Eira <eira@nornity.com>"]
 
+[lints.clippy]
+absolute_paths = "deny"
+result_large_err = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
+
 [features]
 default = ["cpu"]
 cpu = []

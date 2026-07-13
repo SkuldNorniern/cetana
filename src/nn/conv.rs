@@ -1,4 +1,7 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::{MlResult, nn::Layer, tensor::Tensor};
+use aporia::backend::Xoshiro256StarStar;
 
 /// Represents different padding modes for the convolutional layer
 #[derive(Clone, Copy)]
@@ -39,9 +42,9 @@ impl Conv2d {
         // Initialize weights using Xavier initialization
         let k = 1.0 / ((in_channels * kernel_size * kernel_size) as f32).sqrt();
         // Initialize RNG using aporia
-        let mut rng = aporia::Rng::new(aporia::backend::Xoshiro256StarStar::new(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+        let mut rng = aporia::Rng::new(Xoshiro256StarStar::new(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .map_err(|e| format!("Time error: {}", e))?,
         ));

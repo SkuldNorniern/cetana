@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::serialize::{Deserialize, Model, Serialize};
@@ -70,7 +71,7 @@ impl Embedding {
                 let u1 = rng.next_f64() as f32;
                 let u2 = rng.next_f64() as f32;
                 let r = (-2.0 * u1.ln()).sqrt();
-                let theta = 2.0 * std::f32::consts::PI * u2;
+                let theta = 2.0 * PI * u2;
                 r * theta.cos()
             })
             .collect();

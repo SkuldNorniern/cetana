@@ -6,8 +6,8 @@
 use laminax_dag::{Dag, DagError};
 use numina::DTypeId;
 
-use crate::{MlError, MlResult};
 use super::TensorError;
+use crate::{MlError, MlResult};
 
 pub use laminax_dag::{NodeId, Ref as TensorRef};
 pub use laminax_types::{Node, Op, TensorDesc};
@@ -43,15 +43,18 @@ impl Graph {
         inputs: Vec<TensorRef>,
         output: TensorDesc,
     ) -> MlResult<NodeId> {
-        self.0.add_node(Node { op, inputs, output }).map_err(|e| match e {
-            DagError::Cycle => MlError::TensorError(TensorError::DagCycle),
-            DagError::InvalidRef { node_id, input_index } => {
-                MlError::TensorError(TensorError::DagInvalidRef {
+        self.0
+            .add_node(Node { op, inputs, output })
+            .map_err(|e| match e {
+                DagError::Cycle => MlError::TensorError(TensorError::DagCycle),
+                DagError::InvalidRef {
                     node_id,
                     input_index,
-                })
-            }
-        })
+                } => MlError::TensorError(TensorError::DagInvalidRef {
+                    node_id,
+                    input_index,
+                }),
+            })
     }
 
     /// Returns the node for the given id, or `None` if out of range.

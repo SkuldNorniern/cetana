@@ -7,7 +7,7 @@
 //! **Replacement plan:** This backend will be replaced by Laminax. See `src/backend/plan.md`
 //! and `laminax/plan.md` for the roadmap.
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[cfg(feature = "cpu")]
 mod cpu;
@@ -213,7 +213,7 @@ pub enum BackendError {
 }
 
 impl Display for BackendError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             #[cfg(feature = "cpu")]
             BackendError::CpuError(e) => write!(f, "{}", e),

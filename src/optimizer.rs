@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::collections::{HashMap, hash_map::Entry};
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use crate::MlResult;
 use crate::tensor::Tensor;
@@ -18,7 +18,7 @@ pub enum OptimError {
     GradientError(String),
 }
 impl Display for OptimError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             OptimError::GradientError(msg) => write!(f, "Gradient error: {}", msg),
         }
@@ -88,7 +88,7 @@ impl Optimizer for Adam {
             };
 
             // Initialize momentum buffers if needed
-            if let std::collections::hash_map::Entry::Vacant(e) = self.exp_avg.entry(i) {
+            if let Entry::Vacant(e) = self.exp_avg.entry(i) {
                 debug!("Initializing momentum buffers for parameter {}", i);
                 let zeros = Tensor::zeros(grad.shape())?;
                 trace!("Created zero tensor with shape {:?}", zeros.shape());
