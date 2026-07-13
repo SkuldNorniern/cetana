@@ -13,7 +13,7 @@
 use std::fmt::Display;
 use std::ops::Range;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // mod builder;
@@ -43,10 +43,18 @@ pub use numina::{
 use crate::backend::CpuBackend;
 #[cfg(feature = "cuda")]
 use crate::backend::CudaBackend;
-#[cfg(any(feature = "vulkan", feature = "cuda", feature = "mps", feature = "cpu"))]
+#[cfg(any(
+    feature = "vulkan",
+    feature = "cuda",
+    feature = "mps",
+    feature = "cpu",
+    feature = "gpu"
+))]
 use crate::backend::DeviceManager;
 #[cfg(feature = "mps")]
 use crate::backend::MpsBackend;
+#[cfg(feature = "rocm")]
+use crate::backend::RocmBackend;
 #[cfg(feature = "vulkan")]
 use crate::backend::VulkanBackend;
 use crate::backend::{Backend, Device, DeviceType};
@@ -534,8 +542,26 @@ impl<T: TensorElement> Tensor<T> {
         Ok(Self::from_parts(flat_data, shape, backend))
     }
 
+    /// Returns the shared backend for the current default device, creating and caching it on
+    /// first use. Backends (esp. GPU ones) are expensive to construct — re-initializing HIP/CUDA
+    /// per tensor is both slow and log-spammy — so every tensor for a given device type shares
+    /// one `Arc<dyn Backend>`.
     fn get_default_backend() -> MlResult<Arc<dyn Backend>> {
+        static CACHE: std::sync::OnceLock<Mutex<std::collections::HashMap<DeviceType, Arc<dyn Backend>>>> =
+            std::sync::OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+
         let device_type = DeviceManager::get_default_device();
+        if let Some(backend) = cache.lock().unwrap().get(&device_type) {
+            return Ok(backend.clone());
+        }
+
+        let backend = Self::create_backend(device_type)?;
+        cache.lock().unwrap().insert(device_type, backend.clone());
+        Ok(backend)
+    }
+
+    fn create_backend(device_type: DeviceType) -> MlResult<Arc<dyn Backend>> {
         debug!("Creating tensor with device: {:?}", device_type);
         let backend: Arc<dyn Backend> = match device_type {
             #[cfg(feature = "cuda")]
@@ -579,6 +605,20 @@ impl<T: TensorElement> Tensor<T> {
                     }
                     Err(e) => {
                         warn!("Failed to create MpsBackend: {:?}, falling back to CPU", e);
+                        Arc::new(CpuBackend::new()?)
+                    }
+                }
+            }
+            #[cfg(feature = "rocm")]
+            DeviceType::Zen => {
+                debug!("Attempting to create RocmBackend (ZenGPU/laminax)...");
+                match RocmBackend::new() {
+                    Ok(backend) => {
+                        info!("Successfully created RocmBackend on {}", backend.device_name());
+                        Arc::new(backend)
+                    }
+                    Err(e) => {
+                        warn!("Failed to create RocmBackend: {:?}, falling back to CPU", e);
                         Arc::new(CpuBackend::new()?)
                     }
                 }
