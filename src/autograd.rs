@@ -277,6 +277,26 @@ impl Var {
         val_to_host(&self.0.value.borrow())
     }
 
+    /// Keep this value on a residency-capable backend until it is replaced or dropped.
+    pub fn make_resident(&self) {
+        let backend = active_backend_for_var(self);
+        if !backend.residency() {
+            return;
+        }
+        let host = match &*self.0.value.borrow() {
+            Val::Host(tensor) => Some(tensor.clone()),
+            Val::Dev { .. } => None,
+        };
+        if let Some(tensor) = host {
+            let id = backend.dev_upload(tensor.data());
+            self.0.value.replace(resident_val(
+                id,
+                tensor.shape().to_vec(),
+                backend,
+            ));
+        }
+    }
+
     fn value_val(&self) -> ValView {
         match &*self.0.value.borrow() {
             Val::Host(tensor) => ValView::Host(tensor.clone()),
@@ -1570,10 +1590,28 @@ pub struct Adam {
     t: i32,
     m: Vec<Vec<f32>>,
     v: Vec<Vec<f32>>,
+    device_state: Vec<Option<DeviceAdamState>>,
+}
+
+struct DeviceAdamState {
+    backend: Arc<dyn Backend>,
+    m_id: u64,
+    v_id: u64,
+    len: usize,
+}
+
+impl Drop for DeviceAdamState {
+    fn drop(&mut self) {
+        self.backend.dev_free(self.m_id);
+        self.backend.dev_free(self.v_id);
+    }
 }
 
 impl Adam {
     pub fn new(params: Vec<Var>, lr: f32, weight_decay: f32) -> Self {
+        for param in &params {
+            param.make_resident();
+        }
         let m = params
             .iter()
             .map(|p| vec![0.0; numel(&p.shape())])
@@ -1581,6 +1619,9 @@ impl Adam {
         let v = params
             .iter()
             .map(|p| vec![0.0; numel(&p.shape())])
+            .collect();
+        let device_state = std::iter::repeat_with(|| None)
+            .take(params.len())
             .collect();
         Adam {
             params,
@@ -1592,6 +1633,7 @@ impl Adam {
             t: 0,
             m,
             v,
+            device_state,
         }
     }
 
@@ -1610,6 +1652,59 @@ impl Adam {
         let bc1 = 1.0 - self.b1.powi(self.t);
         let bc2 = 1.0 - self.b2.powi(self.t);
         for (i, p) in self.params.iter().enumerate() {
+            let resident = {
+                let value = p.0.value.borrow();
+                let grad = p.0.grad.borrow();
+                match (&*value, &*grad) {
+                    (
+                        Val::Dev {
+                            id: w_id,
+                            shape,
+                            backend,
+                        },
+                        Some(Val::Dev {
+                            id: g_id,
+                            shape: gshape,
+                            backend: gbackend,
+                        }),
+                    ) if Arc::ptr_eq(backend, gbackend) => {
+                        assert_eq!(shape, gshape, "gradient shape mismatch");
+                        Some((*w_id, *g_id, numel(shape), backend.clone()))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((w_id, g_id, len, backend)) = resident {
+                let replace_state = self.device_state[i].as_ref().is_some_and(|state| {
+                    state.len != len || !Arc::ptr_eq(&state.backend, &backend)
+                });
+                if replace_state {
+                    self.device_state[i] = None;
+                }
+                let state = self.device_state[i].get_or_insert_with(|| DeviceAdamState {
+                    m_id: backend.dev_zeros(len),
+                    v_id: backend.dev_zeros(len),
+                    backend: backend.clone(),
+                    len,
+                });
+                backend.dev_adam_step(
+                    w_id,
+                    g_id,
+                    state.m_id,
+                    state.v_id,
+                    self.lr,
+                    self.b1,
+                    self.b2,
+                    self.eps,
+                    self.weight_decay,
+                    bc1,
+                    bc2,
+                );
+                // Device gradients are step-local. Taking the value drops it and
+                // returns its resident buffer to the backend pool immediately.
+                drop(p.0.grad.borrow_mut().take());
+                continue;
+            }
             let Some(g) = p.grad() else { continue };
             let g = g.data();
             let cur = p.value();

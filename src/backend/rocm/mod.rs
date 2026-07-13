@@ -139,6 +139,11 @@ impl Backend for RocmBackend {
         self.store(tensor)
     }
 
+    fn dev_zeros(&self, len: usize) -> u64 {
+        let tensor = self.engine.zeros_dev(len).expect("ZenEngine::zeros_dev");
+        self.store(tensor)
+    }
+
     fn dev_download(&self, id: u64) -> Vec<f32> {
         let residents = self.residents.lock().unwrap();
         self.engine
@@ -440,5 +445,42 @@ impl Backend for RocmBackend {
                 .expect("ZenEngine::slice_cols_bwd_dev")
         };
         self.store(tensor)
+    }
+
+    fn dev_adam_step(
+        &self,
+        w: u64,
+        g: u64,
+        m: u64,
+        v: u64,
+        lr: f32,
+        b1: f32,
+        b2: f32,
+        eps: f32,
+        wd: f32,
+        bc1: f32,
+        bc2: f32,
+    ) {
+        assert!(w != g && w != m && w != v && g != m && g != v && m != v);
+        let mut residents = self.residents.lock().unwrap();
+        let mut mt = residents.remove(&m).expect("invalid resident Adam m id");
+        let mut vt = residents.remove(&v).expect("invalid resident Adam v id");
+        let result = self.engine.adam_step_dev(
+            &residents[&w],
+            &residents[&g],
+            &mut mt,
+            &mut vt,
+            lr,
+            b1,
+            b2,
+            eps,
+            wd,
+            bc1,
+            bc2,
+            residents[&w].len(),
+        );
+        residents.insert(m, mt);
+        residents.insert(v, vt);
+        result.expect("ZenEngine::adam_step_dev");
     }
 }

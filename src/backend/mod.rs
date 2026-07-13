@@ -87,6 +87,9 @@ pub trait Backend: Debug + Send + Sync {
     fn dev_upload(&self, _d: &[f32]) -> u64 {
         unreachable!("residency unsupported")
     }
+    fn dev_zeros(&self, _len: usize) -> u64 {
+        unreachable!("residency unsupported")
+    }
     fn dev_download(&self, _id: u64) -> Vec<f32> {
         unreachable!()
     }
@@ -195,6 +198,23 @@ pub trait Backend: Debug + Send + Sync {
         unreachable!()
     }
     fn dev_slice_cols_bwd(&self, _g: u64, _r: usize, _c: usize, _len: usize, _start: usize) -> u64 {
+        unreachable!()
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn dev_adam_step(
+        &self,
+        _w: u64,
+        _g: u64,
+        _m: u64,
+        _v: u64,
+        _lr: f32,
+        _b1: f32,
+        _b2: f32,
+        _eps: f32,
+        _wd: f32,
+        _bc1: f32,
+        _bc2: f32,
+    ) {
         unreachable!()
     }
 }
