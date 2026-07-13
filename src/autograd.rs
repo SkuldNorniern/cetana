@@ -17,6 +17,136 @@ use crate::MlResult;
 use crate::backend::DeviceType;
 use crate::tensor::Tensor;
 
+// ── host-math helpers (hand-written multi-thread, no external deps) ──────────
+//
+// Scoped-thread fork/join over contiguous chunks. Small inputs stay serial:
+// spawning costs ~10µs per thread, so parallelism only pays off past PAR_MIN
+// elements of work.
+
+/// Minimum total elements before work is split across threads.
+const PAR_MIN: usize = 16 * 1024;
+
+/// Threads to use for `len` elements of work.
+fn worker_count(len: usize) -> usize {
+    if len < PAR_MIN {
+        return 1;
+    }
+    let hw = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    hw.min(len / (PAR_MIN / 2)).max(1)
+}
+
+/// Apply `f` to each row (disjoint `d`-sized chunks) of `out`, rows split across threads.
+fn for_rows(out: &mut [f32], d: usize, f: impl Fn(usize, &mut [f32]) + Sync) {
+    let rows = out.len() / d;
+    let workers = worker_count(out.len());
+    if workers <= 1 {
+        for (r, row) in out.chunks_mut(d).enumerate() {
+            f(r, row);
+        }
+        return;
+    }
+    let rows_per = rows.div_ceil(workers);
+    std::thread::scope(|scope| {
+        for (w, block) in out.chunks_mut(rows_per * d).enumerate() {
+            let f = &f;
+            scope.spawn(move || {
+                for (i, row) in block.chunks_mut(d).enumerate() {
+                    f(w * rows_per + i, row);
+                }
+            });
+        }
+    });
+}
+
+/// `out[i] = f(a[i])`.
+fn map1(a: &[f32], f: impl Fn(f32) -> f32 + Sync) -> Vec<f32> {
+    let workers = worker_count(a.len());
+    if workers <= 1 {
+        return a.iter().map(|&x| f(x)).collect();
+    }
+    let mut out = vec![0.0f32; a.len()];
+    let chunk = a.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        for (dst, src) in out.chunks_mut(chunk).zip(a.chunks(chunk)) {
+            let f = &f;
+            scope.spawn(move || {
+                for (o, &x) in dst.iter_mut().zip(src) {
+                    *o = f(x);
+                }
+            });
+        }
+    });
+    out
+}
+
+/// `out[i] = f(a[i], b[i])`.
+fn map2(a: &[f32], b: &[f32], f: impl Fn(f32, f32) -> f32 + Sync) -> Vec<f32> {
+    debug_assert_eq!(a.len(), b.len());
+    let workers = worker_count(a.len());
+    if workers <= 1 {
+        return a.iter().zip(b).map(|(&x, &y)| f(x, y)).collect();
+    }
+    let mut out = vec![0.0f32; a.len()];
+    let chunk = a.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        for ((dst, sa), sb) in out.chunks_mut(chunk).zip(a.chunks(chunk)).zip(b.chunks(chunk)) {
+            let f = &f;
+            scope.spawn(move || {
+                for ((o, &x), &y) in dst.iter_mut().zip(sa).zip(sb) {
+                    *o = f(x, y);
+                }
+            });
+        }
+    });
+    out
+}
+
+/// Equal-shape elementwise binary op as a Tensor.
+fn ew2(a: &Tensor, b: &Tensor, f: impl Fn(f32, f32) -> f32 + Sync) -> MlResult<Tensor> {
+    debug_assert_eq!(a.shape(), b.shape());
+    Tensor::new_from_vec(map2(a.data(), b.data(), f), a.shape())
+}
+
+/// Axis-swap transpose, multi-threaded and without per-element div/mod over the full rank.
+///
+/// Views the tensor as `[outer, A, mid, B, inner]` (A/B = the swapped axes) and copies
+/// `inner`-sized contiguous blocks: `out[o, b, m, a, .] = src[o, a, m, b, .]`.
+fn transpose_fast(t: &Tensor, d0: i32, d1: i32) -> MlResult<Tensor> {
+    let shape = t.shape().to_vec();
+    let rank = shape.len() as i32;
+    let mut p = (if d0 < 0 { rank + d0 } else { d0 }) as usize;
+    let mut q = (if d1 < 0 { rank + d1 } else { d1 }) as usize;
+    if p == q {
+        return Ok(t.clone());
+    }
+    if p > q {
+        std::mem::swap(&mut p, &mut q);
+    }
+    let outer: usize = shape[..p].iter().product();
+    let a = shape[p];
+    let mid: usize = shape[p + 1..q].iter().product();
+    let b = shape[q];
+    let inner: usize = shape[q + 1..].iter().product();
+    let mut out_shape = shape.clone();
+    out_shape.swap(p, q);
+
+    let src = t.data();
+    let mut out = vec![0.0f32; src.len()];
+    let _ = outer;
+    // Output row index r ranges over (o, b, m, a); each row is one `inner` block.
+    for_rows(&mut out, inner, |r, dst| {
+        let ai = r % a;
+        let r2 = r / a;
+        let mi = r2 % mid;
+        let r3 = r2 / mid;
+        let bi = r3 % b;
+        let oi = r3 / b;
+        let off = (((oi * a + ai) * mid + mi) * b + bi) * inner;
+        dst.copy_from_slice(&src[off..off + inner]);
+    });
+    Tensor::new_from_vec(out, &out_shape)
+}
+
 type BackwardFn = dyn Fn(&Tensor, &[Var]) -> MlResult<Vec<Tensor>>;
 
 struct VarInner {
@@ -100,7 +230,7 @@ impl Var {
     fn accumulate(&self, g: Tensor) -> MlResult<()> {
         let mut slot = self.0.grad.borrow_mut();
         *slot = Some(match slot.take() {
-            Some(existing) => existing.add(&g)?,
+            Some(existing) => ew2(&existing, &g, |a, b| a + b)?,
             None => g,
         });
         Ok(())
@@ -191,7 +321,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> MlResult<Tensor> {
 impl Var {
     /// Element-wise add (equal shapes).
     pub fn add(&self, other: &Var) -> MlResult<Var> {
-        let value = self.value().add(&other.value())?;
+        let value = ew2(&self.value(), &other.value(), |a, b| a + b)?;
         Ok(Var::from_op(
             value,
             vec![self.clone(), other.clone()],
@@ -201,35 +331,41 @@ impl Var {
 
     /// Element-wise subtract (equal shapes).
     pub fn sub(&self, other: &Var) -> MlResult<Var> {
-        let value = self.value().sub(&other.value())?;
+        let value = ew2(&self.value(), &other.value(), |a, b| a - b)?;
         Ok(Var::from_op(
             value,
             vec![self.clone(), other.clone()],
-            Box::new(|g, _p| Ok(vec![g.clone(), g.mul_scalar(-1.0)?])),
+            Box::new(|g, _p| {
+                let neg = Tensor::new_from_vec(map1(g.data(), |x| -x), g.shape())?;
+                Ok(vec![g.clone(), neg])
+            }),
         ))
     }
 
     /// Element-wise multiply (equal shapes).
     pub fn mul(&self, other: &Var) -> MlResult<Var> {
-        let value = self.value().mul(&other.value())?;
+        let value = ew2(&self.value(), &other.value(), |a, b| a * b)?;
         Ok(Var::from_op(
             value,
             vec![self.clone(), other.clone()],
             Box::new(|g, p| {
                 let a = p[0].value();
                 let b = p[1].value();
-                Ok(vec![g.mul(&b)?, g.mul(&a)?])
+                Ok(vec![ew2(g, &b, |x, y| x * y)?, ew2(g, &a, |x, y| x * y)?])
             }),
         ))
     }
 
     /// Multiply by a constant scalar.
     pub fn mul_scalar(&self, s: f32) -> MlResult<Var> {
-        let value = self.value().mul_scalar(s)?;
+        let v = self.value();
+        let value = Tensor::new_from_vec(map1(v.data(), |x| x * s), v.shape())?;
         Ok(Var::from_op(
             value,
             vec![self.clone()],
-            Box::new(move |g, _p| Ok(vec![g.mul_scalar(s)?])),
+            Box::new(move |g, _p| {
+                Ok(vec![Tensor::new_from_vec(map1(g.data(), |x| x * s), g.shape())?])
+            }),
         ))
     }
 
@@ -243,8 +379,8 @@ impl Var {
                 let a = p[0].value();
                 let b = p[1].value();
                 // dA = g @ B^T ; dB = A^T @ g
-                let da = matmul(g, &b.transpose(0, 1)?)?;
-                let db = matmul(&a.transpose(0, 1)?, g)?;
+                let da = matmul(g, &transpose_fast(&b, 0, 1)?)?;
+                let db = matmul(&transpose_fast(&a, 0, 1)?, g)?;
                 Ok(vec![da, db])
             }),
         ))
@@ -344,8 +480,16 @@ fn broadcast_to(src: &[f32], from: &[usize], to: &[usize]) -> Vec<f32> {
         return src.to_vec();
     }
     let to_n = numel(to);
-    let mut out = vec![0.0f32; to_n];
     let offset = to.len() - from.len();
+    // Fast path: `from` equals the trailing dims of `to` → repeat src as blocks
+    // (covers bias [C] into [.., C] and mask [T, T] into [B, H, T, T]).
+    if to[offset..] == *from {
+        let block = numel(from);
+        let mut out = vec![0.0f32; to_n];
+        for_rows(&mut out, block, |_r, dst| dst.copy_from_slice(src));
+        return out;
+    }
+    let mut out = vec![0.0f32; to_n];
     for (i, slot) in out.iter_mut().enumerate() {
         let mut rem = i;
         let mut src_idx = 0usize;
@@ -384,11 +528,11 @@ impl Var {
 
     /// Swap two dimensions.
     pub fn transpose(&self, d0: i32, d1: i32) -> MlResult<Var> {
-        let value = self.value().transpose(d0, d1)?;
+        let value = transpose_fast(&self.value(), d0, d1)?;
         Ok(Var::from_op(
             value,
             vec![self.clone()],
-            Box::new(move |g, _p| Ok(vec![g.transpose(d0, d1)?])),
+            Box::new(move |g, _p| Ok(vec![transpose_fast(g, d0, d1)?])),
         ))
     }
 
@@ -429,7 +573,7 @@ impl Var {
         let b = bias.value();
         let bs = b.shape().to_vec();
         let bcast = broadcast_to(b.data(), &bs, &xs);
-        let out: Vec<f32> = x.data().iter().zip(&bcast).map(|(a, c)| a + c).collect();
+        let out = map2(x.data(), &bcast, |a, c| a + c);
         let value = Tensor::new_from_vec(out, &xs)?;
         Ok(Var::from_op(
             value,
@@ -446,7 +590,7 @@ impl Var {
         let x = self.value();
         let xs = x.shape().to_vec();
         let bcast = broadcast_to(c.data(), c.shape(), &xs);
-        let out: Vec<f32> = x.data().iter().zip(&bcast).map(|(a, m)| a + m).collect();
+        let out = map2(x.data(), &bcast, |a, m| a + m);
         let value = Tensor::new_from_vec(out, &xs)?;
         Ok(Var::from_op(
             value,
@@ -465,8 +609,8 @@ impl Var {
             Box::new(|g, p| {
                 let a = p[0].value();
                 let b = p[1].value();
-                let da = bmm(g, &b.transpose(-2, -1)?)?;
-                let db = bmm(&a.transpose(-2, -1)?, g)?;
+                let da = bmm(g, &transpose_fast(&b, -2, -1)?)?;
+                let db = bmm(&transpose_fast(&a, -2, -1)?, g)?;
                 Ok(vec![da, db])
             }),
         ))
@@ -480,19 +624,19 @@ impl Var {
         let rows = numel(&shape) / d;
         let data = x.data();
         let mut y = vec![0.0f32; data.len()];
-        for r in 0..rows {
+        for_rows(&mut y, d, |r, row| {
             let s = &data[r * d..(r + 1) * d];
             let m = s.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mut sum = 0.0f32;
             for j in 0..d {
                 let e = (s[j] - m).exp();
-                y[r * d + j] = e;
+                row[j] = e;
                 sum += e;
             }
-            for j in 0..d {
-                y[r * d + j] /= sum;
+            for v in row.iter_mut() {
+                *v /= sum;
             }
-        }
+        });
         let value = Tensor::new_from_vec(y.clone(), &shape)?;
         Ok(Var::from_op(
             value,
@@ -500,14 +644,14 @@ impl Var {
             Box::new(move |g, _p| {
                 let gd = g.data();
                 let mut dx = vec![0.0f32; gd.len()];
-                for r in 0..rows {
+                for_rows(&mut dx, d, |r, row| {
                     let yr = &y[r * d..(r + 1) * d];
                     let gr = &gd[r * d..(r + 1) * d];
                     let dot: f32 = (0..d).map(|j| gr[j] * yr[j]).sum();
                     for j in 0..d {
-                        dx[r * d + j] = yr[j] * (gr[j] - dot);
+                        row[j] = yr[j] * (gr[j] - dot);
                     }
-                }
+                });
                 Ok(vec![Tensor::new_from_vec(dx, &shape)?])
             }),
         ))
@@ -520,25 +664,19 @@ impl Var {
         let x = self.value();
         let shape = x.shape().to_vec();
         let xin = x.data().to_vec();
-        let out: Vec<f32> = xin
-            .iter()
-            .map(|&v| 0.5 * v * (1.0 + (C * (v + A * v * v * v)).tanh()))
-            .collect();
+        let out = map1(&xin, |v| 0.5 * v * (1.0 + (C * (v + A * v * v * v)).tanh()));
         let value = Tensor::new_from_vec(out, &shape)?;
         Ok(Var::from_op(
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
-                let gd = g.data();
-                let mut dx = vec![0.0f32; gd.len()];
-                for (i, &v) in xin.iter().enumerate() {
+                let dx = map2(g.data(), &xin, |gi, v| {
                     let inner = C * (v + A * v * v * v);
                     let t = inner.tanh();
                     let dinner = C * (1.0 + 3.0 * A * v * v);
                     let dt = (1.0 - t * t) * dinner;
-                    let dydx = 0.5 * (1.0 + t) + 0.5 * v * dt;
-                    dx[i] = gd[i] * dydx;
-                }
+                    gi * (0.5 * (1.0 + t) + 0.5 * v * dt)
+                });
                 Ok(vec![Tensor::new_from_vec(dx, &shape)?])
             }),
         ))
@@ -559,18 +697,30 @@ impl Var {
         let mut xhat = vec![0.0f32; xin.len()];
         let mut inv_std = vec![0.0f32; rows];
         let mut out = vec![0.0f32; xin.len()];
-        for r in 0..rows {
+        // Pass 1 (row-parallel): normalize into xhat.
+        for_rows(&mut xhat, d, |r, row| {
             let s = &xin[r * d..(r + 1) * d];
             let mean = s.iter().sum::<f32>() / d as f32;
             let var = s.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
             let istd = 1.0 / (var + eps).sqrt();
-            inv_std[r] = istd;
             for j in 0..d {
-                let xh = (s[j] - mean) * istd;
-                xhat[r * d + j] = xh;
-                out[r * d + j] = xh * gd[j] + bd[j];
+                row[j] = (s[j] - mean) * istd;
             }
+        });
+        // inv_std for backward (cheap serial pass).
+        for r in 0..rows {
+            let s = &xin[r * d..(r + 1) * d];
+            let mean = s.iter().sum::<f32>() / d as f32;
+            let var = s.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
+            inv_std[r] = 1.0 / (var + eps).sqrt();
         }
+        // Pass 2 (row-parallel): affine.
+        for_rows(&mut out, d, |r, row| {
+            let xh = &xhat[r * d..(r + 1) * d];
+            for j in 0..d {
+                row[j] = xh[j] * gd[j] + bd[j];
+            }
+        });
         let value = Tensor::new_from_vec(out, &shape)?;
         let cshape = vec![d];
         Ok(Var::from_op(
@@ -579,9 +729,8 @@ impl Var {
             Box::new(move |grad, _p| {
                 let go = grad.data();
                 let mut dx = vec![0.0f32; go.len()];
-                let mut dgamma = vec![0.0f32; d];
-                let mut dbeta = vec![0.0f32; d];
-                for r in 0..rows {
+                // dx: row-parallel.
+                for_rows(&mut dx, d, |r, row| {
                     let istd = inv_std[r];
                     let xh = &xhat[r * d..(r + 1) * d];
                     let gr = &go[r * d..(r + 1) * d];
@@ -591,8 +740,16 @@ impl Var {
                     let mean_dxhat_xhat =
                         (0..d).map(|j| dxhat[j] * xh[j]).sum::<f32>() / d as f32;
                     for j in 0..d {
-                        dx[r * d + j] =
-                            istd * (dxhat[j] - mean_dxhat - xh[j] * mean_dxhat_xhat);
+                        row[j] = istd * (dxhat[j] - mean_dxhat - xh[j] * mean_dxhat_xhat);
+                    }
+                });
+                // dgamma/dbeta: cross-row accumulation, serial (d is small).
+                let mut dgamma = vec![0.0f32; d];
+                let mut dbeta = vec![0.0f32; d];
+                for r in 0..rows {
+                    let xh = &xhat[r * d..(r + 1) * d];
+                    let gr = &go[r * d..(r + 1) * d];
+                    for j in 0..d {
                         dgamma[j] += gr[j] * xh[j];
                         dbeta[j] += gr[j];
                     }
@@ -615,9 +772,10 @@ pub fn embedding(weight: &Var, idx: &[usize]) -> MlResult<Var> {
     let wd = w.data();
     let n = idx.len();
     let mut out = vec![0.0f32; n * c];
-    for (i, &row) in idx.iter().enumerate() {
-        out[i * c..(i + 1) * c].copy_from_slice(&wd[row * c..(row + 1) * c]);
-    }
+    for_rows(&mut out, c, |i, dst| {
+        let row = idx[i];
+        dst.copy_from_slice(&wd[row * c..(row + 1) * c]);
+    });
     let value = Tensor::new_from_vec(out, &[n, c])?;
     let idx_owned = idx.to_vec();
     Ok(Var::from_op(
@@ -643,19 +801,21 @@ pub fn cross_entropy(logits: &Var, targets: &[usize]) -> MlResult<Var> {
     let (n, v) = (shape[0], shape[1]);
     let data = x.data();
     let mut probs = vec![0.0f32; n * v];
-    let mut loss = 0.0f32;
-    for r in 0..n {
+    for_rows(&mut probs, v, |r, row| {
         let s = &data[r * v..(r + 1) * v];
         let m = s.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let mut sum = 0.0f32;
         for j in 0..v {
             let e = (s[j] - m).exp();
-            probs[r * v + j] = e;
+            row[j] = e;
             sum += e;
         }
-        for j in 0..v {
-            probs[r * v + j] /= sum;
+        for e in row.iter_mut() {
+            *e /= sum;
         }
+    });
+    let mut loss = 0.0f32;
+    for r in 0..n {
         loss += -(probs[r * v + targets[r]] + 1e-12).ln();
     }
     loss /= n as f32;
@@ -666,13 +826,15 @@ pub fn cross_entropy(logits: &Var, targets: &[usize]) -> MlResult<Var> {
         vec![logits.clone()],
         Box::new(move |g, _p| {
             let scale = g.data()[0] / n as f32;
-            let mut dl = probs.clone();
-            for r in 0..n {
-                dl[r * v + targets_owned[r]] -= 1.0;
-            }
-            for x in dl.iter_mut() {
-                *x *= scale;
-            }
+            let mut dl = vec![0.0f32; n * v];
+            for_rows(&mut dl, v, |r, row| {
+                let pr = &probs[r * v..(r + 1) * v];
+                let tgt = targets_owned[r];
+                for j in 0..v {
+                    let delta = if j == tgt { 1.0 } else { 0.0 };
+                    row[j] = (pr[j] - delta) * scale;
+                }
+            });
             Ok(vec![Tensor::new_from_vec(dl, &shape)?])
         }),
     ))
@@ -732,17 +894,31 @@ impl Adam {
             let mut w = cur.data().to_vec();
             let m = &mut self.m[i];
             let v = &mut self.v[i];
-            for k in 0..w.len() {
-                let gk = g[k];
-                m[k] = self.b1 * m[k] + (1.0 - self.b1) * gk;
-                v[k] = self.b2 * v[k] + (1.0 - self.b2) * gk * gk;
-                let mhat = m[k] / bc1;
-                let vhat = v[k] / bc2;
-                if self.weight_decay != 0.0 {
-                    w[k] -= self.lr * self.weight_decay * w[k];
+            let (b1, b2, lr, eps, wd) = (self.b1, self.b2, self.lr, self.eps, self.weight_decay);
+            let workers = worker_count(w.len());
+            let chunk = w.len().div_ceil(workers);
+            std::thread::scope(|scope| {
+                for (((wc, mc), vc), gc) in w
+                    .chunks_mut(chunk)
+                    .zip(m.chunks_mut(chunk))
+                    .zip(v.chunks_mut(chunk))
+                    .zip(g.chunks(chunk))
+                {
+                    scope.spawn(move || {
+                        for k in 0..wc.len() {
+                            let gk = gc[k];
+                            mc[k] = b1 * mc[k] + (1.0 - b1) * gk;
+                            vc[k] = b2 * vc[k] + (1.0 - b2) * gk * gk;
+                            let mhat = mc[k] / bc1;
+                            let vhat = vc[k] / bc2;
+                            if wd != 0.0 {
+                                wc[k] -= lr * wd * wc[k];
+                            }
+                            wc[k] -= lr * mhat / (vhat.sqrt() + eps);
+                        }
+                    });
                 }
-                w[k] -= self.lr * mhat / (vhat.sqrt() + self.eps);
-            }
+            });
             p.set_value(Tensor::new_from_vec(w, &shape)?);
         }
         Ok(())
