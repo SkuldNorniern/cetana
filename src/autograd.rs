@@ -91,6 +91,12 @@ impl Var {
         *self.0.grad.borrow_mut() = None;
     }
 
+    /// Overwrite the gradient (e.g. injecting an externally averaged gradient
+    /// before an optimizer step in data-parallel training).
+    pub fn set_grad(&self, grad: Tensor) {
+        *self.0.grad.borrow_mut() = Some(grad);
+    }
+
     fn accumulate(&self, g: Tensor) -> MlResult<()> {
         let mut slot = self.0.grad.borrow_mut();
         *slot = Some(match slot.take() {
@@ -136,6 +142,30 @@ impl Var {
     }
 }
 
+thread_local! {
+    /// Per-thread backend override for autograd's GPU-routed ops. Lets multi-GPU
+    /// data-parallel workers pin their graph to a specific device even though
+    /// tensors are created against the process-wide default backend.
+    static THREAD_BACKEND: RefCell<Option<std::sync::Arc<dyn crate::backend::Backend>>> =
+        const { RefCell::new(None) };
+}
+
+/// Pin autograd's GPU-routed ops on the current thread to `backend`.
+pub fn set_thread_backend(backend: std::sync::Arc<dyn crate::backend::Backend>) {
+    THREAD_BACKEND.with(|b| *b.borrow_mut() = Some(backend));
+}
+
+/// Remove the current thread's backend override.
+pub fn clear_thread_backend() {
+    THREAD_BACKEND.with(|b| *b.borrow_mut() = None);
+}
+
+fn active_backend(t: &Tensor) -> std::sync::Arc<dyn crate::backend::Backend> {
+    THREAD_BACKEND
+        .with(|b| b.borrow().clone())
+        .unwrap_or_else(|| t.get_backend())
+}
+
 /// 2-D matmul that offloads to the tensor's backend when it is not the CPU.
 ///
 /// This is the one heavy op we route explicitly: for a GPU (`Zen`/ROCm) backend it calls
@@ -147,7 +177,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> MlResult<Tensor> {
     let (m, k) = (as_[0], as_[1]);
     let n = bs[1];
     assert_eq!(bs[0], k, "matmul inner dim mismatch");
-    let backend = a.get_backend();
+    let backend = active_backend(a);
     if backend.device() != DeviceType::Cpu {
         let out = backend.matmul(a.data(), b.data(), m, n, k);
         Tensor::new_from_vec(out, &[m, n])
@@ -261,7 +291,7 @@ pub fn bmm(a: &Tensor, b: &Tensor) -> MlResult<Tensor> {
     let (m, k) = (as_[ar - 2], as_[ar - 1]);
     let n = bs[br - 1];
     assert_eq!(bs[br - 2], k, "bmm inner dim mismatch");
-    let backend = a.get_backend();
+    let backend = active_backend(a);
     if backend.device() != DeviceType::Cpu {
         let out = backend.matmul_batched(a.data(), b.data(), batch, m, n, k);
         let mut shape = as_[..ar - 2].to_vec();
