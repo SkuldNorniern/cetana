@@ -13,6 +13,17 @@ impl RocmBackend {
         Ok(Self { engine: ZenEngine::new()? })
     }
 
+    /// Backend bound to the `index`-th GPU adapter (multi-GPU: one backend per device,
+    /// driven from separate threads).
+    pub fn with_device(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self { engine: ZenEngine::with_adapter(index)? })
+    }
+
+    /// Number of visible GPU adapters.
+    pub fn device_count() -> usize {
+        ZenEngine::adapter_count()
+    }
+
     /// Name of the underlying GPU/adapter (e.g. `gfx1200` for RX 9060 XT).
     pub fn device_name(&self) -> String {
         self.engine.device_name()
