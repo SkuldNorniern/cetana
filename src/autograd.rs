@@ -372,6 +372,21 @@ impl DevRef {
             backend.dev_free(id);
         }
     }
+
+    fn save(self, backend: &Arc<dyn Backend>) -> SavedDev {
+        match self {
+            DevRef::Owned(id) => SavedDev {
+                id,
+                owned: true,
+                backend: backend.clone(),
+            },
+            DevRef::Borrowed(id) => SavedDev {
+                id,
+                owned: false,
+                backend: backend.clone(),
+            },
+        }
+    }
 }
 
 fn as_dev(v: &Var, backend: &Arc<dyn Backend>) -> (DevRef, Vec<usize>) {
@@ -400,6 +415,46 @@ fn as_dev(v: &Var, backend: &Arc<dyn Backend>) -> (DevRef, Vec<usize>) {
 fn resident_val(id: u64, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Val {
     debug_assert_eq!(backend.dev_len(id), numel(&shape));
     Val::Dev { id, shape, backend }
+}
+
+struct SavedDev {
+    id: u64,
+    owned: bool,
+    backend: Arc<dyn Backend>,
+}
+
+impl SavedDev {
+    fn owned(id: u64, backend: &Arc<dyn Backend>) -> Self {
+        Self {
+            id,
+            owned: true,
+            backend: backend.clone(),
+        }
+    }
+
+    fn id(&self) -> u64 {
+        self.id
+    }
+}
+
+impl Drop for SavedDev {
+    fn drop(&mut self) {
+        if self.owned {
+            self.backend.dev_free(self.id);
+        }
+    }
+}
+
+struct SavedLayernorm {
+    xhat: SavedDev,
+    invstd: SavedDev,
+    gamma: SavedDev,
+}
+
+impl SavedLayernorm {
+    fn ids(&self) -> (u64, u64, u64) {
+        (self.xhat.id(), self.invstd.id(), self.gamma.id())
+    }
 }
 
 /// 2-D matmul that offloads to the tensor's backend when it is not the CPU.
@@ -831,6 +886,29 @@ impl Var {
 
     /// Softmax over the last dimension.
     pub fn softmax_last(&self) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let shape = self.shape();
+            let d = *shape.last().unwrap();
+            let rows = numel(&shape) / d;
+            let (x, _) = as_dev(self, &backend);
+            let y = backend.dev_softmax(x.id(), rows, d);
+            x.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
+            return Ok(Var::from_op_val(
+                resident_val(y, shape, backend),
+                vec![self.clone()],
+                Box::new(move |g, _p| {
+                    let gd = backward_backend.dev_upload(g.data());
+                    let dx = backward_backend.dev_softmax_bwd(y, gd, rows, d);
+                    backward_backend.dev_free(gd);
+                    let out = backward_backend.dev_download(dx);
+                    backward_backend.dev_free(dx);
+                    Ok(vec![Tensor::new_from_vec(out, &backward_shape)?])
+                }),
+            ));
+        }
         let x = self.value();
         let shape = x.shape().to_vec();
         let d = *shape.last().unwrap();
@@ -874,6 +952,28 @@ impl Var {
     pub fn gelu(&self) -> MlResult<Var> {
         const C: f32 = 0.797_884_56; // sqrt(2/pi)
         const A: f32 = 0.044715;
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let shape = self.shape();
+            let n = numel(&shape);
+            let (x, _) = as_dev(self, &backend);
+            let y = backend.dev_gelu(x.id(), n);
+            let saved_x = x.save(&backend);
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
+            return Ok(Var::from_op_val(
+                resident_val(y, shape, backend),
+                vec![self.clone()],
+                Box::new(move |g, _p| {
+                    let gd = backward_backend.dev_upload(g.data());
+                    let dx = backward_backend.dev_gelu_bwd(saved_x.id(), gd, n);
+                    backward_backend.dev_free(gd);
+                    let out = backward_backend.dev_download(dx);
+                    backward_backend.dev_free(dx);
+                    Ok(vec![Tensor::new_from_vec(out, &backward_shape)?])
+                }),
+            ));
+        }
         let x = self.value();
         let shape = x.shape().to_vec();
         let xin = x.data().to_vec();
@@ -897,6 +997,55 @@ impl Var {
 
     /// Layer norm over the last dimension with affine `gamma`/`beta` (`[C]`).
     pub fn layernorm(&self, gamma: &Var, beta: &Var, eps: f32) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let shape = self.shape();
+            let d = *shape.last().unwrap();
+            let rows = numel(&shape) / d;
+            let (x, _) = as_dev(self, &backend);
+            let (g, gshape) = as_dev(gamma, &backend);
+            let (bt, bshape) = as_dev(beta, &backend);
+            assert_eq!(gshape, vec![d], "layernorm gamma shape mismatch");
+            assert_eq!(bshape, vec![d], "layernorm beta shape mismatch");
+            let (out, xhat, invstd) = backend.dev_layernorm(x.id(), g.id(), bt.id(), rows, d, eps);
+            x.free_temp(&backend);
+            bt.free_temp(&backend);
+            let saved = SavedLayernorm {
+                xhat: SavedDev::owned(xhat, &backend),
+                invstd: SavedDev::owned(invstd, &backend),
+                gamma: g.save(&backend),
+            };
+            let backward_backend = backend.clone();
+            let backward_shape = shape.clone();
+            return Ok(Var::from_op_val(
+                resident_val(out, shape, backend),
+                vec![self.clone(), gamma.clone(), beta.clone()],
+                Box::new(move |grad, _p| {
+                    let (xhat, invstd, gamma) = saved.ids();
+                    let gd = backward_backend.dev_upload(grad.data());
+                    let (dx, dgamma, dbeta) = backward_backend.dev_layernorm_bwd(
+                        gd,
+                        xhat,
+                        invstd,
+                        gamma,
+                        rows,
+                        d,
+                    );
+                    backward_backend.dev_free(gd);
+                    let dx_host = backward_backend.dev_download(dx);
+                    let dgamma_host = backward_backend.dev_download(dgamma);
+                    let dbeta_host = backward_backend.dev_download(dbeta);
+                    backward_backend.dev_free(dx);
+                    backward_backend.dev_free(dgamma);
+                    backward_backend.dev_free(dbeta);
+                    Ok(vec![
+                        Tensor::new_from_vec(dx_host, &backward_shape)?,
+                        Tensor::new_from_vec(dgamma_host, &[d])?,
+                        Tensor::new_from_vec(dbeta_host, &[d])?,
+                    ])
+                }),
+            ));
+        }
         let x = self.value();
         let shape = x.shape().to_vec();
         let d = *shape.last().unwrap();

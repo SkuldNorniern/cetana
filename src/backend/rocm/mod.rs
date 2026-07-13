@@ -225,4 +225,94 @@ impl Backend for RocmBackend {
         };
         self.store(tensor)
     }
+
+    fn dev_softmax(&self, x: u64, rows: usize, d: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .softmax_dev(&residents[&x], rows, d)
+                .expect("ZenEngine::softmax_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_softmax_bwd(&self, y: u64, g: u64, rows: usize, d: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .softmax_bwd_dev(&residents[&y], &residents[&g], rows, d)
+                .expect("ZenEngine::softmax_bwd_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_gelu(&self, x: u64, n: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .gelu_dev(&residents[&x], n)
+                .expect("ZenEngine::gelu_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_gelu_bwd(&self, x: u64, g: u64, n: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .gelu_bwd_dev(&residents[&x], &residents[&g], n)
+                .expect("ZenEngine::gelu_bwd_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_layernorm(
+        &self,
+        x: u64,
+        gamma: u64,
+        beta: u64,
+        rows: usize,
+        d: usize,
+        eps: f32,
+    ) -> (u64, u64, u64) {
+        let (out, xhat, invstd) = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .layernorm_dev(
+                    &residents[&x],
+                    &residents[&gamma],
+                    &residents[&beta],
+                    rows,
+                    d,
+                    eps,
+                )
+                .expect("ZenEngine::layernorm_dev")
+        };
+        (self.store(out), self.store(xhat), self.store(invstd))
+    }
+
+    fn dev_layernorm_bwd(
+        &self,
+        g: u64,
+        xhat: u64,
+        invstd: u64,
+        gamma: u64,
+        rows: usize,
+        d: usize,
+    ) -> (u64, u64, u64) {
+        let (dx, dgamma, dbeta) = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .layernorm_bwd_dev(
+                    &residents[&g],
+                    &residents[&xhat],
+                    &residents[&invstd],
+                    &residents[&gamma],
+                    rows,
+                    d,
+                )
+                .expect("ZenEngine::layernorm_bwd_dev")
+        };
+        (self.store(dx), self.store(dgamma), self.store(dbeta))
+    }
 }

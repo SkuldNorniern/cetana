@@ -120,6 +120,40 @@ pub trait Backend: Debug + Send + Sync {
     fn dev_div(&self, _a: u64, _b: u64) -> u64 {
         unreachable!()
     }
+    fn dev_softmax(&self, _x: u64, _rows: usize, _d: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_softmax_bwd(&self, _y: u64, _g: u64, _rows: usize, _d: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_gelu(&self, _x: u64, _n: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_gelu_bwd(&self, _x: u64, _g: u64, _n: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_layernorm(
+        &self,
+        _x: u64,
+        _gamma: u64,
+        _beta: u64,
+        _rows: usize,
+        _d: usize,
+        _eps: f32,
+    ) -> (u64, u64, u64) {
+        unreachable!()
+    }
+    fn dev_layernorm_bwd(
+        &self,
+        _g: u64,
+        _xhat: u64,
+        _invstd: u64,
+        _gamma: u64,
+        _rows: usize,
+        _d: usize,
+    ) -> (u64, u64, u64) {
+        unreachable!()
+    }
 }
 
 #[derive(Debug)]
