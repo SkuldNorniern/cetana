@@ -26,6 +26,8 @@ pub enum DeviceType {
     Cuda,
     #[cfg(feature = "mps")]
     Mps,
+    #[cfg(feature = "gpu")]
+    Zen,
 }
 
 impl Display for DeviceType {
@@ -95,6 +97,14 @@ impl DeviceManager {
             }
         }
 
+        #[cfg(feature = "gpu")]
+        {
+            if laminax_runtime::ZenEngine::new().is_ok() {
+                info!("ZenEngine GPU support confirmed");
+                available_devices.insert(DeviceType::Zen);
+            }
+        }
+
         info!("Available devices: {:?}", available_devices);
         Self { available_devices }
     }
@@ -117,6 +127,11 @@ impl DeviceManager {
                 }
             }
             None => {
+                #[cfg(feature = "gpu")]
+                if self.available_devices.contains(&DeviceType::Zen) {
+                    return Ok(DeviceType::Zen);
+                }
+
                 #[cfg(feature = "cuda")]
                 if self.available_devices.contains(&DeviceType::Cuda) {
                     return Ok(DeviceType::Cuda);
@@ -143,7 +158,15 @@ impl DeviceManager {
         // Ensure DEFAULT_DEVICE is initialized once based on available devices
         DEFAULT_DEVICE.get_or_init(|| {
             let device_type = {
-                #[cfg(feature = "cuda")]
+                #[cfg(feature = "gpu")]
+                {
+                    if manager.available_devices.contains(&DeviceType::Zen) {
+                        DeviceType::Zen
+                    } else {
+                        DeviceType::Cpu
+                    }
+                }
+                #[cfg(all(feature = "cuda", not(feature = "gpu")))]
                 {
                     if manager.available_devices.contains(&DeviceType::Cuda) {
                         DeviceType::Cuda
@@ -151,7 +174,7 @@ impl DeviceManager {
                         DeviceType::Cpu
                     }
                 }
-                #[cfg(all(feature = "vulkan", not(feature = "cuda")))]
+                #[cfg(all(feature = "vulkan", not(feature = "cuda"), not(feature = "gpu")))]
                 {
                     if manager.available_devices.contains(&DeviceType::Vulkan) {
                         DeviceType::Vulkan
@@ -159,7 +182,7 @@ impl DeviceManager {
                         DeviceType::Cpu
                     }
                 }
-                #[cfg(all(feature = "mps", not(feature = "vulkan"), not(feature = "cuda")))]
+                #[cfg(all(feature = "mps", not(feature = "vulkan"), not(feature = "cuda"), not(feature = "gpu")))]
                 {
                     if manager.available_devices.contains(&DeviceType::Mps) {
                         DeviceType::Mps
@@ -167,7 +190,7 @@ impl DeviceManager {
                         DeviceType::Cpu
                     }
                 }
-                #[cfg(not(any(feature = "cuda", feature = "vulkan", feature = "mps")))]
+                #[cfg(not(any(feature = "cuda", feature = "vulkan", feature = "mps", feature = "gpu")))]
                 {
                     DeviceType::Cpu
                 }

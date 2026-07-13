@@ -39,6 +39,8 @@ pub use cuda::{CudaBackend, CudaBackendError};
 pub use mps::{MpsBackend, MpsError};
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
+#[cfg(feature = "rocm")]
+pub use rocm::RocmBackend;
 
 pub trait Backend: Debug + Send + Sync {
     fn device(&self) -> DeviceType;
