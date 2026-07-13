@@ -202,6 +202,24 @@ impl Backend for RocmBackend {
         self.store(tensor)
     }
 
+    fn dev_matmul_bias(
+        &self,
+        a: u64,
+        b: u64,
+        bias: u64,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .matmul_bias_dev(&residents[&a], &residents[&b], &residents[&bias], m, n, k)
+                .expect("ZenEngine::matmul_bias_dev")
+        };
+        self.store(tensor)
+    }
+
     fn dev_matmul_bf16(&self, a: u64, b: u64, m: usize, n: usize, k: usize) -> u64 {
         let tensor = {
             let residents = self.residents.lock().unwrap();

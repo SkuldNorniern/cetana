@@ -449,6 +449,16 @@ fn active_backend_for_var(v: &Var) -> Arc<dyn Backend> {
     })
 }
 
+fn resident_on(v: &Var, backend: &Arc<dyn Backend>) -> bool {
+    matches!(
+        &*v.0.value.borrow(),
+        Val::Dev {
+            backend: resident_backend,
+            ..
+        } if Arc::ptr_eq(resident_backend, backend)
+    )
+}
+
 enum DevRef {
     /// A temporary upload owned by the current op.
     Owned(u64),
@@ -907,6 +917,60 @@ impl Var {
                 let da = matmul(&g, &transpose_fast(&b, 0, 1)?)?;
                 let db = matmul(&transpose_fast(&a, 0, 1)?, &g)?;
                 Ok(vec![Val::Host(da), Val::Host(db)])
+            }),
+        ))
+    }
+
+    /// Fused 2-D linear projection `[m,k] @ [k,n] + [n] -> [m,n]`.
+    pub fn linear(&self, w: &Var, bias: &Var) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if navi_bf16()
+            || !backend.residency()
+            || !resident_on(self, &backend)
+            || !resident_on(w, &backend)
+            || !resident_on(bias, &backend)
+        {
+            return self.matmul(w)?.bias_add(bias);
+        }
+
+        let (a, as_) = as_dev(self, &backend);
+        let (b, bs) = as_dev(w, &backend);
+        let (bias_dev, bias_shape) = as_dev(bias, &backend);
+        assert_eq!(as_.len(), 2, "linear lhs must be 2-D");
+        assert_eq!(bs.len(), 2, "linear weight must be 2-D");
+        let (m, k) = (as_[0], as_[1]);
+        let n = bs[1];
+        assert_eq!(bs[0], k, "linear inner dim mismatch");
+        assert_eq!(bias_shape, vec![n], "linear bias shape mismatch");
+        let id = backend.dev_matmul_bias(a.id(), b.id(), bias_dev.id(), m, n, k);
+        a.free_temp(&backend);
+        b.free_temp(&backend);
+        bias_dev.free_temp(&backend);
+        let backward_backend = backend.clone();
+        let ashape = as_.clone();
+        let bshape = bs.clone();
+        Ok(Var::from_op_val(
+            resident_val(id, vec![m, n], backend),
+            vec![self.clone(), w.clone(), bias.clone()],
+            Box::new(move |g, p| {
+                let (a, _) = view_as_dev(p[0].value_val(), &backward_backend);
+                let (b, _) = view_as_dev(p[1].value_val(), &backward_backend);
+                let (gd, _) = val_as_dev(g, &backward_backend);
+                let bt = backward_backend.dev_transpose2d(b.id(), k, n);
+                let at = backward_backend.dev_transpose2d(a.id(), m, k);
+                let da = dev_matmul_selected(&backward_backend, gd.id(), bt, m, k, n);
+                let db = dev_matmul_selected(&backward_backend, at, gd.id(), k, n, m);
+                let dbias = backward_backend.dev_bias_rowsum(gd.id(), m, n);
+                backward_backend.dev_free(bt);
+                backward_backend.dev_free(at);
+                a.free_temp(&backward_backend);
+                b.free_temp(&backward_backend);
+                gd.free_temp(&backward_backend);
+                Ok(vec![
+                    resident_val(da, ashape.clone(), backward_backend.clone()),
+                    resident_val(db, bshape.clone(), backward_backend.clone()),
+                    resident_val(dbias, vec![n], backward_backend.clone()),
+                ])
             }),
         ))
     }

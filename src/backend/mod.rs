@@ -114,6 +114,17 @@ pub trait Backend: Debug + Send + Sync {
     fn dev_matmul(&self, _a: u64, _b: u64, _m: usize, _n: usize, _k: usize) -> u64 {
         unreachable!()
     }
+    fn dev_matmul_bias(
+        &self,
+        _a: u64,
+        _b: u64,
+        _bias: u64,
+        _m: usize,
+        _n: usize,
+        _k: usize,
+    ) -> u64 {
+        unreachable!()
+    }
     fn dev_matmul_bf16(&self, _a: u64, _b: u64, _m: usize, _n: usize, _k: usize) -> u64 {
         unreachable!()
     }
