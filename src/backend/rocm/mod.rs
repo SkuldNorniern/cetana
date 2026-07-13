@@ -145,12 +145,9 @@ impl Backend for RocmBackend {
     }
 
     fn dev_free(&self, id: u64) {
-        let tensor = self
-            .residents
-            .lock()
-            .unwrap()
-            .remove(&id)
-            .expect("invalid resident tensor id");
+        let tensor = self.residents.lock().unwrap().remove(&id);
+        debug_assert!(tensor.is_some(), "resident id freed twice or invalid: {id}");
+        let tensor = tensor.expect("resident id freed twice or invalid");
         self.engine.free_dev(tensor);
     }
 
