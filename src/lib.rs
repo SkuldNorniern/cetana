@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 
+pub mod autograd;
 pub mod backend;
 pub mod log;
 pub mod loss;
