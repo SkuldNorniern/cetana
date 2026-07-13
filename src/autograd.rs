@@ -362,6 +362,36 @@ impl Var {
         ))
     }
 
+    /// Column slice of a 2-D tensor: `[R, C] -> [R, len]` taking columns `start..start+len`.
+    /// Backward scatters the gradient back into the sliced columns (rest zero).
+    pub fn slice_cols(&self, start: usize, len: usize) -> MlResult<Var> {
+        let x = self.value();
+        let shape = x.shape().to_vec();
+        assert_eq!(shape.len(), 2, "slice_cols expects 2-D input");
+        let (r, c) = (shape[0], shape[1]);
+        assert!(start + len <= c, "slice_cols out of range");
+        let xd = x.data();
+        let mut out = vec![0.0f32; r * len];
+        for i in 0..r {
+            out[i * len..(i + 1) * len]
+                .copy_from_slice(&xd[i * c + start..i * c + start + len]);
+        }
+        let value = Tensor::new_from_vec(out, &[r, len])?;
+        Ok(Var::from_op(
+            value,
+            vec![self.clone()],
+            Box::new(move |g, _p| {
+                let gd = g.data();
+                let mut dx = vec![0.0f32; r * c];
+                for i in 0..r {
+                    dx[i * c + start..i * c + start + len]
+                        .copy_from_slice(&gd[i * len..(i + 1) * len]);
+                }
+                Ok(vec![Tensor::new_from_vec(dx, &[r, c])?])
+            }),
+        ))
+    }
+
     /// Add a bias `[C]` broadcast over the leading dims of `self` `[.., C]`.
     pub fn bias_add(&self, bias: &Var) -> MlResult<Var> {
         let x = self.value();
