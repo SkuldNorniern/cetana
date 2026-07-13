@@ -12,9 +12,10 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::MlResult;
-use crate::backend::DeviceType;
+use crate::backend::{Backend, DeviceType};
 use crate::tensor::Tensor;
 
 // ── host-math helpers (hand-written multi-thread, no external deps) ──────────
@@ -31,7 +32,9 @@ fn worker_count(len: usize) -> usize {
     if len < PAR_MIN {
         return 1;
     }
-    let hw = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let hw = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
     hw.min(len / (PAR_MIN / 2)).max(1)
 }
 
@@ -89,7 +92,11 @@ fn map2(a: &[f32], b: &[f32], f: impl Fn(f32, f32) -> f32 + Sync) -> Vec<f32> {
     let mut out = vec![0.0f32; a.len()];
     let chunk = a.len().div_ceil(workers);
     std::thread::scope(|scope| {
-        for ((dst, sa), sb) in out.chunks_mut(chunk).zip(a.chunks(chunk)).zip(b.chunks(chunk)) {
+        for ((dst, sa), sb) in out
+            .chunks_mut(chunk)
+            .zip(a.chunks(chunk))
+            .zip(b.chunks(chunk))
+        {
             let f = &f;
             scope.spawn(move || {
                 for ((o, &x), &y) in dst.iter_mut().zip(sa).zip(sb) {
@@ -149,12 +156,44 @@ fn transpose_fast(t: &Tensor, d0: i32, d1: i32) -> MlResult<Tensor> {
 
 type BackwardFn = dyn Fn(&Tensor, &[Var]) -> MlResult<Vec<Tensor>>;
 
+enum Val {
+    Host(Tensor),
+    Dev {
+        id: u64,
+        shape: Vec<usize>,
+        backend: Arc<dyn Backend>,
+    },
+}
+
+fn val_shape(value: &Val) -> Vec<usize> {
+    match value {
+        Val::Host(tensor) => tensor.shape().to_vec(),
+        Val::Dev { shape, .. } => shape.clone(),
+    }
+}
+
+fn val_to_host(value: &Val) -> Tensor {
+    match value {
+        Val::Host(tensor) => tensor.clone(),
+        Val::Dev { id, shape, backend } => Tensor::new_from_vec(backend.dev_download(*id), shape)
+            .expect("device-resident tensor has invalid shape"),
+    }
+}
+
 struct VarInner {
-    value: RefCell<Tensor>,
+    value: RefCell<Val>,
     grad: RefCell<Option<Tensor>>,
     requires_grad: bool,
     parents: Vec<Var>,
     backward: Option<Box<BackwardFn>>,
+}
+
+impl Drop for VarInner {
+    fn drop(&mut self) {
+        if let Val::Dev { id, backend, .. } = self.value.get_mut() {
+            backend.dev_free(*id);
+        }
+    }
 }
 
 /// A node on the autograd tape: an `f32` tensor value plus the recipe to backprop through it.
@@ -165,7 +204,7 @@ impl Var {
     /// A leaf tensor. Set `requires_grad` for trainable parameters and inputs you want grads for.
     pub fn leaf(value: Tensor, requires_grad: bool) -> Self {
         Var(Rc::new(VarInner {
-            value: RefCell::new(value),
+            value: RefCell::new(Val::Host(value)),
             grad: RefCell::new(None),
             requires_grad,
             parents: Vec::new(),
@@ -184,6 +223,10 @@ impl Var {
     }
 
     fn from_op(value: Tensor, parents: Vec<Var>, backward: Box<BackwardFn>) -> Self {
+        Self::from_op_val(Val::Host(value), parents, backward)
+    }
+
+    fn from_op_val(value: Val, parents: Vec<Var>, backward: Box<BackwardFn>) -> Self {
         Var(Rc::new(VarInner {
             value: RefCell::new(value),
             grad: RefCell::new(None),
@@ -195,11 +238,11 @@ impl Var {
 
     /// Current value (cloned; shares the underlying `Arc` data cheaply).
     pub fn value(&self) -> Tensor {
-        self.0.value.borrow().clone()
+        val_to_host(&self.0.value.borrow())
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        self.0.value.borrow().shape().to_vec()
+        val_shape(&self.0.value.borrow())
     }
 
     fn id(&self) -> usize {
@@ -213,7 +256,10 @@ impl Var {
 
     /// Overwrite the stored value (used by optimizers to apply an update in place).
     pub fn set_value(&self, value: Tensor) {
-        *self.0.value.borrow_mut() = value;
+        let old = self.0.value.replace(Val::Host(value));
+        if let Val::Dev { id, backend, .. } = old {
+            backend.dev_free(id);
+        }
     }
 
     /// Clear the accumulated gradient.
@@ -251,7 +297,7 @@ impl Var {
         }
         build(self, &mut visited, &mut topo);
 
-        self.accumulate(Tensor::ones(self.0.value.borrow().shape())?)?;
+        self.accumulate(Tensor::ones(&self.shape())?)?;
 
         for v in topo.iter().rev() {
             let Some(backward) = &v.0.backward else {
@@ -296,6 +342,66 @@ fn active_backend(t: &Tensor) -> std::sync::Arc<dyn crate::backend::Backend> {
         .unwrap_or_else(|| t.get_backend())
 }
 
+fn active_backend_for_var(v: &Var) -> Arc<dyn Backend> {
+    THREAD_BACKEND.with(|slot| {
+        slot.borrow()
+            .clone()
+            .unwrap_or_else(|| match &*v.0.value.borrow() {
+                Val::Host(tensor) => tensor.get_backend(),
+                Val::Dev { backend, .. } => backend.clone(),
+            })
+    })
+}
+
+enum DevRef {
+    /// A temporary upload owned by the current op.
+    Owned(u64),
+    /// A resident ID borrowed from an operand Var.
+    Borrowed(u64),
+}
+
+impl DevRef {
+    fn id(&self) -> u64 {
+        match self {
+            DevRef::Owned(id) | DevRef::Borrowed(id) => *id,
+        }
+    }
+
+    fn free_temp(self, backend: &Arc<dyn Backend>) {
+        if let DevRef::Owned(id) = self {
+            backend.dev_free(id);
+        }
+    }
+}
+
+fn as_dev(v: &Var, backend: &Arc<dyn Backend>) -> (DevRef, Vec<usize>) {
+    let value = v.0.value.borrow();
+    match &*value {
+        Val::Dev {
+            id,
+            shape,
+            backend: resident_backend,
+        } if Arc::ptr_eq(resident_backend, backend) => (DevRef::Borrowed(*id), shape.clone()),
+        Val::Host(tensor) => (
+            DevRef::Owned(backend.dev_upload(tensor.data())),
+            tensor.shape().to_vec(),
+        ),
+        Val::Dev {
+            id,
+            shape,
+            backend: resident_backend,
+        } => (
+            DevRef::Owned(backend.dev_upload(&resident_backend.dev_download(*id))),
+            shape.clone(),
+        ),
+    }
+}
+
+fn resident_val(id: u64, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Val {
+    debug_assert_eq!(backend.dev_len(id), numel(&shape));
+    Val::Dev { id, shape, backend }
+}
+
 /// 2-D matmul that offloads to the tensor's backend when it is not the CPU.
 ///
 /// This is the one heavy op we route explicitly: for a GPU (`Zen`/ROCm) backend it calls
@@ -321,6 +427,20 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> MlResult<Tensor> {
 impl Var {
     /// Element-wise add (equal shapes).
     pub fn add(&self, other: &Var) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (a, shape) = as_dev(self, &backend);
+            let (b, other_shape) = as_dev(other, &backend);
+            assert_eq!(shape, other_shape, "add shape mismatch");
+            let id = backend.dev_add(a.id(), b.id());
+            a.free_temp(&backend);
+            b.free_temp(&backend);
+            return Ok(Var::from_op_val(
+                resident_val(id, shape, backend),
+                vec![self.clone(), other.clone()],
+                Box::new(|g, _p| Ok(vec![g.clone(), g.clone()])),
+            ));
+        }
         let value = ew2(&self.value(), &other.value(), |a, b| a + b)?;
         Ok(Var::from_op(
             value,
@@ -331,6 +451,23 @@ impl Var {
 
     /// Element-wise subtract (equal shapes).
     pub fn sub(&self, other: &Var) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (a, shape) = as_dev(self, &backend);
+            let (b, other_shape) = as_dev(other, &backend);
+            assert_eq!(shape, other_shape, "sub shape mismatch");
+            let id = backend.dev_sub(a.id(), b.id());
+            a.free_temp(&backend);
+            b.free_temp(&backend);
+            return Ok(Var::from_op_val(
+                resident_val(id, shape, backend),
+                vec![self.clone(), other.clone()],
+                Box::new(|g, _p| {
+                    let neg = Tensor::new_from_vec(map1(g.data(), |x| -x), g.shape())?;
+                    Ok(vec![g.clone(), neg])
+                }),
+            ));
+        }
         let value = ew2(&self.value(), &other.value(), |a, b| a - b)?;
         Ok(Var::from_op(
             value,
@@ -344,6 +481,24 @@ impl Var {
 
     /// Element-wise multiply (equal shapes).
     pub fn mul(&self, other: &Var) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (a, shape) = as_dev(self, &backend);
+            let (b, other_shape) = as_dev(other, &backend);
+            assert_eq!(shape, other_shape, "mul shape mismatch");
+            let id = backend.dev_mul(a.id(), b.id());
+            a.free_temp(&backend);
+            b.free_temp(&backend);
+            return Ok(Var::from_op_val(
+                resident_val(id, shape, backend),
+                vec![self.clone(), other.clone()],
+                Box::new(|g, p| {
+                    let a = p[0].value();
+                    let b = p[1].value();
+                    Ok(vec![ew2(g, &b, |x, y| x * y)?, ew2(g, &a, |x, y| x * y)?])
+                }),
+            ));
+        }
         let value = ew2(&self.value(), &other.value(), |a, b| a * b)?;
         Ok(Var::from_op(
             value,
@@ -364,13 +519,40 @@ impl Var {
             value,
             vec![self.clone()],
             Box::new(move |g, _p| {
-                Ok(vec![Tensor::new_from_vec(map1(g.data(), |x| x * s), g.shape())?])
+                Ok(vec![Tensor::new_from_vec(
+                    map1(g.data(), |x| x * s),
+                    g.shape(),
+                )?])
             }),
         ))
     }
 
     /// 2-D matmul `[m,k] @ [k,n] -> [m,n]` (GPU-routed via [`matmul`]).
     pub fn matmul(&self, other: &Var) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (a, as_) = as_dev(self, &backend);
+            let (b, bs) = as_dev(other, &backend);
+            assert_eq!(as_.len(), 2, "matmul lhs must be 2-D");
+            assert_eq!(bs.len(), 2, "matmul rhs must be 2-D");
+            let (m, k) = (as_[0], as_[1]);
+            let n = bs[1];
+            assert_eq!(bs[0], k, "matmul inner dim mismatch");
+            let id = backend.dev_matmul(a.id(), b.id(), m, n, k);
+            a.free_temp(&backend);
+            b.free_temp(&backend);
+            return Ok(Var::from_op_val(
+                resident_val(id, vec![m, n], backend),
+                vec![self.clone(), other.clone()],
+                Box::new(|g, p| {
+                    let a = p[0].value();
+                    let b = p[1].value();
+                    let da = matmul(g, &transpose_fast(&b, 0, 1)?)?;
+                    let db = matmul(&transpose_fast(&a, 0, 1)?, g)?;
+                    Ok(vec![da, db])
+                }),
+            ));
+        }
         let value = matmul(&self.value(), &other.value())?;
         Ok(Var::from_op(
             value,
@@ -547,8 +729,7 @@ impl Var {
         let xd = x.data();
         let mut out = vec![0.0f32; r * len];
         for i in 0..r {
-            out[i * len..(i + 1) * len]
-                .copy_from_slice(&xd[i * c + start..i * c + start + len]);
+            out[i * len..(i + 1) * len].copy_from_slice(&xd[i * c + start..i * c + start + len]);
         }
         let value = Tensor::new_from_vec(out, &[r, len])?;
         Ok(Var::from_op(
@@ -602,6 +783,38 @@ impl Var {
     /// Batched matmul over the last two dims: `[.., m, k] @ [.., k, n] -> [.., m, n]`
     /// (GPU-routed via [`bmm`]).
     pub fn bmm(&self, other: &Var) -> MlResult<Var> {
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let as_ = self.shape();
+            let bs = other.shape();
+            let ar = as_.len();
+            let br = bs.len();
+            if ar >= 3 && ar == br && as_[..ar - 2] == bs[..br - 2] {
+                let (a, _) = as_dev(self, &backend);
+                let (b, _) = as_dev(other, &backend);
+                let batch: usize = as_[..ar - 2].iter().product();
+                let (m, k) = (as_[ar - 2], as_[ar - 1]);
+                let n = bs[br - 1];
+                assert_eq!(bs[br - 2], k, "bmm inner dim mismatch");
+                let id = backend.dev_matmul_batched(a.id(), b.id(), batch, m, n, k);
+                a.free_temp(&backend);
+                b.free_temp(&backend);
+                let mut shape = as_[..ar - 2].to_vec();
+                shape.push(m);
+                shape.push(n);
+                return Ok(Var::from_op_val(
+                    resident_val(id, shape, backend),
+                    vec![self.clone(), other.clone()],
+                    Box::new(|g, p| {
+                        let a = p[0].value();
+                        let b = p[1].value();
+                        let da = bmm(g, &transpose_fast(&b, -2, -1)?)?;
+                        let db = bmm(&transpose_fast(&a, -2, -1)?, g)?;
+                        Ok(vec![da, db])
+                    }),
+                ));
+            }
+        }
         let value = bmm(&self.value(), &other.value())?;
         Ok(Var::from_op(
             value,
@@ -737,8 +950,7 @@ impl Var {
                     // dxhat = g * gamma
                     let dxhat: Vec<f32> = (0..d).map(|j| gr[j] * gd[j]).collect();
                     let mean_dxhat = dxhat.iter().sum::<f32>() / d as f32;
-                    let mean_dxhat_xhat =
-                        (0..d).map(|j| dxhat[j] * xh[j]).sum::<f32>() / d as f32;
+                    let mean_dxhat_xhat = (0..d).map(|j| dxhat[j] * xh[j]).sum::<f32>() / d as f32;
                     for j in 0..d {
                         row[j] = istd * (dxhat[j] - mean_dxhat - xh[j] * mean_dxhat_xhat);
                     }
@@ -857,8 +1069,14 @@ pub struct Adam {
 
 impl Adam {
     pub fn new(params: Vec<Var>, lr: f32, weight_decay: f32) -> Self {
-        let m = params.iter().map(|p| vec![0.0; numel(&p.shape())]).collect();
-        let v = params.iter().map(|p| vec![0.0; numel(&p.shape())]).collect();
+        let m = params
+            .iter()
+            .map(|p| vec![0.0; numel(&p.shape())])
+            .collect();
+        let v = params
+            .iter()
+            .map(|p| vec![0.0; numel(&p.shape())])
+            .collect();
         Adam {
             params,
             lr,
@@ -954,9 +1172,7 @@ mod tests {
     #[test]
     fn gradcheck_ops() -> MlResult<()> {
         let mk = || {
-            Var::param(
-                Tensor::new_from_vec(vec![0.3, -1.2, 0.8, 2.1, -0.5, 0.1], &[2, 3]).unwrap(),
-            )
+            Var::param(Tensor::new_from_vec(vec![0.3, -1.2, 0.8, 2.1, -0.5, 0.1], &[2, 3]).unwrap())
         };
         // weight vector to make a scalar out of the op output
         let w = Tensor::new_from_vec(vec![0.5, -0.3, 0.9, 0.2, 0.7, -0.6], &[2, 3])?;
@@ -965,7 +1181,12 @@ mod tests {
         let x = mk();
         let scalar = |x: &Var| -> MlResult<f32> {
             let y = x.softmax_last()?;
-            Ok(y.value().data().iter().zip(w.data()).map(|(a, b)| a * b).sum())
+            Ok(y.value()
+                .data()
+                .iter()
+                .zip(w.data())
+                .map(|(a, b)| a * b)
+                .sum())
         };
         let num = numgrad(&x, || scalar(&x))?;
         x.zero_grad();
@@ -981,10 +1202,19 @@ mod tests {
         let x = mk();
         let num = numgrad(&x, || {
             let y = x.gelu()?;
-            Ok(y.value().data().iter().zip(w.data()).map(|(a, b)| a * b).sum())
+            Ok(y.value()
+                .data()
+                .iter()
+                .zip(w.data())
+                .map(|(a, b)| a * b)
+                .sum())
         })?;
         x.zero_grad();
-        let loss = x.gelu()?.mul(&Var::constant(w.clone()))?.mean()?.mul_scalar(6.0)?;
+        let loss = x
+            .gelu()?
+            .mul(&Var::constant(w.clone()))?
+            .mean()?
+            .mul_scalar(6.0)?;
         loss.backward()?;
         let ana = x.grad().unwrap();
         for (a, n) in ana.data().iter().zip(&num) {
@@ -997,7 +1227,12 @@ mod tests {
         let beta = Var::constant(Tensor::new_from_vec(vec![0.0, 0.0, 0.0], &[3])?);
         let num = numgrad(&x, || {
             let y = x.layernorm(&gamma, &beta, 1e-5)?;
-            Ok(y.value().data().iter().zip(w.data()).map(|(a, b)| a * b).sum())
+            Ok(y.value()
+                .data()
+                .iter()
+                .zip(w.data())
+                .map(|(a, b)| a * b)
+                .sum())
         })?;
         x.zero_grad();
         let loss = x
@@ -1044,10 +1279,7 @@ mod tests {
     #[test]
     fn linear_regression_converges() -> MlResult<()> {
         // Data: 4 samples, 2 features. Target uses true weights [1.5, -2.0].
-        let x = Tensor::new_from_vec(
-            vec![1.0, 2.0, 2.0, 1.0, 0.5, -1.0, 3.0, 0.0],
-            &[4, 2],
-        )?;
+        let x = Tensor::new_from_vec(vec![1.0, 2.0, 2.0, 1.0, 0.5, -1.0, 3.0, 0.0], &[4, 2])?;
         let y = Tensor::new_from_vec(
             vec![
                 1.0 * 1.5 + 2.0 * -2.0,
@@ -1081,8 +1313,14 @@ mod tests {
             w.set_value(updated);
         }
 
-        assert!(first > 1.0, "expected non-trivial initial loss, got {first}");
-        assert!(last < 1e-3, "loss did not converge: first={first} last={last}");
+        assert!(
+            first > 1.0,
+            "expected non-trivial initial loss, got {first}"
+        );
+        assert!(
+            last < 1e-3,
+            "loss did not converge: first={first} last={last}"
+        );
         Ok(())
     }
 }

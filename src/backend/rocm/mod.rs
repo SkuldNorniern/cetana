@@ -1,22 +1,39 @@
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use laminax_runtime::ZenEngine;
 
 use crate::backend::{Backend, DeviceType};
 
+pub fn zen_prof_report() -> String {
+    laminax_runtime::zen::prof_report()
+}
+
 pub struct RocmBackend {
     engine: ZenEngine,
+    residents: Mutex<HashMap<u64, laminax_runtime::zen::DevTensor>>,
+    next_id: AtomicU64,
 }
 
 impl RocmBackend {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self { engine: ZenEngine::new()? })
+        Ok(Self {
+            engine: ZenEngine::new()?,
+            residents: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        })
     }
 
     /// Backend bound to the `index`-th GPU adapter (multi-GPU: one backend per device,
     /// driven from separate threads).
     pub fn with_device(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self { engine: ZenEngine::with_adapter(index)? })
+        Ok(Self {
+            engine: ZenEngine::with_adapter(index)?,
+            residents: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        })
     }
 
     /// Number of visible GPU adapters.
@@ -27,6 +44,12 @@ impl RocmBackend {
     /// Name of the underlying GPU/adapter (e.g. `gfx1200` for RX 9060 XT).
     pub fn device_name(&self) -> String {
         self.engine.device_name()
+    }
+
+    fn store(&self, tensor: laminax_runtime::zen::DevTensor) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.residents.lock().unwrap().insert(id, tensor);
+        id
     }
 }
 
@@ -62,7 +85,9 @@ impl Backend for RocmBackend {
     }
 
     fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-        self.engine.matmul(a, b, m, n, k).expect("ZenEngine::matmul")
+        self.engine
+            .matmul(a, b, m, n, k)
+            .expect("ZenEngine::matmul")
     }
 
     fn matmul_batched(
@@ -101,5 +126,103 @@ impl Backend for RocmBackend {
 
     fn mean(&self, a: &[f32]) -> f32 {
         self.engine.mean(a).expect("ZenEngine::mean")
+    }
+
+    fn residency(&self) -> bool {
+        true
+    }
+
+    fn dev_upload(&self, d: &[f32]) -> u64 {
+        let tensor = self.engine.upload_dev(d).expect("ZenEngine::upload_dev");
+        self.store(tensor)
+    }
+
+    fn dev_download(&self, id: u64) -> Vec<f32> {
+        let residents = self.residents.lock().unwrap();
+        self.engine
+            .download_dev(&residents[&id])
+            .expect("ZenEngine::download_dev")
+    }
+
+    fn dev_free(&self, id: u64) {
+        let tensor = self
+            .residents
+            .lock()
+            .unwrap()
+            .remove(&id)
+            .expect("invalid resident tensor id");
+        self.engine.free_dev(tensor);
+    }
+
+    fn dev_len(&self, id: u64) -> usize {
+        self.residents.lock().unwrap()[&id].len()
+    }
+
+    fn dev_matmul(&self, a: u64, b: u64, m: usize, n: usize, k: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .matmul_dev(&residents[&a], &residents[&b], m, n, k)
+                .expect("ZenEngine::matmul_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_matmul_batched(
+        &self,
+        a: u64,
+        b: u64,
+        batch: usize,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .matmul_batched_dev(&residents[&a], &residents[&b], batch, m, n, k)
+                .expect("ZenEngine::matmul_batched_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_add(&self, a: u64, b: u64) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .add_dev(&residents[&a], &residents[&b])
+                .expect("ZenEngine::add_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_sub(&self, a: u64, b: u64) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .sub_dev(&residents[&a], &residents[&b])
+                .expect("ZenEngine::sub_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_mul(&self, a: u64, b: u64) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .mul_dev(&residents[&a], &residents[&b])
+                .expect("ZenEngine::mul_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_div(&self, a: u64, b: u64) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .div_dev(&residents[&a], &residents[&b])
+                .expect("ZenEngine::div_dev")
+        };
+        self.store(tensor)
     }
 }

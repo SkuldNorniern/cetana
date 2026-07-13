@@ -28,8 +28,8 @@ mod feature;
 mod graph;
 
 pub use device::{Device, DeviceManager, DeviceType};
-pub use graph::{execute_graph, execute_graph_parallel};
 pub use feature::DeviceFeatures;
+pub use graph::{execute_graph, execute_graph_parallel};
 
 #[cfg(feature = "cpu")]
 pub use cpu::CpuBackend;
@@ -37,10 +37,10 @@ pub use cpu::CpuBackend;
 pub use cuda::{CudaBackend, CudaBackendError};
 #[cfg(feature = "mps")]
 pub use mps::{MpsBackend, MpsError};
+#[cfg(feature = "rocm")]
+pub use rocm::{RocmBackend, zen_prof_report};
 #[cfg(feature = "vulkan")]
 pub use vulkan::{VulkanBackend, VulkanError};
-#[cfg(feature = "rocm")]
-pub use rocm::RocmBackend;
 
 pub trait Backend: Debug + Send + Sync {
     fn device(&self) -> DeviceType;
@@ -79,6 +79,47 @@ pub trait Backend: Debug + Send + Sync {
     fn sqrt(&self, a: &[f32]) -> Vec<f32>;
     fn sum(&self, a: &[f32]) -> f32;
     fn mean(&self, a: &[f32]) -> f32;
+
+    /// Whether this backend supports keeping autograd values device-resident.
+    fn residency(&self) -> bool {
+        false
+    }
+    fn dev_upload(&self, _d: &[f32]) -> u64 {
+        unreachable!("residency unsupported")
+    }
+    fn dev_download(&self, _id: u64) -> Vec<f32> {
+        unreachable!()
+    }
+    fn dev_free(&self, _id: u64) {}
+    fn dev_len(&self, _id: u64) -> usize {
+        0
+    }
+    fn dev_matmul(&self, _a: u64, _b: u64, _m: usize, _n: usize, _k: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_matmul_batched(
+        &self,
+        _a: u64,
+        _b: u64,
+        _batch: usize,
+        _m: usize,
+        _n: usize,
+        _k: usize,
+    ) -> u64 {
+        unreachable!()
+    }
+    fn dev_add(&self, _a: u64, _b: u64) -> u64 {
+        unreachable!()
+    }
+    fn dev_sub(&self, _a: u64, _b: u64) -> u64 {
+        unreachable!()
+    }
+    fn dev_mul(&self, _a: u64, _b: u64) -> u64 {
+        unreachable!()
+    }
+    fn dev_div(&self, _a: u64, _b: u64) -> u64 {
+        unreachable!()
+    }
 }
 
 #[derive(Debug)]
