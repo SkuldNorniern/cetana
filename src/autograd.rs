@@ -16,6 +16,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 
+use numina::DTypeId;
+
 use crate::MlResult;
 use crate::backend::{Backend, DeviceType};
 use crate::tensor::Tensor;
@@ -555,6 +557,70 @@ fn resident_val(id: u64, shape: Vec<usize>, backend: Arc<dyn Backend>) -> Val {
     Val::Dev { id, shape, backend }
 }
 
+fn navi_bf16() -> bool {
+    std::env::var_os("NAVI_BF16").is_some()
+}
+
+fn bf16_operand(id: u64, backend: &Arc<dyn Backend>) -> (u64, bool) {
+    if backend.dev_dtype(id) == DTypeId::BF16 {
+        (id, false)
+    } else {
+        (backend.dev_cast(id, DTypeId::BF16), true)
+    }
+}
+
+fn dev_matmul_selected(
+    backend: &Arc<dyn Backend>,
+    a: u64,
+    b: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> u64 {
+    if !navi_bf16() {
+        return backend.dev_matmul(a, b, m, n, k);
+    }
+    let (a_bf16, free_a) = bf16_operand(a, backend);
+    let (b_bf16, free_b) = bf16_operand(b, backend);
+    let out_bf16 = backend.dev_matmul_bf16(a_bf16, b_bf16, m, n, k);
+    if free_a {
+        backend.dev_free(a_bf16);
+    }
+    if free_b {
+        backend.dev_free(b_bf16);
+    }
+    let out = backend.dev_cast(out_bf16, DTypeId::F32);
+    backend.dev_free(out_bf16);
+    out
+}
+
+fn dev_matmul_batched_selected(
+    backend: &Arc<dyn Backend>,
+    a: u64,
+    b: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> u64 {
+    if !navi_bf16() {
+        return backend.dev_matmul_batched(a, b, batch, m, n, k);
+    }
+    let (a_bf16, free_a) = bf16_operand(a, backend);
+    let (b_bf16, free_b) = bf16_operand(b, backend);
+    let out_bf16 =
+        backend.dev_matmul_batched_bf16(a_bf16, b_bf16, batch, m, n, k);
+    if free_a {
+        backend.dev_free(a_bf16);
+    }
+    if free_b {
+        backend.dev_free(b_bf16);
+    }
+    let out = backend.dev_cast(out_bf16, DTypeId::F32);
+    backend.dev_free(out_bf16);
+    out
+}
+
 struct SavedDev {
     id: u64,
     owned: bool,
@@ -800,7 +866,7 @@ impl Var {
             let (m, k) = (as_[0], as_[1]);
             let n = bs[1];
             assert_eq!(bs[0], k, "matmul inner dim mismatch");
-            let id = backend.dev_matmul(a.id(), b.id(), m, n, k);
+            let id = dev_matmul_selected(&backend, a.id(), b.id(), m, n, k);
             a.free_temp(&backend);
             b.free_temp(&backend);
             let backward_backend = backend.clone();
@@ -815,8 +881,8 @@ impl Var {
                     let (gd, _) = val_as_dev(g, &backward_backend);
                     let bt = backward_backend.dev_transpose2d(b.id(), k, n);
                     let at = backward_backend.dev_transpose2d(a.id(), m, k);
-                    let da = backward_backend.dev_matmul(gd.id(), bt, m, k, n);
-                    let db = backward_backend.dev_matmul(at, gd.id(), k, n, m);
+                    let da = dev_matmul_selected(&backward_backend, gd.id(), bt, m, k, n);
+                    let db = dev_matmul_selected(&backward_backend, at, gd.id(), k, n, m);
                     backward_backend.dev_free(bt);
                     backward_backend.dev_free(at);
                     a.free_temp(&backward_backend);
@@ -1149,7 +1215,8 @@ impl Var {
                 let (m, k) = (as_[ar - 2], as_[ar - 1]);
                 let n = bs[br - 1];
                 assert_eq!(bs[br - 2], k, "bmm inner dim mismatch");
-                let id = backend.dev_matmul_batched(a.id(), b.id(), batch, m, n, k);
+                let id =
+                    dev_matmul_batched_selected(&backend, a.id(), b.id(), batch, m, n, k);
                 a.free_temp(&backend);
                 b.free_temp(&backend);
                 let mut shape = as_[..ar - 2].to_vec();
@@ -1167,8 +1234,24 @@ impl Var {
                         let (gd, _) = val_as_dev(g, &backward_backend);
                         let bt = backward_backend.dev_transpose_last2(b.id(), batch, k, n);
                         let at = backward_backend.dev_transpose_last2(a.id(), batch, m, k);
-                        let da = backward_backend.dev_matmul_batched(gd.id(), bt, batch, m, k, n);
-                        let db = backward_backend.dev_matmul_batched(at, gd.id(), batch, k, n, m);
+                        let da = dev_matmul_batched_selected(
+                            &backward_backend,
+                            gd.id(),
+                            bt,
+                            batch,
+                            m,
+                            k,
+                            n,
+                        );
+                        let db = dev_matmul_batched_selected(
+                            &backward_backend,
+                            at,
+                            gd.id(),
+                            batch,
+                            k,
+                            n,
+                            m,
+                        );
                         backward_backend.dev_free(bt);
                         backward_backend.dev_free(at);
                         a.free_temp(&backward_backend);

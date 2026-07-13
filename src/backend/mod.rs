@@ -128,6 +128,17 @@ pub trait Backend: Debug + Send + Sync {
     ) -> u64 {
         unreachable!()
     }
+    fn dev_matmul_batched_bf16(
+        &self,
+        _a: u64,
+        _b: u64,
+        _batch: usize,
+        _m: usize,
+        _n: usize,
+        _k: usize,
+    ) -> u64 {
+        unreachable!()
+    }
     fn dev_add(&self, _a: u64, _b: u64) -> u64 {
         unreachable!()
     }

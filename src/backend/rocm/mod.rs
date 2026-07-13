@@ -230,6 +230,24 @@ impl Backend for RocmBackend {
         self.store(tensor)
     }
 
+    fn dev_matmul_batched_bf16(
+        &self,
+        a: u64,
+        b: u64,
+        batch: usize,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .matmul_batched_bf16_dev(&residents[&a], &residents[&b], batch, m, n, k)
+                .expect("ZenEngine::matmul_batched_bf16_dev")
+        };
+        self.store(tensor)
+    }
+
     fn dev_add(&self, a: u64, b: u64) -> u64 {
         let tensor = {
             let residents = self.residents.lock().unwrap();
