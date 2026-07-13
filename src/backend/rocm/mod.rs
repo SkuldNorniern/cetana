@@ -355,4 +355,91 @@ impl Backend for RocmBackend {
         };
         (self.store(dx), self.store(dgamma), self.store(dbeta))
     }
+
+    fn dev_cross_entropy(&self, logits: u64, targets: u64, n: usize, v: usize) -> (u64, u64) {
+        let (probs, rowloss) = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .cross_entropy_dev(&residents[&logits], &residents[&targets], n, v)
+                .expect("ZenEngine::cross_entropy_dev")
+        };
+        (self.store(probs), self.store(rowloss))
+    }
+
+    fn dev_cross_entropy_bwd(
+        &self,
+        probs: u64,
+        targets: u64,
+        n: usize,
+        v: usize,
+        scale: f32,
+    ) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .cross_entropy_bwd_dev(&residents[&probs], &residents[&targets], n, v, scale)
+                .expect("ZenEngine::cross_entropy_bwd_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_embedding(&self, weight: u64, idx: u64, vocab: usize, n: usize, c: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .embedding_dev(&residents[&weight], &residents[&idx], vocab, n, c)
+                .expect("ZenEngine::embedding_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_embedding_bwd(&self, g: u64, idx: u64, vocab: usize, n: usize, c: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .embedding_bwd_dev(&residents[&g], &residents[&idx], vocab, n, c)
+                .expect("ZenEngine::embedding_bwd_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_bias_add(&self, x: u64, bias: u64, c: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .bias_add_dev(&residents[&x], &residents[&bias], c)
+                .expect("ZenEngine::bias_add_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_bias_rowsum(&self, g: u64, rows: usize, c: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .bias_rowsum_dev(&residents[&g], rows, c)
+                .expect("ZenEngine::bias_rowsum_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_slice_cols(&self, x: u64, r: usize, c: usize, len: usize, start: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .slice_cols_dev(&residents[&x], r, c, len, start)
+                .expect("ZenEngine::slice_cols_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_slice_cols_bwd(&self, g: u64, r: usize, c: usize, len: usize, start: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .slice_cols_bwd_dev(&residents[&g], r, c, len, start)
+                .expect("ZenEngine::slice_cols_bwd_dev")
+        };
+        self.store(tensor)
+    }
 }

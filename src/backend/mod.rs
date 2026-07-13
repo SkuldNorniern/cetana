@@ -166,6 +166,37 @@ pub trait Backend: Debug + Send + Sync {
     ) -> (u64, u64, u64) {
         unreachable!()
     }
+    fn dev_cross_entropy(&self, _logits: u64, _targets: u64, _n: usize, _v: usize) -> (u64, u64) {
+        unreachable!()
+    }
+    fn dev_cross_entropy_bwd(
+        &self,
+        _probs: u64,
+        _targets: u64,
+        _n: usize,
+        _v: usize,
+        _scale: f32,
+    ) -> u64 {
+        unreachable!()
+    }
+    fn dev_embedding(&self, _weight: u64, _idx: u64, _vocab: usize, _n: usize, _c: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_embedding_bwd(&self, _g: u64, _idx: u64, _vocab: usize, _n: usize, _c: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_bias_add(&self, _x: u64, _bias: u64, _c: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_bias_rowsum(&self, _g: u64, _rows: usize, _c: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_slice_cols(&self, _x: u64, _r: usize, _c: usize, _len: usize, _start: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_slice_cols_bwd(&self, _g: u64, _r: usize, _c: usize, _len: usize, _start: usize) -> u64 {
+        unreachable!()
+    }
 }
 
 #[derive(Debug)]

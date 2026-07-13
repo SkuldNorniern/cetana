@@ -952,6 +952,34 @@ impl Var {
     /// Reshape (same element count).
     pub fn reshape(&self, shape: &[usize]) -> MlResult<Var> {
         let in_shape = self.shape();
+        assert_eq!(
+            numel(&in_shape),
+            numel(shape),
+            "reshape element count mismatch"
+        );
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (x, _) = as_dev(self, &backend);
+            let id = backend.dev_copy(x.id());
+            x.free_temp(&backend);
+            let out_shape = shape.to_vec();
+            let backward_backend = backend.clone();
+            let backward_shape = in_shape.clone();
+            return Ok(Var::from_op_val(
+                resident_val(id, out_shape, backend),
+                vec![self.clone()],
+                Box::new(move |g, _p| {
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let dx = backward_backend.dev_copy(gd.id());
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![resident_val(
+                        dx,
+                        backward_shape.clone(),
+                        backward_backend.clone(),
+                    )])
+                }),
+            ));
+        }
         let dims: Vec<isize> = shape.iter().map(|&d| d as isize).collect();
         let value = self.value().reshape(&dims)?;
         Ok(Var::from_op(
@@ -978,11 +1006,28 @@ impl Var {
     /// Column slice of a 2-D tensor: `[R, C] -> [R, len]` taking columns `start..start+len`.
     /// Backward scatters the gradient back into the sliced columns (rest zero).
     pub fn slice_cols(&self, start: usize, len: usize) -> MlResult<Var> {
-        let x = self.value();
-        let shape = x.shape().to_vec();
+        let shape = self.shape();
         assert_eq!(shape.len(), 2, "slice_cols expects 2-D input");
         let (r, c) = (shape[0], shape[1]);
         assert!(start + len <= c, "slice_cols out of range");
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (x, _) = as_dev(self, &backend);
+            let id = backend.dev_slice_cols(x.id(), r, c, len, start);
+            x.free_temp(&backend);
+            let backward_backend = backend.clone();
+            return Ok(Var::from_op_val(
+                resident_val(id, vec![r, len], backend),
+                vec![self.clone()],
+                Box::new(move |g, _p| {
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let dx = backward_backend.dev_slice_cols_bwd(gd.id(), r, c, len, start);
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![resident_val(dx, vec![r, c], backward_backend.clone())])
+                }),
+            ));
+        }
+        let x = self.value();
         let xd = x.data();
         let mut out = vec![0.0f32; r * len];
         for i in 0..r {
@@ -1007,10 +1052,37 @@ impl Var {
 
     /// Add a bias `[C]` broadcast over the leading dims of `self` `[.., C]`.
     pub fn bias_add(&self, bias: &Var) -> MlResult<Var> {
+        let xs = self.shape();
+        let bs = bias.shape();
+        let c = *xs.last().expect("bias_add expects non-scalar input");
+        assert_eq!(bs, vec![c], "bias_add bias shape mismatch");
+        let rows = numel(&xs) / c;
+        let backend = active_backend_for_var(self);
+        if backend.residency() {
+            let (x, _) = as_dev(self, &backend);
+            let (b, _) = as_dev(bias, &backend);
+            let id = backend.dev_bias_add(x.id(), b.id(), c);
+            x.free_temp(&backend);
+            b.free_temp(&backend);
+            let backward_backend = backend.clone();
+            let backward_xs = xs.clone();
+            return Ok(Var::from_op_val(
+                resident_val(id, xs, backend),
+                vec![self.clone(), bias.clone()],
+                Box::new(move |g, _p| {
+                    let (gd, _) = val_as_dev(g, &backward_backend);
+                    let dx = backward_backend.dev_copy(gd.id());
+                    let db = backward_backend.dev_bias_rowsum(gd.id(), rows, c);
+                    gd.free_temp(&backward_backend);
+                    Ok(vec![
+                        resident_val(dx, backward_xs.clone(), backward_backend.clone()),
+                        resident_val(db, vec![c], backward_backend.clone()),
+                    ])
+                }),
+            ));
+        }
         let x = self.value();
-        let xs = x.shape().to_vec();
         let b = bias.value();
-        let bs = b.shape().to_vec();
         let bcast = broadcast_to(b.data(), &bs, &xs);
         let out = map2(x.data(), &bcast, |a, c| a + c);
         let value = Tensor::new_from_vec(out, &xs)?;
@@ -1340,11 +1412,36 @@ impl Var {
 
 /// Embedding lookup: gather rows of `weight` `[V, C]` by `idx` (length `N`) → `[N, C]`.
 pub fn embedding(weight: &Var, idx: &[usize]) -> MlResult<Var> {
-    let w = weight.value();
-    let c = w.shape()[1];
-    let v = w.shape()[0];
-    let wd = w.data();
+    let shape = weight.shape();
+    assert_eq!(shape.len(), 2, "embedding weight must be 2-D");
+    let (v, c) = (shape[0], shape[1]);
+    assert!(
+        idx.iter().all(|&row| row < v),
+        "embedding index out of range"
+    );
     let n = idx.len();
+    let backend = active_backend_for_var(weight);
+    if backend.residency() {
+        let (w, _) = as_dev(weight, &backend);
+        let idx_data: Vec<f32> = idx.iter().map(|&i| i as f32).collect();
+        let idx_id = backend.dev_upload(&idx_data);
+        let out = backend.dev_embedding(w.id(), idx_id, v, n, c);
+        w.free_temp(&backend);
+        let saved_idx = SavedDev::owned(idx_id, &backend);
+        let backward_backend = backend.clone();
+        return Ok(Var::from_op_val(
+            resident_val(out, vec![n, c], backend),
+            vec![weight.clone()],
+            Box::new(move |g, _p| {
+                let (gd, _) = val_as_dev(g, &backward_backend);
+                let dw = backward_backend.dev_embedding_bwd(gd.id(), saved_idx.id(), v, n, c);
+                gd.free_temp(&backward_backend);
+                Ok(vec![resident_val(dw, vec![v, c], backward_backend.clone())])
+            }),
+        ));
+    }
+    let w = weight.value();
+    let wd = w.data();
     let mut out = vec![0.0f32; n * c];
     for_rows(&mut out, c, |i, dst| {
         let row = idx[i];
@@ -1371,9 +1468,51 @@ pub fn embedding(weight: &Var, idx: &[usize]) -> MlResult<Var> {
 
 /// Softmax cross-entropy from logits `[N, V]` against integer `targets` (length `N`) → mean loss `[1]`.
 pub fn cross_entropy(logits: &Var, targets: &[usize]) -> MlResult<Var> {
-    let x = logits.value();
-    let shape = x.shape().to_vec();
+    let shape = logits.shape();
+    assert_eq!(shape.len(), 2, "cross_entropy logits must be 2-D");
     let (n, v) = (shape[0], shape[1]);
+    assert_eq!(targets.len(), n, "cross_entropy target count mismatch");
+    assert!(
+        targets.iter().all(|&t| t < v),
+        "cross_entropy target out of range"
+    );
+    let backend = active_backend_for_var(logits);
+    if backend.residency() {
+        let (x, _) = as_dev(logits, &backend);
+        let target_data: Vec<f32> = targets.iter().map(|&t| t as f32).collect();
+        let targets_id = backend.dev_upload(&target_data);
+        let (probs_id, rowloss_id) = backend.dev_cross_entropy(x.id(), targets_id, n, v);
+        x.free_temp(&backend);
+        let rowloss = backend.dev_download(rowloss_id);
+        backend.dev_free(rowloss_id);
+        let loss = rowloss.iter().sum::<f32>() / n as f32;
+        let value = Tensor::new_from_vec(vec![loss], &[1])?;
+        let saved_probs = SavedDev::owned(probs_id, &backend);
+        let saved_targets = SavedDev::owned(targets_id, &backend);
+        let backward_backend = backend.clone();
+        let backward_shape = shape.clone();
+        return Ok(Var::from_op(
+            value,
+            vec![logits.clone()],
+            Box::new(move |g, _p| {
+                let gh = val_to_host(g);
+                let scale = gh.data()[0] / n as f32;
+                let dl = backward_backend.dev_cross_entropy_bwd(
+                    saved_probs.id(),
+                    saved_targets.id(),
+                    n,
+                    v,
+                    scale,
+                );
+                Ok(vec![resident_val(
+                    dl,
+                    backward_shape.clone(),
+                    backward_backend.clone(),
+                )])
+            }),
+        ));
+    }
+    let x = logits.value();
     let data = x.data();
     let mut probs = vec![0.0f32; n * v];
     for_rows(&mut probs, v, |r, row| {
