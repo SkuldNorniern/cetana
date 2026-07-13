@@ -9,6 +9,8 @@
 
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
+use numina::DTypeId;
+
 #[cfg(feature = "cpu")]
 mod cpu;
 #[cfg(feature = "cuda")]
@@ -87,10 +89,22 @@ pub trait Backend: Debug + Send + Sync {
     fn dev_upload(&self, _d: &[f32]) -> u64 {
         unreachable!("residency unsupported")
     }
+    fn dev_upload_bf16(&self, _d: &[f32]) -> u64 {
+        unreachable!("residency unsupported")
+    }
     fn dev_zeros(&self, _len: usize) -> u64 {
         unreachable!("residency unsupported")
     }
     fn dev_download(&self, _id: u64) -> Vec<f32> {
+        unreachable!()
+    }
+    fn dev_download_f32(&self, _id: u64) -> Vec<f32> {
+        unreachable!()
+    }
+    fn dev_cast(&self, _id: u64, _to: DTypeId) -> u64 {
+        unreachable!()
+    }
+    fn dev_dtype(&self, _id: u64) -> DTypeId {
         unreachable!()
     }
     fn dev_free(&self, _id: u64) {}
@@ -98,6 +112,9 @@ pub trait Backend: Debug + Send + Sync {
         0
     }
     fn dev_matmul(&self, _a: u64, _b: u64, _m: usize, _n: usize, _k: usize) -> u64 {
+        unreachable!()
+    }
+    fn dev_matmul_bf16(&self, _a: u64, _b: u64, _m: usize, _n: usize, _k: usize) -> u64 {
         unreachable!()
     }
     fn dev_matmul_batched(

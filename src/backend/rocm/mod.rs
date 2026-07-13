@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use laminax_runtime::{ZenEngine, zen};
+use numina::DTypeId;
 use zen::DevTensor;
 
 use crate::backend::{Backend, DeviceType};
@@ -139,6 +140,14 @@ impl Backend for RocmBackend {
         self.store(tensor)
     }
 
+    fn dev_upload_bf16(&self, d: &[f32]) -> u64 {
+        let tensor = self
+            .engine
+            .upload_dev_bf16(d)
+            .expect("ZenEngine::upload_dev_bf16");
+        self.store(tensor)
+    }
+
     fn dev_zeros(&self, len: usize) -> u64 {
         let tensor = self.engine.zeros_dev(len).expect("ZenEngine::zeros_dev");
         self.store(tensor)
@@ -149,6 +158,27 @@ impl Backend for RocmBackend {
         self.engine
             .download_dev(&residents[&id])
             .expect("ZenEngine::download_dev")
+    }
+
+    fn dev_download_f32(&self, id: u64) -> Vec<f32> {
+        let residents = self.residents.lock().unwrap();
+        self.engine
+            .download_dev_f32(&residents[&id])
+            .expect("ZenEngine::download_dev_f32")
+    }
+
+    fn dev_cast(&self, id: u64, to: DTypeId) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .cast_dev(&residents[&id], to)
+                .expect("ZenEngine::cast_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_dtype(&self, id: u64) -> DTypeId {
+        self.residents.lock().unwrap()[&id].dtype()
     }
 
     fn dev_free(&self, id: u64) {
@@ -168,6 +198,16 @@ impl Backend for RocmBackend {
             self.engine
                 .matmul_dev(&residents[&a], &residents[&b], m, n, k)
                 .expect("ZenEngine::matmul_dev")
+        };
+        self.store(tensor)
+    }
+
+    fn dev_matmul_bf16(&self, a: u64, b: u64, m: usize, n: usize, k: usize) -> u64 {
+        let tensor = {
+            let residents = self.residents.lock().unwrap();
+            self.engine
+                .matmul_bf16_dev(&residents[&a], &residents[&b], m, n, k)
+                .expect("ZenEngine::matmul_bf16_dev")
         };
         self.store(tensor)
     }
