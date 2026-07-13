@@ -54,6 +54,20 @@ impl Backend for RocmBackend {
         self.engine.matmul(a, b, m, n, k).expect("ZenEngine::matmul")
     }
 
+    fn matmul_batched(
+        &self,
+        a: &[f32],
+        b: &[f32],
+        batch: usize,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Vec<f32> {
+        self.engine
+            .matmul_batched(a, b, batch, m, n, k)
+            .expect("ZenEngine::matmul_batched")
+    }
+
     fn exp(&self, a: &[f32]) -> Vec<f32> {
         self.engine.exp(a).expect("ZenEngine::exp")
     }

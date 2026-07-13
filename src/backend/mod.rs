@@ -48,6 +48,29 @@ pub trait Backend: Debug + Send + Sync {
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
     fn multiply(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
     fn matmul(&self, a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32>;
+    /// `batch` back-to-back `[m,k] @ [k,n]` products. Default loops over [`Backend::matmul`];
+    /// GPU backends can override with a single batched dispatch.
+    fn matmul_batched(
+        &self,
+        a: &[f32],
+        b: &[f32],
+        batch: usize,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Vec<f32> {
+        let mut out = Vec::with_capacity(batch * m * n);
+        for i in 0..batch {
+            out.extend(self.matmul(
+                &a[i * m * k..(i + 1) * m * k],
+                &b[i * k * n..(i + 1) * k * n],
+                m,
+                n,
+                k,
+            ));
+        }
+        out
+    }
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
     fn exp(&self, a: &[f32]) -> Vec<f32>;
