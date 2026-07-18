@@ -45,6 +45,11 @@ pub use rocm::{RocmBackend, zen_prof_report};
 pub use vulkan::{VulkanBackend, VulkanError};
 
 pub trait Backend: Debug + Send + Sync {
+    #[cfg(feature = "rocm")]
+    fn as_rocm(&self) -> Option<&RocmBackend> {
+        None
+    }
+
     fn device(&self) -> DeviceType;
     fn calc_device_flops(&self) -> f64;
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32>;
@@ -99,6 +104,12 @@ pub trait Backend: Debug + Send + Sync {
         unreachable!()
     }
     fn dev_download_f32(&self, _id: u64) -> Vec<f32> {
+        unreachable!()
+    }
+    fn dev_begin_download_capture(&self) {
+        unreachable!()
+    }
+    fn dev_end_download_capture(&self) -> Vec<u64> {
         unreachable!()
     }
     fn dev_cast(&self, _id: u64, _to: DTypeId) -> u64 {
@@ -163,6 +174,9 @@ pub trait Backend: Debug + Send + Sync {
         unreachable!()
     }
     fn dev_scale(&self, _x: u64, _scale: f32) -> u64 {
+        unreachable!()
+    }
+    fn dev_allreduce_mean(&self, _local_id: u64, _peers: &[(&dyn Backend, u64)]) {
         unreachable!()
     }
     fn dev_transpose2d(&self, _x: u64, _rows: usize, _cols: usize) -> u64 {

@@ -17,6 +17,7 @@ pub fn zen_prof_report() -> String {
 pub struct RocmBackend {
     engine: ZenEngine,
     residents: Mutex<HashMap<u64, DevTensor>>,
+    download_capture: Mutex<Option<Vec<u64>>>,
     next_id: AtomicU64,
 }
 
@@ -25,6 +26,7 @@ impl RocmBackend {
         Ok(Self {
             engine: ZenEngine::new()?,
             residents: Mutex::new(HashMap::new()),
+            download_capture: Mutex::new(None),
             next_id: AtomicU64::new(1),
         })
     }
@@ -35,6 +37,7 @@ impl RocmBackend {
         Ok(Self {
             engine: ZenEngine::with_adapter(index)?,
             residents: Mutex::new(HashMap::new()),
+            download_capture: Mutex::new(None),
             next_id: AtomicU64::new(1),
         })
     }
@@ -63,6 +66,10 @@ impl Debug for RocmBackend {
 }
 
 impl Backend for RocmBackend {
+    fn as_rocm(&self) -> Option<&RocmBackend> {
+        Some(self)
+    }
+
     fn device(&self) -> DeviceType {
         DeviceType::Zen
     }
@@ -154,6 +161,12 @@ impl Backend for RocmBackend {
     }
 
     fn dev_download(&self, id: u64) -> Vec<f32> {
+        let mut capture = self.download_capture.lock().unwrap();
+        if let Some(ids) = capture.as_mut() {
+            ids.push(id);
+            return vec![0.0; self.residents.lock().unwrap()[&id].len()];
+        }
+        drop(capture);
         let residents = self.residents.lock().unwrap();
         self.engine
             .download_dev(&residents[&id])
@@ -165,6 +178,19 @@ impl Backend for RocmBackend {
         self.engine
             .download_dev_f32(&residents[&id])
             .expect("ZenEngine::download_dev_f32")
+    }
+
+    fn dev_begin_download_capture(&self) {
+        let old = self.download_capture.lock().unwrap().replace(Vec::new());
+        assert!(old.is_none(), "nested resident download capture");
+    }
+
+    fn dev_end_download_capture(&self) -> Vec<u64> {
+        self.download_capture
+            .lock()
+            .unwrap()
+            .take()
+            .expect("resident download capture was not active")
     }
 
     fn dev_cast(&self, id: u64, to: DTypeId) -> u64 {
@@ -314,6 +340,36 @@ impl Backend for RocmBackend {
                 .expect("ZenEngine::scale_dev")
         };
         self.store(tensor)
+    }
+
+    fn dev_allreduce_mean(&self, local_id: u64, peers: &[(&dyn Backend, u64)]) {
+        let mut residents = self.residents.lock().unwrap();
+        for &(peer_backend, peer_id) in peers {
+            let peer = peer_backend
+                .as_rocm()
+                .expect("dev_allreduce_mean peer is not a RocmBackend");
+            assert!(
+                !std::ptr::eq(self, peer),
+                "dev_allreduce_mean peer must use a different RocmBackend"
+            );
+            let peer_residents = peer.residents.lock().unwrap();
+            self.engine
+                .reduce_add_peer(
+                    &residents[&local_id],
+                    &peer.engine,
+                    &peer_residents[&peer_id],
+                )
+                .expect("ZenEngine::reduce_add_peer");
+        }
+        let scaled = self
+            .engine
+            .scale_dev(&residents[&local_id], 1.0 / (peers.len() + 1) as f32)
+            .expect("ZenEngine::scale_dev");
+        let old = residents
+            .insert(local_id, scaled)
+            .expect("invalid resident allreduce local id");
+        drop(residents);
+        self.engine.free_dev(old);
     }
 
     fn dev_transpose2d(&self, x: u64, rows: usize, cols: usize) -> u64 {
