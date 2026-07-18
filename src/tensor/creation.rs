@@ -16,7 +16,7 @@ impl<T: TensorElement> Tensor<T> {
     /// ```
     /// use cetana::tensor::Tensor;
     ///
-    /// let zeros = Tensor::zeros(&[2, 3]).unwrap();
+    /// let zeros = Tensor::<f32>::zeros(&[2, 3]).unwrap();
     /// assert_eq!(zeros.shape(), &[2, 3]);
     /// assert!(zeros.data().iter().all(|&x| x == 0.0));
     ///
@@ -39,7 +39,7 @@ impl<T: TensorElement> Tensor<T> {
     /// ```
     /// use cetana::tensor::Tensor;
     ///
-    /// let x = Tensor::randn(&[2, 3]).unwrap();
+    /// let x = Tensor::<f32>::randn(&[2, 3]).unwrap();
     /// let zeros = x.zeros_like().unwrap();
     /// assert_eq!(zeros.shape(), x.shape());
     /// assert!(zeros.data().iter().all(|&x| x == 0.0));
@@ -60,7 +60,7 @@ impl<T: TensorElement> Tensor<T> {
     /// ```
     /// use cetana::tensor::Tensor;
     ///
-    /// let ones = Tensor::ones(&[2, 3]).unwrap();
+    /// let ones = Tensor::<f32>::ones(&[2, 3]).unwrap();
     /// assert_eq!(ones.shape(), &[2, 3]);
     /// assert!(ones.data().iter().all(|&x| x == 1.0));
     /// ```
@@ -82,7 +82,7 @@ impl<T: TensorElement> Tensor<T> {
     /// ```
     /// use cetana::tensor::Tensor;
     ///
-    /// let x = Tensor::randn(&[2, 3]).unwrap();
+    /// let x = Tensor::<f32>::randn(&[2, 3]).unwrap();
     /// let ones = x.ones_like().unwrap();
     /// assert_eq!(ones.shape(), x.shape());
     /// assert!(ones.data().iter().all(|&x| x == 1.0));

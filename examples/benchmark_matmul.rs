@@ -44,8 +44,8 @@ fn main() -> MlResult<()> {
 
     // Create tensors (consider using a specific backend if needed)
     // Using default backend for now
-    let a = Tensor::randn(&[dim_a, dim_b])?;
-    let b = Tensor::randn(&[dim_b, dim_c])?;
+    let a = Tensor::<f32>::randn(&[dim_a, dim_b])?;
+    let b = Tensor::<f32>::randn(&[dim_b, dim_c])?;
 
     // Warm-up run (optional, but good practice)
     let _ = a.matmul(&b)?;

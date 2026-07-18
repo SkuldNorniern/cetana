@@ -512,6 +512,8 @@ impl<T: TensorElement> Tensor<T> {
     /// # Examples
     ///
     /// ```
+    /// use cetana::tensor::Tensor;
+    ///
     /// let data = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
     /// let tensor = Tensor::new(data).unwrap();
     /// assert_eq!(tensor.shape(), &[2, 2]);
@@ -652,6 +654,8 @@ impl<T: TensorElement> Tensor<T> {
     /// # Examples
     ///
     /// ```
+    /// use cetana::tensor::Tensor;
+    ///
     /// let data = vec![1.0, 2.0, 3.0, 4.0];
     /// let shape = &[2, 2];
     /// let tensor = Tensor::new_from_vec(data, shape).unwrap();
